@@ -1,0 +1,18 @@
+# models are downloaded by scripts/download_models.py
+models/
+# local-only user data never belongs in git
+data/
+*.tmpl
+*.sqlite3
+.env
+
+backend/.venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+
+app/node_modules/
+app/dist/
+app/src-tauri/target/
+app/src-tauri/gen/
+.DS_Store
