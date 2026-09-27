@@ -9,11 +9,11 @@ models downloaded on first run · app keeps its command-center look (polish only
 the website gets its own design, related to the app but not a copy.
 
 ## Where to pick up
-- Work on `main` (`cloud-1.0` is merged and stale). Next: **A.4 (Phase 10)** (A.3 is done), then B.
-- Open question from the owner: what Settings → Microphone says when JARVIS is started the usual way (the new diagnostics name the cause and the app to allow).
-- File commands need a check on the Mac: "the PDF I downloaded yesterday" finds it (creation time = download time), Show in Finder, and Move to Trash then Put Back.
-- Screen & clipboard commands need a first-run check on the Mac: Screen Recording (screenshot), System Events (dark mode), Accessibility (typing), and that each Settings page lands on the right pane. "Ask Claude/ChatGPT": the app gets ⌘N + the pasted prompt (not sent); claude.ai pre-fills via `?q=`; ChatGPT on the web gets the prompt on the clipboard (its `?q=` sends at once).
-- Rules: no paid APIs or services · no Claude/AI co-author trailers or credits in commits or files · commit after each fix · ask before starting each big phase · every command goes through the tool registry with an auth level (no shell from model text).
+- Work on `main`. Section A is done. Next: **B, on the Mac**, following `docs/MAC_TEST_CHECKLIST.md` (pin model checksums, `scripts/build_dmg.sh`, fresh-install test, every command), then tag v1.0.0.
+- Open question from the owner: what Settings → Microphone says when JARVIS is started the usual way (checklist section 4).
+- Owner decisions before the tag: a licence for the code (no LICENSE file yet), and enabling GitHub Pages (Settings → Pages → Source: GitHub Actions).
+- Packaging was test-built on Linux only: the PyInstaller backend starts, loads the face, liveness and Kokoro models and restarts itself after a download. The macOS build, signing and TCC prompts are untested.
+- Rules: no paid APIs or services · no Claude/AI co-author trailers or credits in commits or files · commit after each fix · every command goes through the tool registry with an auth level (no shell from model text).
 - Checks: `backend/.venv/bin/python -m pytest -q`, `ruff check .`, `mypy` (in `backend/`); `npm test`, `npm run lint` (in `app/`); `cargo clippy` (in `app/src-tauri/`).
 - Local run for UI checks: `npm run tauri dev` in `app/` (needs Ollama: `~/Developer/ollama/start.sh`).
 
@@ -41,12 +41,12 @@ the website gets its own design, related to the app but not a copy.
 - [x] Ask Claude: "open Claude and ask it to build a website for …" → opens Claude (app, else claude.ai) with the dictated prompt pre-filled; shows the prompt before sending; same for ChatGPT
 
 ### 4. Phase 10
-- [ ] App polish: spacing/type/motion consistency, empty/loading/error states, ⌘K command palette, keyboard shortcuts, About page, accessibility pass
-- [ ] First-run model download screen: progress, resume, checksums, disk-space check, Ollama detection + install guidance
-- [ ] Packaging: PyInstaller backend sidecar (arm64), Tauri sidecar config, entitlements (camera, `com.apple.security.device.audio-input`, Apple Events), ad-hoc signing, `scripts/build_dmg.sh`
-- [ ] Website (own design): animated landing page (scroll-driven motion, transitions, hover effects), features, how the security works, download, docs, privacy
-- [ ] Docs: README, ARCHITECTURE, SECURITY (threat model + limits), ML (face/voice/liveness/fusion with measured numbers), USER GUIDE, CHANGELOG, version 1.0.0
-- [ ] Mac test checklist for section B
+- [x] App polish: spacing/type/motion consistency, empty/loading/error states, ⌘K command palette, keyboard shortcuts, About page, accessibility pass
+- [x] First-run model download screen: progress, resume, checksums, disk-space check, Ollama detection + install guidance
+- [x] Packaging: PyInstaller backend sidecar (arm64), Tauri sidecar config, entitlements (camera, `com.apple.security.device.audio-input`, Apple Events), ad-hoc signing, `scripts/build_dmg.sh`
+- [x] Website (own design): animated landing page (scroll-driven motion, transitions, hover effects), features, how the security works, download, docs, privacy
+- [x] Docs: README, ARCHITECTURE, SECURITY (threat model + limits), ML (face/voice/liveness/fusion with measured numbers), USER GUIDE, CHANGELOG, version 1.0.0
+- [x] Mac test checklist for section B
 
 ## B. Back on the Mac
 - [ ] Microphone fixed and verified with the new diagnostics
