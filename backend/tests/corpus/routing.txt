@@ -6,7 +6,8 @@
 #           llm   the fast path must pass it on; the language model should produce these tools
 #           gap   should be instant but isn't yet (a known gap; the test is a strict xfail,
 #                 so it fails once fixed and the line can become "fast")
-# expected  tool(key=value, ...) joined by " + ", or reply=time / reply=date (answered directly),
+# expected  tool(key=value, ...) joined by " + ", or reply=time / reply=date / reply=<words the
+#           answer contains> (answered directly),
 #           or none (chat or a refusal: no tool). For "llm" lines only the tool names are checked.
 #
 # The clock is Sunday 27 September 2026, 16:30. Installed apps: see APPS in test_routing_corpus.py.
@@ -370,6 +371,59 @@ llm  | none | what time is it in London
 llm  | none | how many days until Diwali
 llm  | none | what's the date next Friday
 
+# -- math & conversions (jarvis/tools/calc.py) -------------------------------------------------
+fast | reply=15% of 240 is 36 | what's 15 percent of 240
+fast | reply=453.59 grams | how many grams in a pound
+fast | reply=is 8. | what is 5 plus 3
+fast | reply=84 | what's 12 times 7
+fast | reply=62.5 | How much is 250 divided by 4?
+fast | reply=about 3.3333 | 10 divided by 3
+fast | reply=1,024 | what's 2 to the power of 10
+fast | reply=12 | what's the square root of 144
+fast | reply=56 | 7 x 8
+fast | reply=17 | what's 7 + 5 * 2
+fast | reply=325 | two hundred and fifty plus seventy five
+fast | reply=8 | add 5 and 3
+fast | reply=13 | subtract 7 from 20
+fast | reply=81 | what's 9 squared
+fast | reply=divide by zero | 5 divided by 0
+fast | reply=20% of 50 is 10 | what is 20% of 50
+fast | reply=25% of 200 | 50 is what percent of 200
+fast | reply=220 | increase 200 by 10 percent
+fast | reply=236 | 200 plus 18% gst
+fast | reply=1,200 | 20% off 1500
+fast | reply=92 in total | 15% tip on 80
+fast | reply=125 | half of 250
+fast | reply=8.05 kilometres | convert 5 miles to km
+fast | reply=37.78 degrees Celsius | 100 fahrenheit to celsius
+fast | reply=98.6 | what is 37 degrees celsius in fahrenheit
+fast | reply=5,280 feet | how many feet in a mile
+fast | reply=182.88 | 6 feet in cm
+fast | reply=86,400 seconds | how many seconds in a day
+fast | reply=158.73 pounds | 72 kg in pounds
+fast | reply=1,000 gigabytes | 1 terabyte in gigabytes
+fast | reply=15 | 5 guna 3 kitna hota hai
+fast | reply=15 | das jama paanch kitna hua
+fast | reply=15 होता है | पांच गुणा तीन कितना होता है
+fast | reply=240 का 15 प्रतिशत 36 है | 240 ka 15 percent kitna hota hai
+fast | reply=6.21 मील | 10 km ko miles mein badlo
+fast | reply=89 days until Christmas | how many days until christmas
+fast | reply=4 weeks and 6 days until Halloween | how many weeks until halloween
+fast | reply=89 days until | days until December 25th
+fast | reply=269 days since | how many days since january 1
+fast | reply=99 days | how many days between march 3 and june 10
+fast | reply=Friday, December 25 | what day is christmas
+fast | reply=Sunday, August 15, 2027 | what day of the week is 15 august 2027
+fast | reply=Saturday, January 1, 2000 | what day was 1 january 2000
+fast | reply=Wednesday, October 7 | what's the date in 10 days
+fast | reply=Friday, June 19 | 100 days ago
+fast | reply=89 दिन बाकी | christmas mein kitne din bache hain
+llm  | none | convert 100 dollars to rupees
+llm  | none | how many rupees in a dollar
+llm  | none | what's the population of india
+llm  | none | how many days in a leap year
+llm  | none | what's 5 plus 3 and set a timer for 2 minutes
+
 # -- compound requests -------------------------------------------------------------------------
 fast | alarm.set(time=2026-09-28T07:00) + notes.add(text=Buy milk) | wake me up at 7 tomorrow and add a note to buy milk
 fast | app.open(name=notes) + timer.set(seconds=120) | open notes and set a timer for 2 minutes
@@ -392,8 +446,6 @@ llm  | none | tell me a joke
 llm  | none | thank you
 llm  | none | good morning
 llm  | none | explain recursion in one line
-llm  | none | what's 15 percent of 240
-llm  | none | how many grams in a pound
 llm  | none | तुम कौन हो
 llm  | none | aaj mausam kaisa hai
 llm  | none | mujhe ek joke sunao

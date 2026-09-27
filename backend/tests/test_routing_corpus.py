@@ -94,6 +94,8 @@ def check_fast(case: Case, is_app) -> None:
         assert r.reply in ("It's 4:30 PM.", "अभी शाम 4:30 बजे हैं।") or "4:30" in r.reply
     elif reply == "date":
         assert "27" in r.reply and ("September" in r.reply or "सितंबर" in r.reply)
+    elif reply is not None:  # reply=<words the answer must contain>
+        assert reply in r.reply, r.reply
     else:
         assert r.reply == ""
 

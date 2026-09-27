@@ -1,6 +1,7 @@
 """Instant understanding of simple commands, without the language model.
 
-Timers, alarms, opening apps, notes, "what time is it" and similar requests
+Timers, alarms, opening apps, notes, "what time is it", sums and conversions
+(see ``jarvis.tools.calc``) and similar requests
 follow a handful of patterns in English and Hinglish (Devanagari is
 transliterated first). When the WHOLE utterance matches, it becomes an
 Intent in well under a millisecond; anything else, or anything ambiguous,
@@ -15,6 +16,7 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 
 from ..speech.text import to_latin
+from ..tools import calc
 from ..tools.mac import FOLDERS, SITES
 from .intents import Action, Intent, clock_phrase, day_phrase, describe
 
@@ -284,6 +286,9 @@ def parse_fast(text: str, language: str, now: datetime, is_app: Callable[[str], 
     if not t or len(t) > 160:
         return None
     hi = language != "en"
+    # sums, conversions and date math are checked on the whole request ("add 5 and 3" is one question)
+    if (said := calc.answer(text, now, hi)) is not None:
+        return Intent(language, [], said)
     # "and" inside a duration ("an hour and 10 minutes") is not a split point
     joiner = rf"\s*(?:,? and then|,? and|,? then|,? aur phir|,? aur|,? phir)\s+(?!{N_ANY} (?:{MIN}|{SEC})\b)"
     parts = [p.strip() for p in re.split(joiner, t) if p.strip()]
