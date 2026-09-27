@@ -17,6 +17,12 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OLLAMA_MODELS = Path.home() / "Developer" / "ollama" / "models"
 
 
+def _default_ollama_models_dir() -> Path | None:
+    """The owner's Ollama models live in ~/Developer/ollama/models; anyone else's are
+    wherever their Ollama keeps them, so JARVIS doesn't create that folder for them."""
+    return DEFAULT_OLLAMA_MODELS if DEFAULT_OLLAMA_MODELS.is_dir() else None
+
+
 def _default_data_dir() -> Path:
     return Path.home() / "Library" / "Application Support" / "JarvisAssistant"
 
@@ -84,7 +90,7 @@ class Settings(BaseSettings):
     # Local LLM (Ollama)
     llm_model: str = "qwen2.5:7b"  # default; the owner can switch in Settings
     ollama_host: str = "127.0.0.1:11434"
-    ollama_models_dir: Path | None = DEFAULT_OLLAMA_MODELS  # None = Ollama's own default
+    ollama_models_dir: Path | None = _default_ollama_models_dir()  # None = Ollama's own default
     llm_autostart: bool = True  # start `ollama serve` if no server is running
     llm_timeout_s: float = 90.0
 
