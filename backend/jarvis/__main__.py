@@ -26,6 +26,13 @@ def _exit_with_parent(on_exit=lambda: None) -> None:
                 os._exit(0)
 
 
+def _on_parent_exit(app_holder: list) -> None:
+    """The desktop shell is gone: unload the models and stop an Ollama server we started."""
+    brain = app_holder[0].state.svc.brain if app_holder else None
+    if brain is not None:
+        brain.stop()
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     s = get_settings()
@@ -33,12 +40,7 @@ def main() -> None:
         raise SystemExit("Refusing to bind to a non-loopback address")
     app_holder: list = []
     if os.environ.get("JARVIS_WATCH_PARENT") == "1":
-        def unload() -> None:
-            brain = app_holder[0].state.svc.brain if app_holder else None
-            if brain is not None:
-                brain.free_memory()
-
-        threading.Thread(target=_exit_with_parent, args=(unload,), daemon=True).start()
+        threading.Thread(target=_exit_with_parent, args=(lambda: _on_parent_exit(app_holder),), daemon=True).start()
     # every model is on disk: libraries must not try to download or phone home
     os.environ.setdefault("HF_HUB_OFFLINE", "1")
     os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")

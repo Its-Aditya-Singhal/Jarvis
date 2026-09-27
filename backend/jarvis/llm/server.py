@@ -51,6 +51,8 @@ class OllamaServer:
         """Make sure a server answers on ``host``; start one if needed."""
         if self.reachable():
             return True
+        if self._proc is not None and self._proc.poll() is None:
+            return self._wait(wait_s)  # ours is still starting up: never start a second one
         binary = find_binary()
         if binary is None:
             self.error = "Ollama is not installed (brew install ollama)"
@@ -69,15 +71,21 @@ class OllamaServer:
             return False
         finally:
             logf.close()
+        return self._wait(wait_s)
+
+    def _wait(self, wait_s: float) -> bool:
+        assert self._proc is not None
         deadline = time.monotonic() + wait_s
         while time.monotonic() < deadline:
             if self.reachable():
                 log.info("started ollama (models in %s)", self.models_dir)
+                self.error = None
                 return True
             if self._proc.poll() is not None:
-                break
+                self.error = "Ollama server exited while starting (see ollama.log)"
+                return False
             time.sleep(0.3)
-        self.error = "Ollama server did not start (see ollama.log)"
+        self.error = "Ollama server is still starting (see ollama.log)"
         return False
 
     def stop(self) -> None:
