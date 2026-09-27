@@ -175,8 +175,7 @@ llm  | folder.open | open the folder where I keep my tax stuff
 # -- websites & web search --------------------------------------------------------------------
 fast | web.open(target=youtube) | open youtube
 fast | web.open(target=youtube) | youtube kholo
-# the fuzzy app match takes "gmail" for Mail.app
-gap  | web.open(target=gmail) | open gmail
+fast | web.open(target=gmail) | open gmail
 fast | web.open(target=github.com) | go to github.com
 fast | web.open(target=github.com) | open github.com
 fast | web.open(target=wikipedia.org) | visit wikipedia.org
@@ -318,8 +317,7 @@ fast | calendar.list(date=2026-09-28) | what do i have tomorrow
 fast | calendar.list(date=2026-09-27) | my calendar
 fast | calendar.list(date=2026-09-27) | aaj ka schedule
 fast | calendar.list(date=2026-09-28) | kal ka schedule kya hai
-# the fuzzy app match takes "kal ka calendar" for the Calendar app
-gap  | calendar.list(date=2026-09-28) | kal ka calendar dikhao
+fast | calendar.list(date=2026-09-28) | kal ka calendar dikhao
 gap  | calendar.list(date=2026-09-28) | am I free tomorrow
 gap  | calendar.list(date=2026-09-27) | any meetings today
 llm  | calendar.list | what do I have on Friday

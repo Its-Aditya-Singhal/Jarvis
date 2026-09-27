@@ -230,3 +230,36 @@ def test_file_search_query_is_never_an_mdfind_option(tmp_path):
     assert seen and not any(q.startswith("-") for q in seen)
     assert "onlyin / passwords" in seen
     assert fs.search("---") == []
+
+
+INSTALLED = ("Safari", "Mail", "Calendar", "Music", "Notes", "Photos", "Calculator", "Terminal", "System Settings",
+             "Google Chrome", "Microsoft Word", "Adobe Photoshop 2025", "Visual Studio Code", "WhatsApp", "Xcode",
+             "Slack", "Spotify", "zoom.us", "Steam")
+
+
+@pytest.mark.parametrize("spoken,app", [
+    ("safari", "Safari"), ("Safari", "Safari"), ("safary", "Safari"), ("safarii", "Safari"),
+    ("calculater", "Calculator"), ("terminl", "Terminal"), ("note", "Notes"), ("photo", "Photos"),
+    ("xkode", "Xcode"), ("slak", "Slack"), ("spotifi", "Spotify"),
+    ("chrome", "Google Chrome"), ("google chrome", "Google Chrome"), ("photoshop", "Adobe Photoshop 2025"),
+    ("word", "Microsoft Word"), ("microsoft word", "Microsoft Word"), ("vs code", "Visual Studio Code"),
+    ("visual studio", "Visual Studio Code"), ("whats app", "WhatsApp"), ("settings", "System Settings"),
+    ("zoom", "zoom.us"), ("mail", "Mail"), ("calendar", "Calendar"), ("सफारी", "Safari"),
+])
+def test_app_names_match_despite_typos_and_short_names(tmp_path, spoken, app):
+    from jarvis.fakes import fake_apps_dir
+
+    found = AppIndex([fake_apps_dir(tmp_path, INSTALLED)]).resolve(spoken)
+    assert found is not None and found[0] == app
+
+
+@pytest.mark.parametrize("spoken", [
+    "gmail",            # the website, not Mail.app
+    "kal ka calendar",  # "tomorrow's calendar" is a question, not the Calendar app
+    "music folder", "my documents", "google", "microsoft", "adobe", "teams", "youtube",
+    "the pod bay doors", "maps", "messages from mom", "rm -rf /",
+])
+def test_app_names_dont_match_what_merely_contains_or_resembles_them(tmp_path, spoken):
+    from jarvis.fakes import fake_apps_dir
+
+    assert AppIndex([fake_apps_dir(tmp_path, INSTALLED)]).resolve(spoken) is None

@@ -7,11 +7,12 @@ documents — so the LLM can't turn "open" into running arbitrary commands.
 
 from __future__ import annotations
 
+import re
 import subprocess
 import time
 from pathlib import Path
 
-from rapidfuzz import fuzz, process
+from rapidfuzz import fuzz
 
 from ..speech.text import skeleton_word, to_latin
 
@@ -30,9 +31,11 @@ ALIASES = {
     "settings": "System Settings", "system preferences": "System Settings", "app store": "App Store",
     "whatsapp": "WhatsApp", "word": "Microsoft Word", "excel": "Microsoft Excel",
     "powerpoint": "Microsoft PowerPoint", "teams": "Microsoft Teams", "outlook": "Microsoft Outlook",
+    "zoom": "zoom.us",
 }
 REFRESH_S = 300.0
-MIN_SCORE = 80
+MIN_SCORE = 80  # whole-name similarity when the first letter matches
+STRICT_SCORE = 92  # otherwise
 
 
 def _norm(name: str) -> str:
@@ -76,10 +79,26 @@ class AppIndex:
         if target in by_norm:
             n = by_norm[target]
             return n, self._apps[n]
-        match = process.extractOne(target, list(by_norm), scorer=fuzz.WRatio)
-        if match and match[1] >= MIN_SCORE:
-            n = by_norm[match[0]]
-            return n, self._apps[n]
+        words = set(re.findall(r"[a-z0-9]+", to_latin(spoken)))
+        best, best_score = None, 0.0
+        for key, n in by_norm.items():
+            app_words = re.findall(r"[a-z0-9]+", to_latin(n))
+            lone_brand = len(app_words) > 1 and words == {app_words[0]}
+            if lone_brand:
+                continue
+            if len(app_words) > 1 and words and words <= set(app_words):
+                # "chrome", "word", "visual studio": part of the name, but not a lone brand
+                # word ("google" is the website, "microsoft" names no app)
+                score = 100.0
+            else:
+                # a mis-heard or mis-typed whole name: close, and starting with the same letter
+                # ("safary"), or very close ("gmail" is not "mail", "teams" is not "steam")
+                r = fuzz.ratio(target, key)
+                score = r if r >= STRICT_SCORE or (r >= MIN_SCORE and target[0] == key[0]) else 0.0
+            if score > best_score:
+                best, best_score = n, score
+        if best is not None:
+            return best, self._apps[best]
         # names written in Devanagari ("फ़ाइंडर"): compare consonant skeletons
         sk = skeleton_word(target)
         same = [n for k, n in by_norm.items() if len(sk) >= 3 and skeleton_word(k) == sk]
