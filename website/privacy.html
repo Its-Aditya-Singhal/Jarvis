@@ -8,18 +8,19 @@
   <link rel="icon" href="assets/icon.png">
   <link rel="stylesheet" href="styles.css">
 </head>
-<body>
-  <a class="skip" href="#main">Skip to content</a>
-  <header class="nav scrolled">
-    <a class="logo" href="./" aria-label="JARVIS home"><span class="logo-mark" aria-hidden="true"></span>JARVIS</a>
-    <nav aria-label="Main">
-      <a href="./#how">How it works</a>
-      <a href="./#security">Security</a>
-      <a href="docs.html">Docs</a>
-      <a class="nav-cta" href="./#download">Download</a>
-    </nav>
-  </header>
-  <main id="main" class="doc">
+<body class="doc-page">
+<a class="skip" href="#main">Skip to content</a>
+<nav aria-label="Main">
+  <a href="./"><span data-t="JARVIS">JARVIS</span></a>
+  <div class="links">
+    <a href="./#protocol"><span data-t="Protocol">Protocol</span></a>
+    <a href="./#features"><span data-t="Features">Features</span></a>
+    <a href="privacy.html"><span data-t="Privacy">Privacy</span></a>
+    <a href="docs.html"><span data-t="Docs">Docs</span></a>
+    <a href="./#download"><span data-t="Download">Download</span></a>
+  </div>
+</nav>
+<main id="main" class="doc">
     <h1>Privacy</h1>
     <p><strong>This website</strong> is a set of static pages on GitHub Pages. It uses no analytics, no cookies, no
       fonts or scripts from other sites. GitHub, which hosts it, keeps its own server logs under
@@ -43,9 +44,6 @@
       delete any part of it, or factory-reset, which also deletes the Keychain key so nothing left on disk can be
       decrypted.</p>
   </main>
-  <footer class="footer">
-    <p>JARVIS is free and open source. This site loads nothing from third parties and sets no cookies.</p>
-    <p><a href="docs.html">Docs</a> · <a href="privacy.html">Privacy</a> · <a href="https://github.com/Its-Aditya-Singhal/Jarvis">GitHub</a></p>
-  </footer>
+<div class="gut"><footer><span>JARVIS 1.0 · built on-device · this site loads nothing from other hosts</span><span><a href="./">Home</a> · <a href="https://github.com/Its-Aditya-Singhal/Jarvis">GitHub</a> · <a href="docs.html">Docs</a> · <a href="privacy.html">Privacy</a></span></footer></div>
 </body>
 </html>

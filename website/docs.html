@@ -8,28 +8,29 @@
   <link rel="icon" href="assets/icon.png">
   <link rel="stylesheet" href="styles.css">
 </head>
-<body>
-  <a class="skip" href="#main">Skip to content</a>
-  <header class="nav scrolled">
-    <a class="logo" href="./" aria-label="JARVIS home"><span class="logo-mark" aria-hidden="true"></span>JARVIS</a>
-    <nav aria-label="Main">
-      <a href="./#how">How it works</a>
-      <a href="./#security">Security</a>
-      <a href="docs.html">Docs</a>
-      <a class="nav-cta" href="./#download">Download</a>
-    </nav>
-  </header>
-  <main id="main" class="doc">
+<body class="doc-page">
+<a class="skip" href="#main">Skip to content</a>
+<nav aria-label="Main">
+  <a href="./"><span data-t="JARVIS">JARVIS</span></a>
+  <div class="links">
+    <a href="./#protocol"><span data-t="Protocol">Protocol</span></a>
+    <a href="./#features"><span data-t="Features">Features</span></a>
+    <a href="privacy.html"><span data-t="Privacy">Privacy</span></a>
+    <a href="docs.html"><span data-t="Docs">Docs</span></a>
+    <a href="./#download"><span data-t="Download">Download</span></a>
+  </div>
+</nav>
+<main id="main" class="doc">
     <h1>Docs</h1>
     <p>Everything is written up in the repository. Start with the user guide; the rest explains how it works
       and how far its security goes.</p>
     <div class="doc-cards">
-      <a href="https://github.com/Its-Aditya-Singhal/Jarvis/blob/main/docs/USER_GUIDE.md">User guide<span>Install, first run, commands, levels, privacy, troubleshooting.</span></a>
-      <a href="https://github.com/Its-Aditya-Singhal/Jarvis/blob/main/docs/SECURITY.md">Security<span>Threat model, what each level protects, and the known limits.</span></a>
-      <a href="https://github.com/Its-Aditya-Singhal/Jarvis/blob/main/docs/ML.md">The models<span>Face, liveness, voice and the fusion classifier, with measured numbers.</span></a>
-      <a href="https://github.com/Its-Aditya-Singhal/Jarvis/blob/main/docs/ARCHITECTURE.md">Architecture<span>The app, the backend, the tool registry and how data flows.</span></a>
-      <a href="https://github.com/Its-Aditya-Singhal/Jarvis/blob/main/CHANGELOG.md">Changelog<span>What's in each release.</span></a>
-      <a href="https://github.com/Its-Aditya-Singhal/Jarvis/blob/main/README.md">README<span>Overview and developer setup.</span></a>
+      <a href="https://github.com/Its-Aditya-Singhal/Jarvis/blob/main/docs/USER_GUIDE.md"><b>User guide</b><span>Install, first run, commands, levels, privacy, troubleshooting.</span></a>
+      <a href="https://github.com/Its-Aditya-Singhal/Jarvis/blob/main/docs/SECURITY.md"><b>Security</b><span>Threat model, what each level protects, and the known limits.</span></a>
+      <a href="https://github.com/Its-Aditya-Singhal/Jarvis/blob/main/docs/ML.md"><b>The models</b><span>Face, liveness, voice and the fusion classifier, with measured numbers.</span></a>
+      <a href="https://github.com/Its-Aditya-Singhal/Jarvis/blob/main/docs/ARCHITECTURE.md"><b>Architecture</b><span>The app, the backend, the tool registry and how data flows.</span></a>
+      <a href="https://github.com/Its-Aditya-Singhal/Jarvis/blob/main/CHANGELOG.md"><b>Changelog</b><span>What's in each release.</span></a>
+      <a href="https://github.com/Its-Aditya-Singhal/Jarvis/blob/main/README.md"><b>README</b><span>Overview and developer setup.</span></a>
     </div>
     <h2>Quick start</h2>
     <ol>
@@ -39,9 +40,6 @@
       <li>Say its name, then what you want: <em>"FRIDAY, set a timer for five minutes."</em></li>
     </ol>
   </main>
-  <footer class="footer">
-    <p>JARVIS is free and open source. This site loads nothing from third parties and sets no cookies.</p>
-    <p><a href="docs.html">Docs</a> · <a href="privacy.html">Privacy</a> · <a href="https://github.com/Its-Aditya-Singhal/Jarvis">GitHub</a></p>
-  </footer>
+<div class="gut"><footer><span>JARVIS 1.0 · built on-device · this site loads nothing from other hosts</span><span><a href="./">Home</a> · <a href="https://github.com/Its-Aditya-Singhal/Jarvis">GitHub</a> · <a href="docs.html">Docs</a> · <a href="privacy.html">Privacy</a></span></footer></div>
 </body>
 </html>
