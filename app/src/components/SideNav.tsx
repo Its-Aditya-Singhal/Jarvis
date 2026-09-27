@@ -6,7 +6,7 @@ const ITEMS: { id: View; label: string; phase?: number }[] = [
   { id: "memory", label: "Memory", phase: 8 },
   { id: "tools", label: "Tools", phase: 6 },
   { id: "security", label: "Security" },
-  { id: "settings", label: "Settings", phase: 9 },
+  { id: "settings", label: "Settings" },
 ];
 
 export default function SideNav({ view, onChange }: { view: View; onChange: (v: View) => void }) {

@@ -27,6 +27,7 @@ from .config import Settings
 from .database.db import Database
 from .events import EventBus
 from .security.template_store import TemplateStore
+from .speech_service import SpeechService
 from .voice_service import VoiceService
 
 log = logging.getLogger(__name__)
@@ -44,6 +45,7 @@ class AssistantService:
         engine: FaceEngine,
         camera: Camera,
         voice_factory: "Callable[[AssistantService], VoiceService] | None" = None,
+        speech_factory: "Callable[[AssistantService], SpeechService] | None" = None,
     ):
         self.s = settings
         self.db = db
@@ -63,6 +65,8 @@ class AssistantService:
         self._thread: threading.Thread | None = None
         self._last_state_push = 0.0
         self._lock = threading.Lock()
+        # speech first: the voice pipeline hands it utterances and asks it about muting
+        self.speech: SpeechService | None = speech_factory(self) if speech_factory else None
         self.voice: VoiceService | None = voice_factory(self) if voice_factory else None
 
     def owner_verified(self) -> bool:
@@ -138,6 +142,8 @@ class AssistantService:
         else:
             self.bus.log(self.engine.error or "Face model unavailable", "error")
         self.camera.start()
+        if self.speech is not None:
+            self.speech.start()
         if self.voice is not None:
             self.voice.start()
         if self.setup_complete and self.face_enrolled:
@@ -152,6 +158,8 @@ class AssistantService:
         self.camera.stop()
         if self.voice is not None:
             self.voice.stop()
+        if self.speech is not None:
+            self.speech.stop()
 
     # -- modes ---------------------------------------------------------------
     def begin_enrollment(self) -> None:
@@ -420,8 +428,9 @@ class AssistantService:
                 "voice": self.voice.model_status() if self.voice else "disabled",
                 "liveness": self._liveness_status(),
                 "llm": "not_implemented",
-                "stt": "not_implemented",
-                "tts": "not_implemented",
+                **(self.speech.status() if self.speech else {"stt": "disabled", "tts": "disabled"}),
             },
+            "voice_gender": self.speech.voice_gender() if self.speech else self.db.get("voice_gender", "female"),
+            "listening": bool(self.speech and self.speech.listening),
             "auth": self.auth_public(),
         }

@@ -284,3 +284,20 @@ input { user-select: text; }
 .challenge-steps i.done { background: var(--ok); }
 .challenge-steps span { margin-left: 6px; }
 @keyframes pulse { 50% { opacity: 0.45; transform: scale(0.94); } }
+
+/* voice picker */
+.voice-picker { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 6px 0 10px; }
+.voice-option { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border: 1px solid var(--line-strong); border-radius: 8px; cursor: pointer; text-align: left; transition: border-color 0.2s, background 0.2s; }
+.voice-option b { font-family: var(--mono); font-size: 12px; letter-spacing: 0.2em; color: var(--text); }
+.voice-option span { font-size: 12px; color: var(--muted); }
+.voice-option .btn { align-self: flex-start; margin-top: 6px; }
+.voice-option.active { border-color: var(--accent, #00d4ff); background: rgba(0, 212, 255, 0.08); box-shadow: 0 0 18px rgba(0, 212, 255, 0.15) inset; }
+.voice-option.disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* conversation strip */
+.conversation { margin: 12px auto 0; max-width: 560px; display: flex; flex-direction: column; gap: 6px; text-align: left; }
+.turn { display: flex; gap: 10px; font-size: 13.5px; animation: fadein 0.3s; }
+.turn b { flex: none; width: 74px; font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.16em; padding-top: 2px; text-align: right; }
+.turn.you b { color: var(--muted); }
+.turn.assistant b { color: var(--ok); }
+.turn span { color: var(--text); }

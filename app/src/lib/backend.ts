@@ -128,6 +128,8 @@ export interface VoicePublic {
   seconds_ago?: number; // owner-only
 }
 
+export type VoiceGender = "female" | "male";
+
 export interface Status {
   setup_complete: boolean;
   owner_name: string;
@@ -140,6 +142,8 @@ export interface Status {
   mic: { status: "off" | "starting" | "active" | "error"; error: string | null; device: string | null };
   models: Record<string, string>;
   auth: AuthPublic;
+  voice_gender: VoiceGender;
+  listening: boolean;
 }
 
 export interface EnrollSnapshot {
@@ -180,7 +184,11 @@ export type BackendEvent =
   | ({ type: "activity" } & Activity)
   | { type: "preview"; jpeg: string; boxes: number[][] }
   | { type: "say"; text: string }
-  | { type: "level"; level: number }
+  | { type: "level"; level: number; source?: "assistant" }
+  | { type: "tts"; active: boolean; text?: string }
+  | { type: "heard"; text: string; lang: "en" | "hi"; stt_s: number }
+  | { type: "reply"; text: string }
+  | { type: "listening"; active: boolean; seconds?: number }
   | { type: "speaking"; active: boolean }
   | { type: "voice"; verdict: VoiceState }
   | ({ type: "voice_enroll" } & VoiceEnrollSnapshot)

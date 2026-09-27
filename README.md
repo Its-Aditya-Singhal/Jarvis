@@ -5,8 +5,9 @@ A local-first desktop assistant for macOS (Apple Silicon) that keeps checking
 name during setup (JARVIS, FRIDAY, anything). No paid APIs and no cloud: every
 model runs on your Mac.
 
-> **Status: Phase 3 of 10: face, voice and liveness.** Speech recognition,
-> the local LLM and tools arrive in later phases. The UI marks
+> **Status: Phase 4 of 10: identity, liveness and speech.** The assistant
+> hears and answers you, but acting on commands needs the local LLM
+> (phase 5) and tools (phase 6). The UI marks
 > every unbuilt feature as such rather than faking it.
 
 ## What works now
@@ -34,6 +35,18 @@ model runs on your Mac.
   the session is open. An anti-spoof model scores every frame, so photos and
   screens are blocked (**SPOOF DETECTED**). Frozen or looped camera feeds are
   rejected too.
+- Speech: say the assistant's name to talk to it ("FRIDAY, what's the
+  weather?", or just "FRIDAY?" and then the command). Speech recognition
+  (Whisper) and the reply voice (Kokoro) both run on your Mac, in English
+  and Hindi. You choose a female or male voice at setup, and can change it
+  later in Settings.
+  - Commands are accepted only from the verified owner (face + liveness). A
+    different voice is refused even then.
+  - Speech not addressed to the assistant by name is dropped straight after
+    transcription. It is never shown, logged or stored.
+  - Until phase 5 the assistant says what it heard and explains that it
+    can't act yet, rather than pretending to.
+  - Voice enrollment now checks that you actually read the phrase shown.
 - Security log visible only while the verified owner is at the screen.
 
 ## Architecture
@@ -50,11 +63,13 @@ backend/jarvis/
   auth/face/            engine, quality, enrollment (training), continuous (inference)
   auth/voice/           Silero VAD + segmenter, ECAPA engine, quality, enrollment, verification
   auth/liveness/        passive anti-spoof, blink detector, challenges, replay checks, gate
+  speech/               Whisper STT, Kokoro TTS, playback queue, wake word, script-independent text matching
   auth/matching.py      top-k cosine template matching shared by face and voice
   security/             Keychain key, AES-256-GCM template store
   database/db.py        SQLite: profile + security events
   service.py            camera → face engine → enrollment / continuous verification + liveness gate
-  voice_service.py      mic → VAD → speaker embedding → enrollment / verification
+  voice_service.py      mic → VAD → speaker embedding → enrollment / verification → speech
+  speech_service.py     transcription, wake word, owner checks, spoken replies
 models/                 downloaded models (git-ignored)
 scripts/download_models.py
 ```
@@ -95,6 +110,17 @@ a live webcam, so check the anti-spoof score (Authentication panel, owner
 only) on your own camera. If a real face sits below 0.6, lower
 `JARVIS_LIVENESS_PASS_THRESHOLD`.
 
+## How speech works
+
+| Stage | Model / method |
+|---|---|
+| Speech to text | faster-whisper `small` (CTranslate2 int8, 8 CPU threads), multilingual; about 1.0–1.3 s per command on an M1 Pro |
+| Language | Whisper's detection, limited to English or Hindi (decoded again if it picks another language) |
+| Wake word | the chosen name, matched in the transcript among the first words, tolerant of spelling and script ("Friday" / "फ्राइडे"); the name is given to Whisper as a descriptive prompt |
+| Hindi / Hinglish matching | Devanagari → Latin transliteration + consonant skeletons, so "subah" = "सुबह" = "subaha" |
+| Text to speech | Kokoro-82M (ONNX int8): female `af_heart` / male `am_michael`; Hindi text switches to `hf_alpha` / `hm_omega` |
+| Playback | sentence by sentence (first words after about 1 s); the microphone pipeline is muted while speaking plus 0.4 s, so the assistant doesn't hear itself |
+
 ## How the voice ML works
 
 | Stage | Model / method |
@@ -132,12 +158,13 @@ A trained fusion classifier over face, voice and liveness comes in phase 7.
 - Audio is processed in memory and discarded. Only voice embeddings are kept,
   sealed the same way as face templates.
 - Security events: unknown face or voice, spoof suspected, liveness check
-  failed, liveness lockout, frozen camera feed. Each records time, outcome
+  failed, liveness lockout, frozen camera feed, voice command while not
+  verified, command in a non-owner voice. Each records time, outcome
   and whether access was blocked.
-- **Known gaps:** voice has no replay protection yet, so a recording of the
-  owner may pass voice verification. Phase 4 adds spoken-phrase checks, and
-  phase 7 fuses voice with face and liveness. Until phase 4, enrollment
-  doesn't check that the displayed phrase was the one actually spoken. The
+- **Known gaps:** voice alone has no replay protection, so a recording of
+  the owner's voice may pass voice verification. Commands still require the
+  live owner in front of the camera, and phase 7 fuses the factors. You
+  can't interrupt the assistant while it speaks (it doesn't listen then). The
   passive anti-spoof model is a small CNN: a high-quality 3D mask or a
   real-time deepfake piped into a virtual camera is beyond what it and the
   challenges can guarantee.
@@ -148,8 +175,8 @@ Requirements: macOS on Apple Silicon, Python 3.12, Node 20+, Rust (`brew install
 
 ```bash
 cd backend && python3.12 -m venv .venv && .venv/bin/pip install -e ".[dev]"
-.venv/bin/python ../scripts/download_models.py   # ~370 MB, one time
-.venv/bin/python -m pytest                        # 56 tests
+.venv/bin/python ../scripts/download_models.py   # ~1 GB, one time (add "medium" for Whisper medium)
+.venv/bin/python -m pytest                        # 69 tests
 cd ../app && npm install && npm run tauri dev
 ```
 
@@ -165,7 +192,7 @@ which is fine for this academic project.
 1. ✅ Foundation + face identity
 2. ✅ Voice enrollment + speaker verification (ECAPA)
 3. ✅ Liveness (passive anti-spoof + blink/turn challenges)
-4. Speech I/O (faster-whisper STT, Piper/Kokoro TTS, wake word = assistant name)
+4. ✅ Speech I/O (faster-whisper STT, Kokoro TTS, wake word = assistant name)
 5. Local LLM via Ollama (configurable model)
 6. Tools: alarm, calendar, notes, app launcher, file search (permissioned)
 7. Continuous multi-factor auth + trained fusion model, auth levels 1–3

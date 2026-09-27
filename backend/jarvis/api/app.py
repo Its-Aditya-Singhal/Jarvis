@@ -12,6 +12,7 @@ import logging
 import threading
 from contextlib import asynccontextmanager
 from datetime import datetime
+from typing import Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -27,14 +28,21 @@ from ..events import EventBus
 from ..security.crypto import KeychainKeyProvider, KeyProvider
 from ..security.template_store import TemplateStore
 from ..service import AssistantService
+from ..speech.stt import SpeechToText
+from ..speech.tts import TextToSpeech
+from ..speech_service import SpeechService
 from ..voice_service import VoiceService
 
 log = logging.getLogger(__name__)
 
 
+Gender = Literal["female", "male"]
+
+
 class ProfileIn(BaseModel):
     owner_name: str = Field(min_length=1, max_length=40)
     assistant_name: str = Field(min_length=1, max_length=24)
+    voice_gender: Gender = "female"
 
     @field_validator("owner_name", "assistant_name")
     @classmethod
@@ -43,6 +51,10 @@ class ProfileIn(BaseModel):
         if not v:
             raise ValueError("must not be blank")
         return v
+
+
+class VoiceIn(BaseModel):
+    gender: Gender
 
 
 def create_app(
@@ -54,6 +66,10 @@ def create_app(
     mic: Microphone | None = None,
     vad_factory=None,
     voice: bool = True,
+    stt: SpeechToText | None = None,
+    tts: TextToSpeech | None = None,
+    player=None,
+    speech: bool = True,
 ) -> FastAPI:
     s = settings or get_settings()
     db = Database(s.db_path)
@@ -71,7 +87,20 @@ def create_app(
             mic or Microphone(s.mic_device),
             owner_verified=svc.owner_verified,
             names=lambda: (svc.assistant_name, svc.owner_name),
+            speech=svc.speech,
             **extra,
+        )
+
+    def make_speech(svc: AssistantService) -> SpeechService:
+        return SpeechService(
+            s,
+            db,
+            bus,
+            stt or SpeechToText(s.models_dir, s.stt_model),
+            tts or TextToSpeech(s.models_dir, speed=s.tts_speed),
+            owner_verified=svc.owner_verified,
+            names=lambda: (svc.assistant_name, svc.owner_name),
+            player=player,
         )
 
     svc = AssistantService(
@@ -82,6 +111,7 @@ def create_app(
         engine or FaceEngine(s.models_dir, s.face_model_pack),
         camera or Camera(s.camera_index),
         voice_factory=make_voice if voice else None,
+        speech_factory=make_speech if (speech and s.speech_enabled) else None,
     )
 
     @asynccontextmanager
@@ -132,6 +162,7 @@ def create_app(
     def set_profile(body: ProfileIn):
         db.set("owner_name", body.owner_name)
         db.set("assistant_name", body.assistant_name)
+        db.set("voice_gender", body.voice_gender)
         bus.log(f"Profile created — assistant named {body.assistant_name}")
         return svc.status()
 
@@ -184,6 +215,32 @@ def create_app(
         db.set("setup_complete", "1")
         svc.begin_verification()
         bus.log("Setup complete — identity profile active", "ok")
+        return svc.status()
+
+    def speech_or_503() -> SpeechService:
+        sp = svc.speech
+        if sp is None or not sp.tts.ready:
+            raise HTTPException(503, sp.tts.error or "voice synthesis loading" if sp else "speech disabled")
+        return sp
+
+    @app.post("/api/speech/preview", dependencies=auth)
+    def speech_preview(body: VoiceIn):
+        # during setup anyone at the keyboard is the owner-to-be
+        if svc.setup_complete and not svc.owner_verified():
+            raise HTTPException(403, "owner verification required")
+        speech_or_503().preview(body.gender)
+        return {"ok": True}
+
+    @app.post("/api/speech/stop", dependencies=auth)
+    def speech_stop():
+        if svc.speech is not None:
+            svc.speech.out.interrupt()
+        return {"ok": True}
+
+    @app.put("/api/settings/voice", dependencies=auth + [Depends(require_owner)])
+    def set_voice(body: VoiceIn):
+        db.set("voice_gender", body.gender)
+        bus.log(f"Assistant voice set to {body.gender}")
         return svc.status()
 
     @app.get("/api/security/events", dependencies=auth + [Depends(require_owner)])

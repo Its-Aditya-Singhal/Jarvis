@@ -11,7 +11,7 @@ import numpy as np
 
 from .audio.mic import BLOCK, Microphone
 from .auth.matching import TemplateMatcher, confidence
-from .auth.voice.enrollment import VoiceEnrollmentSession, phrases
+from .auth.voice.enrollment import MIN_QUALITY, MIN_SPEECH_S, VoiceEnrollmentSession, phrases
 from .auth.voice.engine import SpeakerEngine
 from .auth.voice.quality import audio_quality
 from .auth.voice.vad import Segmenter, SileroVAD, Utterance
@@ -41,6 +41,7 @@ class VoiceService:
         owner_verified: Callable[[], bool],
         names: Callable[[], tuple[str, str]],
         vad_factory: Callable[[], Callable[[np.ndarray], float]] = SileroVAD,
+        speech=None,  # SpeechService: transcription, wake word, muting while speaking
     ):
         self.s = settings
         self.db = db
@@ -51,6 +52,7 @@ class VoiceService:
         self.owner_verified = owner_verified
         self.names = names
         self._vad_factory = vad_factory
+        self.speech = speech
         self.vad: Callable[[np.ndarray], float] | None = None
         self.segmenter = Segmenter()
         self.mode = "idle"  # idle | enrolling | verifying
@@ -163,7 +165,8 @@ class VoiceService:
         while not self._stop.is_set():
             block = self.mic.read(timeout=0.5)
             now = time.monotonic()
-            if now - self._last_level_t >= LEVEL_PERIOD_S and self.bus.has_subscribers:
+            muted = self.speech is not None and self.speech.muted()
+            if not muted and now - self._last_level_t >= LEVEL_PERIOD_S and self.bus.has_subscribers:
                 self._last_level_t = now
                 level = self.mic.level if self.mic.status == "active" else 0.0
                 self.bus.publish({"type": "level", "level": round(level, 3)})
@@ -175,6 +178,14 @@ class VoiceService:
                 log.exception("voice loop failed")
 
     def _process(self, block: np.ndarray) -> None:
+        if self.speech is not None and self.speech.muted():
+            # the assistant is talking: don't segment (or transcribe) its own voice
+            self.segmenter.reset()
+            self._buf = np.zeros(0, dtype=np.float32)
+            if self._speaking:
+                self._speaking = False
+                self.bus.publish({"type": "speaking", "active": False})
+            return
         self._buf = np.concatenate([self._buf, block])
         while len(self._buf) >= BLOCK:
             frame, self._buf = self._buf[:BLOCK], self._buf[BLOCK:]
@@ -204,6 +215,14 @@ class VoiceService:
             # re-enrollment after setup requires the verified owner to stay at the screen
             self.cancel_enrollment("Voice enrollment stopped — owner no longer verified")
             return
+        if self.speech is not None and utt.speech_s >= MIN_SPEECH_S and q["score"] >= MIN_QUALITY:
+            phrase = session.items[session.index]
+            ok, heard = self.speech.check_phrase(utt.audio, phrase.text, phrase.lang)
+            if not ok:
+                session.hint = "That didn't match the phrase — please read it exactly as shown"
+                log.info("enrollment phrase mismatch: heard %r", heard)
+                self.bus.publish({"type": "voice_enroll", **session.snapshot(), "accepted": False})
+                return
         windows = self.engine.embed_windows(utt.audio)
         accepted = session.offer(windows, utt.speech_s, q["score"])
         self.bus.publish({"type": "voice_enroll", **session.snapshot(), "accepted": accepted})
@@ -224,7 +243,12 @@ class VoiceService:
 
     def _verify_utterance(self, utt: Utterance, q: dict) -> None:
         matcher = self.matcher
-        if matcher is None or utt.speech_s < MIN_VERIFY_SPEECH_S:
+        if matcher is None:
+            return
+        if utt.speech_s < MIN_VERIFY_SPEECH_S:
+            # too short to identify the speaker, but it may be "<name>" or "yes"
+            if self.speech is not None:
+                self.speech.submit(utt.audio, None)
             return
         sim = matcher.similarity(self.engine.embed(utt.audio))
         now = time.monotonic()
@@ -243,3 +267,5 @@ class VoiceService:
         else:
             self.bus.log("Voice unclear — could not confirm speaker", "warn")
         self.bus.publish({"type": "voice", "verdict": res.verdict})
+        if self.speech is not None:
+            self.speech.submit(utt.audio, res.verdict)

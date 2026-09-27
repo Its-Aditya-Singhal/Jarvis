@@ -30,6 +30,16 @@ export interface AppState {
   voiceEnroll: VoiceEnrollSnapshot | null;
   voiceEnrollComplete: boolean;
   voiceEnrollCancelled: string | null;
+  assistantSpeaking: boolean;
+  /** owner-addressed turns only; unaddressed speech never reaches the UI */
+  conversation: Turn[];
+  listeningUntil: number;
+}
+
+export interface Turn {
+  who: "you" | "assistant";
+  text: string;
+  at: number;
 }
 
 let state: AppState = {
@@ -45,7 +55,13 @@ let state: AppState = {
   voiceEnroll: null,
   voiceEnrollComplete: false,
   voiceEnrollCancelled: null,
+  assistantSpeaking: false,
+  conversation: [],
+  listeningUntil: 0,
 };
+
+const addTurn = (who: Turn["who"], text: string) =>
+  set({ conversation: [...state.conversation, { who, text, at: Date.now() }].slice(-6) });
 
 // The microphone level arrives ~15x/second. It lives outside React state so
 // animations can read it every frame without re-rendering the app.
@@ -113,6 +129,18 @@ function handle(e: BackendEvent) {
       break;
     case "voice_enroll_cancelled":
       set({ voiceEnroll: null, voiceEnrollCancelled: e.reason });
+      break;
+    case "tts":
+      set(e.active && e.text ? { assistantSpeaking: true, speech: { text: e.text, at: Date.now() } } : { assistantSpeaking: e.active });
+      break;
+    case "heard":
+      addTurn("you", e.text);
+      break;
+    case "reply":
+      addTurn("assistant", e.text);
+      break;
+    case "listening":
+      set({ listeningUntil: e.active ? Date.now() + (e.seconds ?? 8) * 1000 : 0 });
       break;
   }
 }

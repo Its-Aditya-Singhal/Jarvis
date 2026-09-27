@@ -1,0 +1,84 @@
+"""Text-to-speech with Kokoro-82M (ONNX, int8, CPU) — offline.
+
+The owner picks a female or male voice. English text uses American voices;
+text containing Devanagari switches to the Hindi voice of the same gender
+(phonemised by the bundled espeak-ng). Voices are stock Kokoro voices, not
+imitations of any real person.
+"""
+
+from __future__ import annotations
+
+import logging
+import threading
+from pathlib import Path
+
+import numpy as np
+
+from .text import has_devanagari
+
+log = logging.getLogger(__name__)
+
+MODEL_FILE = "kokoro-v1.0.int8.onnx"
+VOICES_FILE = "voices-v1.0.bin"
+SAMPLE_RATE = 24000
+GENDERS = ("female", "male")
+VOICES = {
+    ("female", "en"): "af_heart",
+    ("male", "en"): "am_michael",
+    ("female", "hi"): "hf_alpha",
+    ("male", "hi"): "hm_omega",
+}
+
+
+class TextToSpeech:
+    def __init__(self, models_root: Path, speed: float = 1.0, threads: int = 4):
+        self.dir = Path(models_root) / "kokoro"
+        self.speed = speed
+        self.threads = threads
+        self._k = None
+        self._lock = threading.Lock()
+        self.error: str | None = None
+
+    @property
+    def ready(self) -> bool:
+        return self._k is not None
+
+    def load(self) -> bool:
+        if self._k is not None:
+            return True
+        model, voices = self.dir / MODEL_FILE, self.dir / VOICES_FILE
+        if not (model.is_file() and voices.is_file()):
+            self.error = f"voice synthesis model missing at {self.dir}"
+            return False
+        try:
+            import onnxruntime as ort
+            from kokoro_onnx import Kokoro
+
+            opts = ort.SessionOptions()
+            opts.intra_op_num_threads = self.threads
+            session = ort.InferenceSession(str(model), opts, providers=["CPUExecutionProvider"])
+            self._k = Kokoro.from_session(session, str(voices))
+            self._k.create("Ready.", voice=VOICES[("female", "en")])  # warm-up
+            self.error = None
+            return True
+        except Exception as exc:
+            log.exception("speech synthesis failed to load")
+            self.error = f"speech synthesis failed to load: {exc}"
+            return False
+
+    @staticmethod
+    def voice_for(text: str, gender: str) -> tuple[str, str]:
+        """(kokoro voice id, espeak language) for this text and gender."""
+        g = gender if gender in GENDERS else "female"
+        if has_devanagari(text):
+            return VOICES[(g, "hi")], "hi"
+        return VOICES[(g, "en")], "en-us"
+
+    def synth(self, text: str, gender: str) -> np.ndarray:
+        """Float32 mono audio at 24 kHz."""
+        if self._k is None:
+            raise RuntimeError(self.error or "speech synthesis not loaded")
+        voice, lang = self.voice_for(text, gender)
+        with self._lock:
+            audio, _ = self._k.create(text, voice=voice, speed=self.speed, lang=lang)
+        return np.asarray(audio, dtype=np.float32)

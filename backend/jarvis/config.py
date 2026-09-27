@@ -65,6 +65,12 @@ class Settings(BaseSettings):
     liveness_lost_reset_s: float = 5.0  # owner out of view this long -> re-prove
     challenge_fps: float = 12.0  # analysis rate while a challenge runs (blinks are short)
 
+    # Speech I/O
+    speech_enabled: bool = True
+    stt_model: str = "small"  # faster-whisper size in models/whisper/<size>: small | medium
+    tts_speed: float = 1.0
+    followup_s: float = 8.0  # after "<name>" alone, listen this long without the name
+
     # Keychain
     keychain_service: str = "jarvis-assistant"
 

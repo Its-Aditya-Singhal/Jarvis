@@ -16,7 +16,7 @@ function Indicator({ label, value, tone }: { label: string; value: string; tone:
 }
 
 export default function StatusBar() {
-  const { connected, status, auth, speaking } = useStore();
+  const { connected, status, auth, speaking, assistantSpeaking, listeningUntil } = useStore();
   const mic = status?.mic.status ?? "off";
   const [clock, setClock] = useState(() => new Date());
   useEffect(() => {
@@ -55,8 +55,23 @@ export default function StatusBar() {
         />
         <Indicator
           label="MIC"
-          value={mic === "active" ? (speaking ? "HEARING" : "ACTIVE") : mic === "error" ? "BLOCKED" : mic.toUpperCase()}
+          value={
+            mic === "active"
+              ? listeningUntil > Date.now()
+                ? "LISTENING"
+                : speaking
+                  ? "HEARING"
+                  : "ACTIVE"
+              : mic === "error"
+                ? "BLOCKED"
+                : mic.toUpperCase()
+          }
           tone={mic === "active" ? "ok" : mic === "error" ? "alert" : "warn"}
+        />
+        <Indicator
+          label="SPEECH"
+          value={assistantSpeaking ? "SPEAKING" : status?.models.stt === "ready" && status?.models.tts === "ready" ? "READY" : "LOADING"}
+          tone={status?.models.stt === "ready" && status?.models.tts === "ready" ? "ok" : "warn"}
         />
         <Indicator label="SECURITY" value={security[0]} tone={security[1]} />
       </div>

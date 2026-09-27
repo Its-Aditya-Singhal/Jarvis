@@ -4,8 +4,9 @@ import CameraPreview from "../components/CameraPreview";
 import Orb, { OrbMode } from "../components/Orb";
 import SideNav, { View } from "../components/SideNav";
 import VoiceEnroll from "../components/VoiceEnroll";
-import { ApiError, Challenge, api } from "../lib/backend";
-import { useStore } from "../lib/store";
+import VoicePicker from "../components/VoicePicker";
+import { ApiError, Challenge, Status, VoiceGender, api } from "../lib/backend";
+import { setStatus, useStore } from "../lib/store";
 
 interface SecurityEvent {
   id: number;
@@ -27,8 +28,20 @@ function useRecentChange<T>(value: T, ms: number): boolean {
   return recent;
 }
 
+function useNow(ms: number, active: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active) return;
+    const id = window.setInterval(() => setNow(Date.now()), ms);
+    return () => window.clearInterval(id);
+  }, [ms, active]);
+  return now;
+}
+
 function Core() {
-  const { connected, status, auth, speech } = useStore();
+  const { connected, status, auth, speech, listeningUntil, conversation, assistantSpeaking } = useStore();
+  const now = useNow(500, listeningUntil > Date.now());
+  const listening = listeningUntil > now;
   const name = (status?.assistant_name ?? "JARVIS").toUpperCase();
   const state = connected ? (auth?.state ?? "no_profile") : "offline";
   const justChanged = useRecentChange(state, 3500);
@@ -56,8 +69,16 @@ function Core() {
       break;
     case "approved":
       mode = "approved";
-      title = justChanged ? "AUTHENTICATION APPROVED" : `${name} ONLINE`;
-      sub = justChanged ? `Welcome back, ${status?.owner_name}.` : "Voice commands arrive in phase 4";
+      if (listening) {
+        title = "LISTENING…";
+        sub = `Go ahead, ${status?.owner_name}.`;
+      } else if (assistantSpeaking) {
+        title = `${name} SPEAKING`;
+        sub = "";
+      } else {
+        title = justChanged ? "AUTHENTICATION APPROVED" : `${name} ONLINE`;
+        sub = justChanged ? `Welcome back, ${status?.owner_name}.` : `Say “${status?.assistant_name ?? "JARVIS"}” to talk to me`;
+      }
       break;
     case "liveness": {
       const live = auth?.liveness;
@@ -97,8 +118,27 @@ function Core() {
         <p>{sub}</p>
         {state === "liveness" && auth?.liveness?.challenge && <ChallengeCard c={auth.liveness.challenge} />}
         <FactorBadges />
-        <p className={`speech ${showSpeech ? "show" : ""}`}>{speech?.text}</p>
+        {/* replies already appear in the conversation strip */}
+        {!(state === "approved" && conversation.some((t) => t.who === "assistant" && t.text === speech?.text)) && (
+          <p className={`speech ${showSpeech || assistantSpeaking ? "show" : ""}`}>{speech?.text}</p>
+        )}
+        {state === "approved" && <Conversation turns={conversation} name={name} />}
       </div>
+    </div>
+  );
+}
+
+function Conversation({ turns, name }: { turns: { who: string; text: string; at: number }[]; name: string }) {
+  const recent = turns.filter((t) => Date.now() - t.at < 120_000).slice(-2);
+  if (!recent.length) return null;
+  return (
+    <div className="conversation">
+      {recent.map((t) => (
+        <div key={t.at} className={`turn ${t.who}`}>
+          <b>{t.who === "you" ? "YOU" : name}</b>
+          <span>{t.text}</span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -239,6 +279,8 @@ const EVENT_TITLE: Record<string, string> = {
   spoof_suspected: "SPOOF ATTEMPT DETECTED",
   liveness_failed: "LIVENESS CHECK FAILED",
   liveness_lockout: "LIVENESS LOCKOUT",
+  unauthorized_command: "COMMAND FROM UNVERIFIED USER",
+  voice_mismatch_command: "COMMAND IN UNKNOWN VOICE",
   camera_frozen: "CAMERA FEED FROZEN",
 };
 
@@ -296,6 +338,57 @@ function SecurityPanel() {
   );
 }
 
+function SettingsPanel() {
+  const { auth, status } = useStore();
+  const approved = auth?.state === "approved";
+  const [error, setError] = useState<string | null>(null);
+  const gender = status?.voice_gender ?? "female";
+  const choose = async (g: VoiceGender) => {
+    setError(null);
+    try {
+      setStatus(await api<Status>("/api/settings/voice", { method: "PUT", body: JSON.stringify({ gender: g }) }));
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Backend unreachable");
+    }
+  };
+  const model = (k: string, label: string) => (status?.models[k] === "ready" ? label : (status?.models[k] ?? "—"));
+  return (
+    <div className="view">
+      <h2 className="view-title">SETTINGS</h2>
+      {!approved ? (
+        <div className="card locked-card">Owner verification required to change settings.</div>
+      ) : (
+        <div className="cards">
+          <div className="card">
+            <div className="panel-title">ASSISTANT VOICE</div>
+            <VoicePicker value={gender} onChange={choose} />
+            {error && <p className="error small">{error}</p>}
+            <div className="kv">
+              <span>Speech recognition</span>
+              <b>{model("stt", "Whisper · local")}</b>
+            </div>
+            <div className="kv">
+              <span>Voice synthesis</span>
+              <b>{model("tts", "Kokoro-82M · local")}</b>
+            </div>
+            <div className="kv">
+              <span>Wake word</span>
+              <b>{status?.assistant_name}</b>
+            </div>
+          </div>
+          <div className="card">
+            <div className="panel-title">MORE SETTINGS</div>
+            <p className="muted small">
+              Performance modes, model choice, privacy controls and profile management arrive with the privacy
+              dashboard in phase 9.
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Main() {
   const [view, setView] = useState<View>("system");
   return (
@@ -311,6 +404,7 @@ export default function Main() {
         {view === "system" && <Core />}
         {view === "auth" && <AuthPanel />}
         {view === "security" && <SecurityPanel />}
+        {view === "settings" && <SettingsPanel />}
       </main>
       <ActivityFeed />
     </div>

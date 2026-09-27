@@ -5,8 +5,9 @@ recording contributes a whole-utterance embedding plus overlapping 2-second
 window embeddings, so the template covers different phrase lengths. Audio is
 discarded right after embedding.
 
-Until speech recognition arrives (phase 4) the spoken words are not checked
-against the phrase; the acoustic checks below still apply.
+The spoken words are checked against the displayed phrase with local speech
+recognition (see ``SpeechService.check_phrase``) before the acoustic checks
+below, so a stray recording or unrelated speech isn't enrolled.
 """
 
 from __future__ import annotations

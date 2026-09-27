@@ -45,7 +45,7 @@ class FakeMic:
 def _client(settings, mic=None):
     app = create_app(
         settings, keys=StaticKeyProvider(), engine=FakeEngine(), camera=FakeCamera(),
-        speaker_engine=FakeSpeaker(), mic=mic or FakeMic(), vad_factory=lambda: (lambda frame: 0.0),
+        speaker_engine=FakeSpeaker(), mic=mic or FakeMic(), vad_factory=lambda: (lambda frame: 0.0), speech=False,
     )
     return TestClient(app), app.state.svc
 
@@ -119,3 +119,16 @@ def test_voice_reenrollment_requires_verified_owner(settings):
         status = client.get("/api/status", headers=H).json()
         assert status["voice_enrolled"] and status["mic"]["status"] == "active"
         assert "confidence" not in status["auth"]["voice"]
+
+
+def test_voice_choice_at_setup_and_owner_only_change(settings):
+    client, svc = _client(settings)
+    with client:
+        r = client.post("/api/setup/profile", headers=H, json={"owner_name": "A", "assistant_name": "J", "voice_gender": "male"})
+        assert r.json()["voice_gender"] == "male"
+        bad = client.post("/api/setup/profile", headers=H, json={"owner_name": "A", "assistant_name": "J", "voice_gender": "robot"})
+        assert bad.status_code == 422
+        # speech is disabled in this client, so a preview can't be played
+        assert client.post("/api/speech/preview", headers=H, json={"gender": "female"}).status_code == 503
+        # changing the voice later needs the verified owner
+        assert client.put("/api/settings/voice", headers=H, json={"gender": "female"}).status_code == 403

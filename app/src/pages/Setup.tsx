@@ -2,7 +2,8 @@ import { FormEvent, useEffect, useState } from "react";
 import CameraPreview from "../components/CameraPreview";
 import Orb from "../components/Orb";
 import VoiceEnroll from "../components/VoiceEnroll";
-import { ApiError, Status, post } from "../lib/backend";
+import VoicePicker from "../components/VoicePicker";
+import { ApiError, Status, VoiceGender, post } from "../lib/backend";
 import { setStatus, useStore } from "../lib/store";
 import { useLatest } from "../lib/useLatest";
 
@@ -73,6 +74,7 @@ function Welcome({ onNext }: { onNext: () => void }) {
 function Names({ status, onNext }: { status: Status | null; onNext: () => void }) {
   const [owner, setOwner] = useState(status?.owner_name ?? "");
   const [assistant, setAssistant] = useState(status?.owner_name ? status.assistant_name : "JARVIS");
+  const [gender, setGender] = useState<VoiceGender>(status?.voice_gender ?? "female");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -81,7 +83,7 @@ function Names({ status, onNext }: { status: Status | null; onNext: () => void }
     setBusy(true);
     setError(null);
     try {
-      setStatus(await post<Status>("/api/setup/profile", { owner_name: owner, assistant_name: assistant }));
+      setStatus(await post<Status>("/api/setup/profile", { owner_name: owner, assistant_name: assistant, voice_gender: gender }));
       onNext();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Backend unreachable");
@@ -102,7 +104,7 @@ function Names({ status, onNext }: { status: Status | null; onNext: () => void }
         onChange={(e) => setOwner(e.target.value)}
       />
       <h2>And what would you like to call me?</h2>
-      <p className="muted small">This also becomes my wake word once voice commands are enabled.</p>
+      <p className="muted small">This is also my wake word: say it to talk to me.</p>
       <input
         className="field"
         value={assistant}
@@ -110,6 +112,8 @@ function Names({ status, onNext }: { status: Status | null; onNext: () => void }
         placeholder="JARVIS, FRIDAY, EDITH…"
         onChange={(e) => setAssistant(e.target.value)}
       />
+      <h2>How should I sound?</h2>
+      <VoicePicker value={gender} onChange={setGender} />
       {error && <p className="error">{error}</p>}
       <button className="btn primary" disabled={busy || !owner.trim() || !assistant.trim()}>
         CONTINUE
