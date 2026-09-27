@@ -1,4 +1,4 @@
-"""Orchestrates camera -> face engine -> enrollment / continuous verification."""
+"""Orchestrates the face pipeline and composes it with the voice pipeline."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import base64
 import logging
 import threading
 import time
+from typing import Callable
 
 import cv2
 import numpy as np
@@ -14,12 +15,13 @@ from .auth.face.continuous import ContinuousFaceAuth, FrameResult
 from .auth.face.engine import FaceEngine
 from .auth.face.enrollment import EnrollmentSession
 from .auth.face.types import FaceObservation
-from .auth.face.verifier import FaceVerifier, confidence
+from .auth.matching import TemplateMatcher, confidence
 from .camera.capture import Camera
 from .config import Settings
 from .database.db import Database
 from .events import EventBus
 from .security.template_store import TemplateStore
+from .voice_service import VoiceService
 
 log = logging.getLogger(__name__)
 
@@ -35,6 +37,7 @@ class AssistantService:
         bus: EventBus,
         engine: FaceEngine,
         camera: Camera,
+        voice_factory: "Callable[[AssistantService], VoiceService] | None" = None,
     ):
         self.s = settings
         self.db = db
@@ -44,12 +47,16 @@ class AssistantService:
         self.camera = camera
         self.mode = "idle"  # idle | enrolling | verifying
         self.enrollment: EnrollmentSession | None = None
-        self.verifier: FaceVerifier | None = None
+        self.verifier: TemplateMatcher | None = None
         self.auth = self._new_auth()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._last_state_push = 0.0
         self._lock = threading.Lock()
+        self.voice: VoiceService | None = voice_factory(self) if voice_factory else None
+
+    def owner_verified(self) -> bool:
+        return self.mode == "verifying" and self.auth.state == "approved"
 
     def _new_auth(self) -> ContinuousFaceAuth:
         return ContinuousFaceAuth(
@@ -77,6 +84,10 @@ class AssistantService:
     def face_enrolled(self) -> bool:
         return self.store.exists(FACE)
 
+    @property
+    def voice_enrolled(self) -> bool:
+        return self.voice is not None and self.voice.enrolled
+
     # -- lifecycle ---------------------------------------------------------
     def start(self) -> None:
         self.bus.log("Core systems online")
@@ -85,6 +96,8 @@ class AssistantService:
         else:
             self.bus.log(self.engine.error or "Face model unavailable", "error")
         self.camera.start()
+        if self.voice is not None:
+            self.voice.start()
         if self.setup_complete and self.face_enrolled:
             self.begin_verification()
         self._thread = threading.Thread(target=self._loop, name="face-loop", daemon=True)
@@ -95,6 +108,8 @@ class AssistantService:
         if self._thread:
             self._thread.join(timeout=2)
         self.camera.stop()
+        if self.voice is not None:
+            self.voice.stop()
 
     # -- modes ---------------------------------------------------------------
     def begin_enrollment(self) -> None:
@@ -119,10 +134,12 @@ class AssistantService:
         if template is None:
             return False
         with self._lock:
-            self.verifier = FaceVerifier(template, top_k=self.s.face_top_k)
+            self.verifier = TemplateMatcher(template, top_k=self.s.face_top_k)
             self.auth = self._new_auth()
             self.mode = "verifying"
         self.bus.log("Continuous face verification active")
+        if self.voice is not None and self.voice.enrolled:
+            self.voice.begin_verification()
         return True
 
     # -- main loop -----------------------------------------------------------
@@ -160,7 +177,7 @@ class AssistantService:
         if session.done:
             template = session.template()
             self.store.save(FACE, template)
-            health = FaceVerifier(template, self.s.face_top_k).self_consistency()
+            health = TemplateMatcher(template, self.s.face_top_k).self_consistency()
             with self._lock:
                 self.enrollment = None
                 self.mode = "idle"
@@ -228,6 +245,8 @@ class AssistantService:
                 else round(confidence(snap.confidence_sim, self.s.face_threshold), 3)
             )
             out["bystander"] = snap.bystander
+        if self.voice is not None:
+            out["voice"] = self.voice.public(owner_verified=snap.state == "approved")
         return out
 
     def _push_state(self) -> None:
@@ -256,11 +275,18 @@ class AssistantService:
             "owner_name": self.owner_name,
             "assistant_name": self.assistant_name,
             "face_enrolled": self.face_enrolled,
+            "voice_enrolled": self.voice_enrolled,
             "mode": self.mode,
+            "voice_mode": self.voice.mode if self.voice else "unavailable",
             "camera": {"status": self.camera.status, "error": self.camera.error},
+            "mic": (
+                {"status": self.voice.mic.status, "error": self.voice.mic.error, "device": self.voice.mic.device_name}
+                if self.voice
+                else {"status": "off", "error": "voice pipeline disabled", "device": None}
+            ),
             "models": {
                 "face": "ready" if self.engine.ready else (self.engine.error or "not loaded"),
-                "voice": "not_implemented",
+                "voice": self.voice.model_status() if self.voice else "disabled",
                 "liveness": "not_implemented",
                 "llm": "not_implemented",
                 "stt": "not_implemented",

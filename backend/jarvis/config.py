@@ -46,6 +46,13 @@ class Settings(BaseSettings):
     absence_lock_s: float = 8.0  # owner away this long -> session locked
     min_face_quality: float = 0.35
 
+    # Voice verification (ECAPA cosine similarity, top-k mean vs enrolled template)
+    mic_device: str | None = None  # default input device
+    voice_threshold: float = 0.50
+    voice_reject_threshold: float = 0.30
+    voice_top_k: int = 5
+    voice_valid_s: float = 20.0  # a voice match counts for this long
+
     # Keychain
     keychain_service: str = "jarvis-assistant"
 

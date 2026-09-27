@@ -1,4 +1,4 @@
-"""Face verification against the enrolled template (inference side)."""
+"""Template matching shared by face and voice verification (inference side)."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import math
 import numpy as np
 
 
-class FaceVerifier:
+class TemplateMatcher:
     def __init__(self, template: np.ndarray, top_k: int = 5):
         t = np.asarray(template, dtype=np.float32)
         norms = np.linalg.norm(t, axis=1, keepdims=True)

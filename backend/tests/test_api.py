@@ -22,8 +22,31 @@ class FakeEngine:
     def analyze(self, frame): return []
 
 
-def _client(settings):
-    app = create_app(settings, keys=StaticKeyProvider(), engine=FakeEngine(), camera=FakeCamera())
+class FakeSpeaker:
+    ready, error = True, None
+
+    def load(self): return True
+    def embed(self, audio): return np.eye(1, 192, dtype=np.float32)[0]
+    def embed_windows(self, audio): return [self.embed(audio)] * 3
+
+
+class FakeMic:
+    status, error, device_name, level = "active", None, "Test mic", 0.0
+
+    def start(self): ...
+    def stop(self): ...
+    def drain(self): ...
+    def read(self, timeout=0.5):
+        import time
+        time.sleep(0.05)
+        return None
+
+
+def _client(settings, mic=None):
+    app = create_app(
+        settings, keys=StaticKeyProvider(), engine=FakeEngine(), camera=FakeCamera(),
+        speaker_engine=FakeSpeaker(), mic=mic or FakeMic(), vad_factory=lambda: (lambda frame: 0.0),
+    )
     return TestClient(app), app.state.svc
 
 
@@ -43,6 +66,10 @@ def test_setup_flow_and_lockdown(settings):
         # cannot finish before a face is enrolled
         assert client.post("/api/setup/complete", headers=H).status_code == 400
         svc.store.save("face", np.eye(3, 512, dtype=np.float32))
+        # voice works on this machine, so it is required
+        r = client.post("/api/setup/complete", headers=H)
+        assert r.status_code == 400 and "voice" in r.json()["detail"]
+        svc.store.save("voice", np.eye(3, 192, dtype=np.float32))
         assert client.post("/api/setup/complete", headers=H).json()["setup_complete"] is True
         # once set up, nobody can overwrite the profile or re-enroll through setup
         assert client.post("/api/setup/profile", headers=H, json={"owner_name": "Mallory", "assistant_name": "X"}).status_code == 409
@@ -65,3 +92,30 @@ def test_websocket_rejects_bad_token(settings):
         with pytest.raises(WebSocketDisconnect):
             with client.websocket_connect("/ws?token=bad") as ws:
                 ws.receive_json()
+
+
+def test_setup_can_finish_without_voice_when_no_microphone(settings):
+    mic = FakeMic()
+    mic.status, mic.error = "error", "no microphone"
+    client, svc = _client(settings, mic=mic)
+    with client:
+        client.post("/api/setup/profile", headers=H, json={"owner_name": "A", "assistant_name": "J"})
+        assert client.post("/api/enroll/voice/start", headers=H).status_code == 503
+        svc.store.save("face", np.eye(3, 512, dtype=np.float32))
+        assert client.post("/api/setup/complete", headers=H).status_code == 200
+
+
+def test_voice_reenrollment_requires_verified_owner(settings):
+    client, svc = _client(settings)
+    with client:
+        client.post("/api/setup/profile", headers=H, json={"owner_name": "A", "assistant_name": "J"})
+        assert client.post("/api/enroll/voice/start", headers=H).status_code == 200  # during setup
+        client.post("/api/enroll/voice/cancel", headers=H)
+        svc.store.save("face", np.eye(3, 512, dtype=np.float32))
+        svc.store.save("voice", np.eye(3, 192, dtype=np.float32))
+        client.post("/api/setup/complete", headers=H)
+        # nobody is verified in front of the (fake) camera
+        assert client.post("/api/enroll/voice/start", headers=H).status_code == 403
+        status = client.get("/api/status", headers=H).json()
+        assert status["voice_enrolled"] and status["mic"]["status"] == "active"
+        assert "confidence" not in status["auth"]["voice"]

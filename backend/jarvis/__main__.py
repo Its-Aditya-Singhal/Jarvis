@@ -6,6 +6,7 @@ import time
 import uvicorn
 
 from .api.app import create_app
+from .audio import mic
 from .camera.capture import request_permission
 from .config import get_settings
 
@@ -26,7 +27,9 @@ def main() -> None:
         raise SystemExit("Refusing to bind to a non-loopback address")
     if os.environ.get("JARVIS_WATCH_PARENT") == "1":
         threading.Thread(target=_exit_with_parent, daemon=True).start()
+    # macOS permission prompts must come from the main thread
     request_permission(s.camera_index)
+    mic.request_permission()
     uvicorn.run(create_app(s), host=s.host, port=s.port, log_level="warning")
 
 

@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { getMicLevel } from "../lib/store";
 
 export type OrbMode = "idle" | "scanning" | "approved" | "denied" | "locked" | "offline";
 
@@ -30,15 +31,18 @@ interface Particle {
 
 interface Props {
   mode: OrbMode;
-  /** 0..1 audio level; drives the waveform ring (microphone arrives in phase 4) */
+  /** fixed 0..1 audio level for the waveform ring */
   level?: number;
+  /** react to the live microphone level instead of ``level`` */
+  listen?: boolean;
   className?: string;
 }
 
-export default function Orb({ mode, level = 0, className }: Props) {
+export default function Orb({ mode, level = 0, listen = false, className }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const modeRef = useRef(mode);
   const levelRef = useRef(level);
+  const listenRef = useRef(listen);
   const changedAt = useRef(performance.now());
 
   useEffect(() => {
@@ -47,7 +51,8 @@ export default function Orb({ mode, level = 0, className }: Props) {
   }, [mode]);
   useEffect(() => {
     levelRef.current = level;
-  }, [level]);
+    listenRef.current = listen;
+  }, [level, listen]);
 
   useEffect(() => {
     const canvas = canvasRef.current!;
@@ -61,6 +66,7 @@ export default function Orb({ mode, level = 0, className }: Props) {
     let speed = SPEED[modeRef.current];
     let phase = 0;
     let last = performance.now();
+    let mic = 0;
 
     const particles: Particle[] = Array.from({ length: 110 }, () => ({
       a: Math.random() * Math.PI * 2,
@@ -105,7 +111,8 @@ export default function Orb({ mode, level = 0, className }: Props) {
       phase += dt * speed * (reduced ? 0.15 : 1);
       const t = phase;
       const since = (now - changedAt.current) / 1000;
-      const lvl = levelRef.current;
+      mic += ((listenRef.current ? getMicLevel() : 0) - mic) * 0.25;
+      const lvl = Math.max(levelRef.current, mic);
 
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);

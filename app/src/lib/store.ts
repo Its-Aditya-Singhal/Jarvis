@@ -7,6 +7,7 @@ import {
   BackendEvent,
   EnrollSnapshot,
   Status,
+  VoiceEnrollSnapshot,
   api,
   connectEvents,
 } from "./backend";
@@ -25,6 +26,10 @@ export interface AppState {
   activity: Activity[];
   preview: Preview | null;
   speech: { text: string; at: number } | null;
+  speaking: boolean;
+  voiceEnroll: VoiceEnrollSnapshot | null;
+  voiceEnrollComplete: boolean;
+  voiceEnrollCancelled: string | null;
 }
 
 let state: AppState = {
@@ -36,7 +41,16 @@ let state: AppState = {
   activity: [],
   preview: null,
   speech: null,
+  speaking: false,
+  voiceEnroll: null,
+  voiceEnrollComplete: false,
+  voiceEnrollCancelled: null,
 };
+
+// The microphone level arrives ~15x/second. It lives outside React state so
+// animations can read it every frame without re-rendering the app.
+let micLevel = 0;
+export const getMicLevel = () => micLevel;
 
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((l) => l());
@@ -79,6 +93,27 @@ function handle(e: BackendEvent) {
     case "say":
       set({ speech: { text: e.text, at: Date.now() } });
       break;
+    case "level":
+      micLevel = e.level;
+      break;
+    case "speaking":
+      set({ speaking: e.active });
+      break;
+    case "voice":
+      refreshStatus();
+      break;
+    case "voice_enroll": {
+      const { type: _t, ...snap } = e;
+      set({ voiceEnroll: snap, voiceEnrollCancelled: null });
+      break;
+    }
+    case "voice_enroll_complete":
+      set({ voiceEnrollComplete: true });
+      refreshStatus();
+      break;
+    case "voice_enroll_cancelled":
+      set({ voiceEnroll: null, voiceEnrollCancelled: e.reason });
+      break;
   }
 }
 
@@ -89,6 +124,10 @@ export async function refreshStatus() {
   } catch {
     /* backend still starting; the websocket will deliver status */
   }
+}
+
+export function resetVoiceEnroll() {
+  set({ voiceEnroll: null, voiceEnrollComplete: false, voiceEnrollCancelled: null });
 }
 
 export function setStatus(status: Status) {

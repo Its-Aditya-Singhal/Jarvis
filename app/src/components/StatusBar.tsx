@@ -16,7 +16,8 @@ function Indicator({ label, value, tone }: { label: string; value: string; tone:
 }
 
 export default function StatusBar() {
-  const { connected, status, auth } = useStore();
+  const { connected, status, auth, speaking } = useStore();
+  const mic = status?.mic.status ?? "off";
   const [clock, setClock] = useState(() => new Date());
   useEffect(() => {
     const id = window.setInterval(() => setClock(new Date()), 1000);
@@ -48,7 +49,11 @@ export default function StatusBar() {
           value={cam === "active" ? "ACTIVE" : cam === "error" ? "BLOCKED" : cam.toUpperCase()}
           tone={cam === "active" ? "ok" : cam === "error" ? "alert" : "warn"}
         />
-        <Indicator label="MIC" value="PHASE 2" tone="off" />
+        <Indicator
+          label="MIC"
+          value={mic === "active" ? (speaking ? "HEARING" : "ACTIVE") : mic === "error" ? "BLOCKED" : mic.toUpperCase()}
+          tone={mic === "active" ? "ok" : mic === "error" ? "alert" : "warn"}
+        />
         <Indicator label="SECURITY" value={security[0]} tone={security[1]} />
       </div>
       <div className="clock" data-tauri-drag-region>

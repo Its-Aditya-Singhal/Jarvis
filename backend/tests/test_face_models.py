@@ -4,7 +4,7 @@ import cv2
 import numpy as np
 
 from conftest import SAMPLES
-from jarvis.auth.face.verifier import FaceVerifier
+from jarvis.auth.matching import TemplateMatcher
 
 
 def _portrait():
@@ -33,7 +33,7 @@ def test_same_person_matches_under_augmentation(face_engine):
         cv2.GaussianBlur(img, (5, 5), 0),
     ]
     template = np.stack([face_engine.analyze(v)[0].embedding for v in variants])
-    v = FaceVerifier(template, top_k=2)
+    v = TemplateMatcher(template, top_k=2)
     assert v.similarity(base.embedding) > 0.6
 
     others = face_engine.analyze(cv2.imread(str(SAMPLES / "t1.jpg")))

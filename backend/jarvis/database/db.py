@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS security_events (
     kind      TEXT NOT NULL,
     detail    TEXT NOT NULL,
     face_conf REAL,
+    voice_conf REAL,
     blocked   INTEGER NOT NULL DEFAULT 0
 );
 """
@@ -37,7 +38,13 @@ class Database:
         self._lock = threading.Lock()
         with self._lock:
             self._conn.executescript(SCHEMA)
+            self._migrate()
             self._conn.commit()
+
+    def _migrate(self) -> None:
+        cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(security_events)")}
+        if "voice_conf" not in cols:  # databases created in phase 1
+            self._conn.execute("ALTER TABLE security_events ADD COLUMN voice_conf REAL")
 
     # -- profile key/value -------------------------------------------------
     def get(self, key: str, default: str | None = None) -> str | None:
@@ -61,12 +68,18 @@ class Database:
 
     # -- security events ---------------------------------------------------
     def add_security_event(
-        self, kind: str, detail: str, face_conf: float | None = None, blocked: bool = False
+        self,
+        kind: str,
+        detail: str,
+        face_conf: float | None = None,
+        blocked: bool = False,
+        voice_conf: float | None = None,
     ) -> int:
         with self._lock:
             cur = self._conn.execute(
-                "INSERT INTO security_events(ts, kind, detail, face_conf, blocked) VALUES(?,?,?,?,?)",
-                (time.time(), kind, detail, face_conf, int(blocked)),
+                "INSERT INTO security_events(ts, kind, detail, face_conf, voice_conf, blocked) "
+                "VALUES(?,?,?,?,?,?)",
+                (time.time(), kind, detail, face_conf, voice_conf, int(blocked)),
             )
             self._conn.commit()
             return int(cur.lastrowid)

@@ -92,6 +92,15 @@ export interface AuthPublic {
   faces: number;
   face_confidence?: number | null; // only present while the owner is verified
   bystander?: boolean;
+  voice?: VoicePublic;
+}
+
+export type VoiceState = "idle" | "verified" | "uncertain" | "rejected";
+
+export interface VoicePublic {
+  state: VoiceState;
+  confidence?: number; // owner-only
+  seconds_ago?: number; // owner-only
 }
 
 export interface Status {
@@ -99,8 +108,11 @@ export interface Status {
   owner_name: string;
   assistant_name: string;
   face_enrolled: boolean;
+  voice_enrolled: boolean;
   mode: "idle" | "enrolling" | "verifying";
+  voice_mode: "idle" | "enrolling" | "verifying" | "unavailable";
   camera: { status: "off" | "starting" | "active" | "error"; error: string | null };
+  mic: { status: "off" | "starting" | "active" | "error"; error: string | null; device: string | null };
   models: Record<string, string>;
   auth: AuthPublic;
 }
@@ -116,6 +128,19 @@ export interface EnrollSnapshot {
   steps: string[];
 }
 
+export interface VoiceEnrollSnapshot {
+  index: number;
+  count: number;
+  text: string;
+  lang: string;
+  hint: string;
+  progress: number;
+  done: boolean;
+  quality: number | null;
+  phrases: { lang: string; text: string }[];
+  accepted?: boolean;
+}
+
 export interface Activity {
   ts: number;
   text: string;
@@ -129,4 +154,10 @@ export type BackendEvent =
   | { type: "enroll_complete" }
   | ({ type: "activity" } & Activity)
   | { type: "preview"; jpeg: string; boxes: number[][] }
-  | { type: "say"; text: string };
+  | { type: "say"; text: string }
+  | { type: "level"; level: number }
+  | { type: "speaking"; active: boolean }
+  | { type: "voice"; verdict: VoiceState }
+  | ({ type: "voice_enroll" } & VoiceEnrollSnapshot)
+  | { type: "voice_enroll_complete" }
+  | { type: "voice_enroll_cancelled"; reason: string };

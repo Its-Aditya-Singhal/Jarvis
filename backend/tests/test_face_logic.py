@@ -4,7 +4,7 @@ from jarvis.auth.face.continuous import ContinuousFaceAuth, FrameResult
 from jarvis.auth.face.enrollment import STEPS, EnrollmentSession
 from jarvis.auth.face.quality import quality_score
 from jarvis.auth.face.types import FaceObservation
-from jarvis.auth.face.verifier import FaceVerifier, confidence
+from jarvis.auth.matching import TemplateMatcher, confidence
 
 
 def _unit(v):
@@ -24,7 +24,7 @@ def test_verifier_topk_similarity():
     rng = np.random.default_rng(1)
     owner = _unit(rng.normal(size=512))
     template = np.stack([_unit(owner + 0.3 * rng.normal(size=512) / 22) for _ in range(20)])
-    v = FaceVerifier(template, top_k=5)
+    v = TemplateMatcher(template, top_k=5)
     assert v.similarity(owner) > 0.9
     assert abs(v.similarity(_unit(rng.normal(size=512)))) < 0.2
     assert v.self_consistency() > 0.8

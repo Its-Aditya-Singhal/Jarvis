@@ -1,14 +1,17 @@
 import { FormEvent, useEffect, useState } from "react";
 import CameraPreview from "../components/CameraPreview";
 import Orb from "../components/Orb";
+import VoiceEnroll from "../components/VoiceEnroll";
 import { ApiError, Status, post } from "../lib/backend";
 import { setStatus, useStore } from "../lib/store";
+import { useLatest } from "../lib/useLatest";
 
-type Step = "welcome" | "names" | "face" | "done";
+type Step = "welcome" | "names" | "face" | "voice" | "done";
 
 function initialStep(s: Status | null): Step {
   if (!s || !s.owner_name) return "welcome";
   if (!s.face_enrolled) return "face";
+  if (!s.voice_enrolled) return "voice";
   return "done";
 }
 
@@ -31,7 +34,7 @@ export default function Setup() {
   return (
     <div className="setup">
       <div className="setup-steps">
-        {(["welcome", "names", "face", "done"] as Step[]).map((s, i) => (
+        {(["welcome", "names", "face", "voice", "done"] as Step[]).map((s, i) => (
           <span key={s} className={s === step ? "active" : ""}>
             {String(i + 1).padStart(2, "0")}
           </span>
@@ -39,7 +42,12 @@ export default function Setup() {
       </div>
       {step === "welcome" && <Welcome onNext={() => setStep("names")} />}
       {step === "names" && <Names status={status} onNext={() => setStep("face")} />}
-      {step === "face" && <FaceEnroll onNext={() => setStep("done")} />}
+      {step === "face" && <FaceEnroll onNext={() => setStep("voice")} />}
+      {step === "voice" && (
+        <section className="setup-card wide">
+          <VoiceEnroll onDone={() => setStep("done")} onSkip={() => setStep("done")} />
+        </section>
+      )}
       {step === "done" && <Done />}
     </div>
   );
@@ -116,12 +124,13 @@ function FaceEnroll({ onNext }: { onNext: () => void }) {
   const [error, setError] = useState<string | null>(null);
 
   const done = enrollComplete || (status?.face_enrolled ?? false);
+  const onNextRef = useLatest(onNext);
   useEffect(() => {
     if (done) {
-      const id = window.setTimeout(onNext, 1400);
+      const id = window.setTimeout(() => onNextRef.current(), 1400);
       return () => window.clearTimeout(id);
     }
-  }, [done, onNext]);
+  }, [done, onNextRef]);
 
   const start = async () => {
     setError(null);
@@ -205,7 +214,9 @@ function Done() {
   const items: [string, boolean, string?][] = [
     ["Face enrolled", !!status?.face_enrolled],
     ["Security enabled — encrypted, local-only storage", true],
-    ["Voice enrolled", false, "phase 2"],
+    status?.voice_enrolled
+      ? ["Voice enrolled", true]
+      : ["Voice skipped — no working microphone", false, "enroll later from Authentication"],
     ["Liveness configured", false, "phase 3"],
     ["Local AI configured", false, "phase 5"],
   ];
