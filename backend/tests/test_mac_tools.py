@@ -30,6 +30,8 @@ def mac(tmp_path):
     apps = [FakeApp(n) for n in ("Finder", "Safari", "‎WhatsApp", "Spotify")]
     docs = tmp_path / "Projects"
     docs.mkdir()
+    home = tmp_path / "home"  # a fake home, so the tests don't depend on this machine's folders
+    (home / "Documents").mkdir(parents=True)
 
     def run(argv):
         calls.append(argv)
@@ -39,7 +41,7 @@ def mac(tmp_path):
             return "Now drawing from 'Battery Power'\n -InternalBattery-0 (id=1)\t56%; discharging"
         return ""
 
-    return MacControl(runner=run, running=lambda: apps, extra_folders=lambda: [docs]), calls, apps, docs
+    return MacControl(runner=run, running=lambda: apps, extra_folders=lambda: [docs], home=home), calls, apps, docs
 
 
 @pytest.fixture

@@ -25,19 +25,26 @@ from ..speech.text import to_latin
 log = logging.getLogger(__name__)
 
 HOME = Path.home()
-FOLDERS = {
-    "documents": HOME / "Documents", "document": HOME / "Documents", "docs": HOME / "Documents",
-    "downloads": HOME / "Downloads", "download": HOME / "Downloads",
-    "desktop": HOME / "Desktop",
-    "pictures": HOME / "Pictures", "photos folder": HOME / "Pictures", "pics": HOME / "Pictures",
-    "music": HOME / "Music", "songs folder": HOME / "Music",
-    "movies": HOME / "Movies", "videos": HOME / "Movies", "video": HOME / "Movies",
-    "home": HOME, "home folder": HOME, "user folder": HOME,
-    "applications": Path("/Applications"), "apps folder": Path("/Applications"),
-    "icloud": HOME / "Library/Mobile Documents/com~apple~CloudDocs",
-    "icloud drive": HOME / "Library/Mobile Documents/com~apple~CloudDocs",
-    "trash": HOME / ".Trash", "bin": HOME / ".Trash",
-}
+
+
+def known_folders(home: Path) -> dict[str, Path]:
+    """Spoken folder names → locations under ``home`` (and /Applications)."""
+    return {
+        "documents": home / "Documents", "document": home / "Documents", "docs": home / "Documents",
+        "downloads": home / "Downloads", "download": home / "Downloads",
+        "desktop": home / "Desktop",
+        "pictures": home / "Pictures", "photos folder": home / "Pictures", "pics": home / "Pictures",
+        "music": home / "Music", "songs folder": home / "Music",
+        "movies": home / "Movies", "videos": home / "Movies", "video": home / "Movies",
+        "home": home, "home folder": home, "user folder": home,
+        "applications": Path("/Applications"), "apps folder": Path("/Applications"),
+        "icloud": home / "Library/Mobile Documents/com~apple~CloudDocs",
+        "icloud drive": home / "Library/Mobile Documents/com~apple~CloudDocs",
+        "trash": home / ".Trash", "bin": home / ".Trash",
+    }
+
+
+FOLDERS = known_folders(HOME)
 SITES = {
     "youtube": "https://www.youtube.com", "google": "https://www.google.com", "gmail": "https://mail.google.com",
     "github": "https://github.com", "instagram": "https://www.instagram.com", "twitter": "https://x.com",
@@ -60,7 +67,10 @@ def clean_name(s: str) -> str:
 
 class MacControl:
     def __init__(self, runner: Callable[[list[str]], str] | None = None,
-                 running: Callable[[], list] | None = None, extra_folders: Callable[[], list[Path]] = lambda: []):
+                 running: Callable[[], list] | None = None, extra_folders: Callable[[], list[Path]] = lambda: [],
+                 home: Path | None = None):
+        self.home = home or HOME
+        self.folders = FOLDERS if home is None else known_folders(home)
         self._run = runner or self._subprocess
         self._running = running or self._running_apps
         self.extra_folders = extra_folders  # the owner's file-search folders
@@ -105,14 +115,14 @@ class MacControl:
         s = re.sub(r"^(my|the|meri|mera|mere)\s+", "", s)
         s = re.sub(r"\s+(folder|directory|dir|fold)$", "", s).strip()
         for key in (s, s + " folder"):
-            if key in FOLDERS and FOLDERS[key].is_dir():
-                return FOLDERS[key]
+            if key in self.folders and self.folders[key].is_dir():
+                return self.folders[key]
         roots = [p for p in self.extra_folders() if p.is_dir()]
         for p in roots:
             if p.name.lower() == s:
                 return p
         # a folder one level inside Documents / Desktop / Downloads (or the home folder)
-        for root in roots + [HOME]:
+        for root in roots + [self.home]:
             try:
                 for child in root.iterdir():
                     if child.is_dir() and not child.name.startswith(".") and child.name.lower() == s:
