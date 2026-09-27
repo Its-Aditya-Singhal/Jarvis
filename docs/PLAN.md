@@ -19,9 +19,9 @@ the website gets its own design, related to the app but not a copy.
 - [x] GitHub Actions: tests + lint on every push (Linux); `.dmg` build on tags (macOS runner)
 
 ### 2. Full code review, module by module (each bug → test + own commit)
-- [ ] Security: auth level on every tool path, launch token on every REST/WS route, path tricks in file/folder tools, AppleScript/argv safety, offline-guard bypasses, pending-confirmation replay
-- [ ] Stability: thread safety (camera / mic / speech / brain), leaked threads and processes, error handling, long-run memory growth
-- [ ] Performance: startup time, per-command latency, idle CPU
+- [x] Security: auth level on every tool path, launch token on every REST/WS route, path tricks in file/folder tools, AppleScript/argv safety, offline-guard bypasses, pending-confirmation replay
+- [x] Stability: thread safety (camera / mic / speech / brain), leaked threads and processes, error handling, long-run memory growth
+- [x] Performance: startup time, per-command latency, idle CPU
 
 ### 3. Fixes and new commands
 - [ ] Microphone: report the real cause (permission denied / no input device / busy / device vanished), mic picker + retry in Settings, cause-specific fix text, Info.plist usage strings checked
