@@ -1,7 +1,7 @@
 """Offline guard: keeps the backend process off the internet and shows what it tried.
 
-``install()`` wraps socket connect and DNS lookups for the whole backend
-process. Loopback (the UI, Ollama on 127.0.0.1) and Unix sockets always pass.
+``install()`` wraps socket connect, datagram sends and DNS lookups for the
+whole backend process. Loopback (the UI, Ollama on 127.0.0.1) and Unix sockets always pass.
 Anything else is recorded, and refused while offline mode is on (the default:
 all models are on disk, so nothing needs the network). A separate observer
 lists live connections of this process and of the Ollama server (a different
@@ -67,7 +67,11 @@ class NetGuard:
         orig_connect = socket.socket.connect
         orig_connect_ex = socket.socket.connect_ex
         orig_getaddrinfo = socket.getaddrinfo
-        self._orig = {"connect": orig_connect, "connect_ex": orig_connect_ex, "getaddrinfo": orig_getaddrinfo}
+        orig_sendto = socket.socket.sendto
+        orig_sendmsg = socket.socket.sendmsg
+        self._orig = {"connect": orig_connect, "connect_ex": orig_connect_ex, "getaddrinfo": orig_getaddrinfo,
+                      "sendto": orig_sendto, "sendmsg": orig_sendmsg,
+                      **{n: getattr(socket, n) for n in ("gethostbyname", "gethostbyname_ex", "gethostbyaddr")}}
 
         def target(sock: socket.socket, address) -> tuple[str, int | None] | None:
             if sock.family not in (socket.AF_INET, socket.AF_INET6) or not isinstance(address, tuple):
@@ -92,16 +96,49 @@ class NetGuard:
                 guard.check(h, port if isinstance(port, int) else None, "dns")
             return orig_getaddrinfo(host, port, *args, **kwargs)
 
+        # datagrams (UDP) reach the network without connect()
+        def sendto(sock, data, *args):
+            t = target(sock, args[-1]) if args else None
+            if t:
+                guard.check(t[0], t[1], "send")
+            return orig_sendto(sock, data, *args)
+
+        def sendmsg(sock, buffers, *args):
+            t = target(sock, args[2]) if len(args) >= 3 else None
+            if t:
+                guard.check(t[0], t[1], "send")
+            return orig_sendmsg(sock, buffers, *args)
+
+        # the older resolver functions don't go through getaddrinfo()
+        def lookup(name: str):
+            orig = self._orig[name]
+
+            def wrapped(host, *args):
+                h = host.decode() if isinstance(host, bytes) else str(host or "")
+                if h:
+                    guard.check(h, None, "dns")
+                return orig(host, *args)
+
+            return wrapped
+
         socket.socket.connect = connect  # type: ignore[method-assign]
         socket.socket.connect_ex = connect_ex  # type: ignore[method-assign]
+        socket.socket.sendto = sendto  # type: ignore[method-assign]
+        socket.socket.sendmsg = sendmsg  # type: ignore[method-assign]
         socket.getaddrinfo = getaddrinfo
+        for name in ("gethostbyname", "gethostbyname_ex", "gethostbyaddr"):
+            setattr(socket, name, lookup(name))
 
     def uninstall(self) -> None:  # tests
         if not self._installed:
             return
         socket.socket.connect = self._orig["connect"]  # type: ignore[method-assign]
         socket.socket.connect_ex = self._orig["connect_ex"]  # type: ignore[method-assign]
+        socket.socket.sendto = self._orig["sendto"]  # type: ignore[method-assign]
+        socket.socket.sendmsg = self._orig["sendmsg"]  # type: ignore[method-assign]
         socket.getaddrinfo = self._orig["getaddrinfo"]
+        for name in ("gethostbyname", "gethostbyname_ex", "gethostbyaddr"):
+            setattr(socket, name, self._orig[name])
         self._installed = False
 
 

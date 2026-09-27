@@ -258,3 +258,25 @@ def test_quality_mode_without_whisper_medium_keeps_small(settings, tmp_path):
     svc.speech = SimpleNamespace(stt=small)
     svc._swap_stt("medium")
     assert svc.speech.stt is small and "not downloaded" in svc._mode_note
+
+
+def test_offline_guard_covers_udp_and_legacy_dns():
+    """Datagrams need no connect() and gethostbyname() skips getaddrinfo(): both must be guarded too."""
+    g = NetGuard(offline=lambda: True)
+    g.install()
+    u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        with pytest.raises(OSError, match="offline mode"):
+            u.sendto(b"x", ("93.184.215.14", 53))
+        with pytest.raises(OSError, match="offline mode"):
+            u.sendmsg([b"x"], [], 0, ("93.184.215.14", 53))
+        with pytest.raises(OSError, match="offline mode"):
+            socket.gethostbyname("example.com")
+        with pytest.raises(OSError, match="offline mode"):
+            socket.gethostbyname_ex("example.com")
+        u.sendto(b"x", ("127.0.0.1", 9))  # loopback still works
+        assert socket.gethostbyname("localhost").startswith("127.")
+    finally:
+        u.close()
+        g.uninstall()
+    assert socket.gethostbyname is not None and len(g.recent()) == 4
