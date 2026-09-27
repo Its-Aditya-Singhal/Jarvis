@@ -202,7 +202,9 @@ def test_perf_monitor_reports_power_changes():
     m = PerfMonitor(seen.append, power=lambda: next(readings), period_s=0.01)
     m.start()
     import time
-    time.sleep(0.2)
+    end = time.monotonic() + 10  # each sample makes real psutil/HTTP calls: slow on a busy machine
+    while not (seen and "cpu" in m.stats) and time.monotonic() < end:
+        time.sleep(0.02)
     m.stop()
     assert seen == [True] and m.battery_pct == 55 and "cpu" in m.stats
 
