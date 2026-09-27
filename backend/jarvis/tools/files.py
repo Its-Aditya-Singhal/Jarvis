@@ -8,6 +8,7 @@ location. Only file names/paths are returned; contents are never read.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -70,6 +71,29 @@ class FileSearch:
         self.db.set(KEY, json.dumps([str(p) for p in valid]))
         return valid
 
+    @staticmethod
+    def access(folder: Path) -> str:
+        """ok | denied | missing. macOS guards Desktop, Documents and Downloads per app
+        (Privacy & Security → Files and Folders); without that permission Spotlight
+        silently returns nothing, so check by listing the folder. The first listing
+        also makes macOS ask the user."""
+        if not folder.is_dir():
+            return "missing"
+        try:
+            with os.scandir(folder) as it:  # reading one entry is enough (and cheap)
+                next(it, None)
+            return "ok"
+        except PermissionError:
+            return "denied"
+        except OSError:
+            return "missing"
+
+    def status(self) -> list[dict]:
+        return [{"path": str(f), "access": self.access(f)} for f in self.folders()]
+
+    def denied(self) -> list[Path]:
+        return [f for f in self.folders() if self.access(f) == "denied"]
+
     def allowed(self, path: str | Path) -> bool:
         p = _expand(path)
         return any(p.is_relative_to(f) for f in self.folders())
@@ -97,7 +121,7 @@ class FileSearch:
     def _search(self, query: str) -> list[Path]:
         hits: list[Path] = []
         for folder in self.folders():
-            if not folder.is_dir():
+            if self.access(folder) != "ok":
                 continue
             for line in self._run(folder, query):
                 p = Path(line)

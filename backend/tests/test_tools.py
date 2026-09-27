@@ -178,3 +178,38 @@ def test_applescript_gets_values_as_argv_not_code():
     bridge.create_note("<b>hi</b> & bye")
     assert seen[1][1][1] == "&lt;b&gt;hi&lt;/b&gt; &amp; bye"
     assert AppleBridge(run=lambda s, *a: "Dinner\t2026-01-01T20:00:00\tHome\tu1\n").events_on(date(2026, 1, 1))[0].title == "Dinner"
+
+
+def test_folder_blocked_by_macos_is_reported_not_silently_empty(tmp_path, monkeypatch):
+    import json as _json
+
+    from jarvis.database.db import Database
+    from jarvis.health import issues
+    from jarvis.llm.intents import Action
+    from jarvis.security.crypto import StaticKeyProvider
+    from jarvis.tools.files import FileSearch
+    from jarvis.tools.runner import ToolRunner
+    from jarvis.tools.store import ToolStore
+
+    ok, blocked = tmp_path / "Documents", tmp_path / "Downloads"
+    ok.mkdir(), blocked.mkdir()
+    (ok / "lease.pdf").write_text("x")
+    db = Database(":memory:")
+    db.set("file_search_folders", _json.dumps([str(ok), str(blocked)]))
+    real_scandir = __import__("os").scandir
+
+    def scandir(p):
+        if str(p) == str(blocked):
+            raise PermissionError("Operation not permitted")  # what macOS TCC does
+        return real_scandir(p)
+
+    monkeypatch.setattr("jarvis.tools.files.os.scandir", scandir)
+    calls = []
+    fs = FileSearch(db, runner=lambda folder, q: calls.append(folder) or [str(folder / "lease.pdf")])
+    assert [s["access"] for s in fs.status()] == ["ok", "denied"] and fs.denied() == [blocked]
+    r = ToolRunner(db, ToolStore(db, StaticKeyProvider()), None, fs, None)
+    res = r.run(Action("files.search", {"query": "lease"}), "en")
+    assert calls == [ok]  # the blocked folder isn't queried
+    assert "lease.pdf" in res.say and "hasn't let me look in Downloads" in res.say
+    assert res.data["denied"] == ["Downloads"]
+    assert issues({"files_denied": ["Downloads"]})[0]["id"] == "files"

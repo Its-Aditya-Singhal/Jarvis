@@ -399,6 +399,7 @@ class ToolRunner:
         if not q:
             return ToolResult("files.search", False, "क्या ढूँढूँ, समझ नहीं आया।" if hi else "I didn't catch what to look for.")
         hits = self.files.search(q)
+        blocked = [f.name for f in self.files.denied()]
         if not hits:
             say = f"अनुमति वाले फ़ोल्डरों में {_quote(q)} से जुड़ी कोई फ़ाइल नहीं मिली।" if hi else (
                 f"No files matching {_quote(q)} in your allowed folders.")
@@ -407,7 +408,13 @@ class ToolRunner:
             say = f"{len(hits)} फ़ाइलें मिलीं, जैसे {names}।" if hi else (
                 f"I found {len(hits)} file{'s' if len(hits) != 1 else ''}"
                 + (f", including {names}." if len(hits) > 3 else f": {names}."))
-        return ToolResult("files.search", True, say, {"files": [str(h) for h in hits]})
+        if blocked:
+            which = _join(blocked, hi)
+            say += (f" macOS ने मुझे {which} देखने की अनुमति नहीं दी है — System Settings, Privacy & Security, "
+                    "Files and Folders में अनुमति दीजिए।" if hi else
+                    f" macOS hasn't let me look in {which} — allow it in System Settings, Privacy & Security, "
+                    "Files and Folders.")
+        return ToolResult("files.search", True, say, {"files": [str(h) for h in hits], "denied": blocked})
 
     # -- manual sync ----------------------------------------------------------------------
     def sync_now(self) -> dict:

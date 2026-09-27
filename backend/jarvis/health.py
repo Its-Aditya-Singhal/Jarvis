@@ -54,6 +54,12 @@ def issues(status: dict, data_dir: Path | None = None, perf: dict | None = None)
     if mem.startswith("word match only"):
         out.append({"id": "memory", "level": "warn", "title": "Memory recall by word match only",
                     "fix": "Run: ollama pull bge-m3 — then restart for meaning-based recall."})
+    denied = status.get("files_denied") or []
+    if denied:
+        out.append({"id": "files", "level": "warn",
+                    "title": f"No access to {', '.join(denied)} — file search can't look there",
+                    "fix": "System Settings → Privacy & Security → Files and Folders → turn on "
+                           f"{', '.join(denied)} for JARVIS (while developing: for Terminal), then restart the app."})
     if data_dir is not None:
         try:
             free = shutil.disk_usage(data_dir if data_dir.exists() else data_dir.parent).free

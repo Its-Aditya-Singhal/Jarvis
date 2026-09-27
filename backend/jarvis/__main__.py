@@ -40,6 +40,12 @@ def main() -> None:
     # macOS permission prompts must come from the main thread
     request_permission(s.camera_index)
     mic.request_permission()
+    # Desktop/Documents/Downloads are guarded per app: touching them now makes macOS
+    # ask once, instead of file search silently finding nothing later
+    from .tools.files import FileSearch
+
+    for folder in FileSearch(prefs_db).folders():
+        FileSearch.access(folder)
     uvicorn.run(create_app(s, guard=guard), host=s.host, port=s.port, log_level="warning")
 
 

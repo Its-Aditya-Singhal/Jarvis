@@ -498,7 +498,7 @@ class AssistantService:
 
     def issues(self) -> list[dict]:
         st = {"camera": {"status": self.camera.status}, "models": self._models(),
-              "mic": {"status": self.voice.mic.status} if self.voice else {}}
+              "mic": {"status": self.voice.mic.status} if self.voice else {}, "files_denied": self._files_denied()}
         return health.issues(st, self.s.data_dir, self.perf.stats)
 
     def _start_memory(self) -> None:
@@ -1222,6 +1222,13 @@ class AssistantService:
             **(self.speech.status() if self.speech else {"stt": "disabled", "tts": "disabled"}),
         }
 
+    def _files_denied(self) -> list[str]:
+        f = getattr(self.tools, "files", None) if self.tools else None
+        try:
+            return [p.name for p in f.denied()] if f is not None else []
+        except Exception:
+            return []
+
     def network_info(self) -> dict:
         stats = self.perf.stats or {}
         ext = stats.get("external", [])
@@ -1248,7 +1255,8 @@ class AssistantService:
             "models": (models := self._models()),
             "issues": health.issues({"camera": {"status": self.camera.status},
                                      "mic": {"status": self.voice.mic.status} if self.voice else {},
-                                     "models": models}, self.s.data_dir, self.perf.stats),
+                                     "models": models, "files_denied": self._files_denied()},
+                                    self.s.data_dir, self.perf.stats),
             "perf": {"mode": self._mode, "pref": self.prefs.get("perf.mode"), "on_battery": self.perf.on_battery,
                      "battery_pct": self.perf.battery_pct,
                      **{k: v for k, v in (self.perf.stats or {}).items() if k in ("cpu", "backend_mb", "ollama_mb")}},

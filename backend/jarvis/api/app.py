@@ -452,7 +452,7 @@ def create_app(
 
     @app.get("/api/settings/files", dependencies=auth + [Depends(require_owner)])
     def get_folders():
-        return {"folders": [str(p) for p in files.folders()]}
+        return {"folders": [str(p) for p in files.folders()], "status": files.status()}
 
     @app.put("/api/settings/files", dependencies=auth + [Depends(require_level2)])
     def set_folders(body: FoldersIn):
@@ -461,7 +461,7 @@ def create_app(
         except FolderError as exc:
             raise HTTPException(400, str(exc)) from exc
         bus.log(f"File search folders updated ({len(saved)})")
-        return {"folders": [str(p) for p in saved]}
+        return {"folders": [str(p) for p in saved], "status": files.status()}
 
     @app.post("/api/files/reveal", dependencies=auth + [Depends(require_owner)])
     def reveal(body: PathIn):
