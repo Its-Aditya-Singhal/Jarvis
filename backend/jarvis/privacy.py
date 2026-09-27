@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -155,8 +156,15 @@ def validate_export_path(path: str, data_dir: Path) -> Path:
 
 
 def write_export(svc: AssistantService, path: Path) -> int:
+    """Write to a new owner-only file next to ``path``, then move it into place: an existing
+    file there (or a symlink) is replaced, never written through or left readable by others."""
     data = json.dumps(export_data(svc), ensure_ascii=False, indent=2).encode()
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)  # readable by this user only
-    with os.fdopen(fd, "wb") as f:
-        f.write(data)
+    fd, tmp = tempfile.mkstemp(prefix=".export-", suffix=".json", dir=path.parent)  # mode 0600
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
     return len(data)

@@ -149,6 +149,25 @@ def test_export_is_readable_owner_only_and_has_no_templates(settings, tmp_path):
     assert "face" not in export_data(svc)  # templates are never exported
 
 
+
+def test_export_replaces_an_existing_file_and_never_follows_a_symlink(settings, tmp_path):
+    from jarvis.privacy import write_export
+
+    svc, *_ = make(settings, [])
+    old = tmp_path / "old.json"
+    old.write_text("{}")
+    os.chmod(old, 0o644)  # e.g. a copy others could read
+    write_export(svc, old)
+    assert stat.S_IMODE(os.stat(old).st_mode) == 0o600 and "exported" in old.read_text()
+    victim = tmp_path / "victim.json"
+    victim.write_text("keep me")
+    link = tmp_path / "link.json"
+    link.symlink_to(victim)
+    write_export(svc, link)
+    assert victim.read_text() == "keep me"  # the link was replaced, not written through
+    assert not link.is_symlink() and "exported" in link.read_text()
+    assert [p.name for p in tmp_path.iterdir() if p.name.startswith(".")] == []  # no temp file left
+
 # -- performance modes -------------------------------------------------------------------
 def test_auto_mode_follows_the_power_source():
     assert effective_mode("auto", True) == "fast" and effective_mode("auto", False) == "balanced"
