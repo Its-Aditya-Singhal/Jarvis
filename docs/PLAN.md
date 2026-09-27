@@ -8,6 +8,13 @@ Decisions: public GitHub repo · website on GitHub Pages, `.dmg` on GitHub Relea
 models downloaded on first run · app keeps its command-center look (polish only) ·
 the website gets its own design, related to the app but not a copy.
 
+## Where to pick up
+- Work on `main` (`cloud-1.0` is merged and stale). Next: **A.3 "Math & conversions"**, then the rest of A.3, then A.4 (Phase 10), then B.
+- Open question from the owner: what Settings → Microphone says when JARVIS is started the usual way (the new diagnostics name the cause and the app to allow).
+- Rules: no paid APIs or services · no Claude/AI co-author trailers or credits in commits or files · commit after each fix · ask before starting each big phase · every command goes through the tool registry with an auth level (no shell from model text).
+- Checks: `backend/.venv/bin/python -m pytest -q`, `ruff check .`, `mypy` (in `backend/`); `npm test`, `npm run lint` (in `app/`); `cargo clippy` (in `app/src-tauri/`).
+- Local run for UI checks: `npm run tauri dev` in `app/` (needs Ollama: `~/Developer/ollama/start.sh`).
+
 ## A. Cloud
 
 ### 1. Test & debug infrastructure
