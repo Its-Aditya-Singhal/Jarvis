@@ -664,12 +664,14 @@ class AssistantService:
         session.update(faces, now)
         self.bus.publish({"type": "enroll", **session.snapshot()})
         if session.done:
-            template = session.template()
-            self.store.save(FACE, template)
-            quality = TemplateMatcher(template, self.s.face_top_k).self_consistency()
-            with self._lock:
+            with self._lock:  # cancel / delete / factory reset take this lock too
+                if self.enrollment is not session:
+                    return  # cancelled while this frame was processed: don't save
+                template = session.template()
+                self.store.save(FACE, template)
                 self.enrollment = None
                 self.mode = "idle"
+            quality = TemplateMatcher(template, self.s.face_top_k).self_consistency()
             log.info("face template saved: %d samples, self-consistency %.3f", len(template), quality)
             self.bus.log(f"Face profile saved ({len(template)} encrypted samples)")
             self.bus.publish({"type": "enroll_complete"})

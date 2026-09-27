@@ -260,3 +260,46 @@ def test_nothing_keeps_running_after_the_app_stops(settings):
             break
         time.sleep(0.05)
     assert not left, f"threads left running: {left}"
+
+
+def test_a_cancelled_voice_enrollment_is_never_saved(h):
+    """The owner cancels (or deletes the profile) just as the last phrase is being processed."""
+    h.wait_models()
+    h.post("/api/setup/profile", {"owner_name": "Aditya", "assistant_name": "Jarvis"})
+    assert h.post("/api/enroll/voice/start").status_code == 200
+    v = h.svc.voice
+    session = v.enrollment
+    real_offer = session.offer
+
+    def offer_then_cancel(*a, **k):
+        ok = real_offer(*a, **k)
+        if session.done:
+            v.cancel_enrollment()  # arrives from the API thread at this very moment
+        return ok
+
+    session.offer = offer_then_cancel
+    for phrase in list(session.items):
+        before = session.index
+        h.scene.say(phrase.text, duration_s=2.4)
+        h.wait_for(lambda before=before: session.index > before or v.enrollment is None)
+    time.sleep(0.3)
+    assert not h.svc.voice_enrolled
+
+
+def test_a_cancelled_face_enrollment_is_never_saved(h):
+    h.wait_models()
+    h.post("/api/setup/profile", {"owner_name": "Aditya", "assistant_name": "Jarvis"})
+    assert h.post("/api/enroll/face/start").status_code == 200
+    session = h.svc.enrollment
+    real_update = session.update
+
+    def update_then_cancel(*a, **k):
+        out = real_update(*a, **k)
+        if session.done:
+            h.svc.cancel_enrollment()
+        return out
+
+    session.update = update_then_cancel
+    h.tick_until(lambda: session.done)
+    h.tick(3)
+    assert not h.svc.face_enrolled

@@ -238,9 +238,11 @@ class VoiceService:
         if accepted:
             self.bus.log(f"Voice sample {session.index}/{len(session.items)} captured")
         if session.done:
-            template = session.template()
-            self.store.save(VOICE, template)
-            with self._lock:
+            with self._lock:  # cancel / delete / reset take this lock too
+                if self.enrollment is not session:
+                    return  # cancelled (or the profile deleted) while this phrase was processed
+                template = session.template()
+                self.store.save(VOICE, template)
                 self.enrollment = None
             self.bus.log(f"Voice profile saved ({len(template)} encrypted samples)", "ok")
             self.bus.publish({"type": "voice_enroll_complete"})
