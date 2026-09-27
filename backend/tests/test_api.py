@@ -298,7 +298,9 @@ def test_model_download_endpoints_and_restart(settings, tmp_path):
         (tmp_path / "m").mkdir()
         (tmp_path / "m" / "f.bin").write_bytes(b"done")  # as if downloaded
         assert client.get("/api/status", headers=H).json()["models_needed"] is False
+        svc.db.set("setup_complete", "1")  # set up earlier: the restart still needs no owner
         assert client.post("/api/models/restart", headers=H).json() == {"ok": True}
+        svc.db.set("setup_complete", "0")
         end = time.monotonic() + 5
         while not restarted and time.monotonic() < end:
             time.sleep(0.02)

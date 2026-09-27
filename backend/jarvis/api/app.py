@@ -300,6 +300,7 @@ def create_app(
 
     models = downloader or ModelDownloader(s.models_dir, guard=svc.guard)
     svc.downloader = models
+    started_without_models = bool(models.needed())  # this process loaded none of them
 
     def llm_wanted() -> list[dict]:
         main = db.get("llm_model") or s.llm_model
@@ -375,6 +376,12 @@ def create_app(
         if svc.setup_complete and not models.needed():
             require_owner()
 
+    def require_restart_access() -> None:
+        """A backend that started before its models arrived may always reload them:
+        until it does, nobody can be verified."""
+        if not started_without_models:
+            require_models_access()
+
     auth = [Depends(require_token)]
     models_auth = auth + [Depends(require_models_access)]
 
@@ -405,7 +412,7 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from None
 
-    @app.post("/api/models/restart", dependencies=models_auth)
+    @app.post("/api/models/restart", dependencies=auth + [Depends(require_restart_access)])
     def models_restart():
         """Reload with the new models: the backend restarts in place a moment after answering."""
         if models.running:
