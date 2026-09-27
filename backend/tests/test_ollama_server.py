@@ -28,16 +28,25 @@ def _alive(pid: int) -> bool:
     return True
 
 
+def _until(cond, timeout: float = 5.0) -> bool:
+    end = time.monotonic() + timeout
+    while not cond():
+        if time.monotonic() > end:
+            return False
+        time.sleep(0.02)
+    return True
+
+
 def test_a_slow_server_is_waited_for_not_started_twice(tmp_path, slow_ollama):
     s = srv.OllamaServer("127.0.0.1:9", None, tmp_path / "logs")  # nothing answers on port 9
     assert not s.ensure(wait_s=0.3)
     assert not s.ensure(wait_s=0.3)
-    time.sleep(0.2)
+    assert _until(slow_ollama.exists)  # the fake server has started (slow when the machine is busy)
+    time.sleep(0.2)  # room for a wrongly started second one to show up
     pids = [int(p) for p in slow_ollama.read_text().split()]
     assert len(pids) == 1, "a second `ollama serve` was started while the first was still coming up"
     s.stop()
-    time.sleep(0.2)
-    assert not _alive(pids[0])
+    assert _until(lambda: not _alive(pids[0]))
 
 
 def test_the_server_is_stopped_when_the_desktop_app_disappears(settings, monkeypatch):

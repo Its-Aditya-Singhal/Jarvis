@@ -53,6 +53,16 @@ def _client(settings, mic=None, **kw):
     return TestClient(app, base_url="http://127.0.0.1"), app.state.svc
 
 
+def _voice_ready(svc, timeout: float = 10.0) -> None:
+    """Voice models load in the background; the UI waits for this too (LOADING VOICE MODEL…)."""
+    import time
+
+    end = time.monotonic() + timeout
+    while not (svc.voice and svc.voice.ready and svc.voice.mic.status == "active"):
+        assert time.monotonic() < end, "voice pipeline never became ready"
+        time.sleep(0.02)
+
+
 def test_token_required(settings):
     client, _ = _client(settings)
     with client:
@@ -116,6 +126,7 @@ def test_voice_reenrollment_requires_verified_owner(settings):
     client, svc = _client(settings)
     with client:
         client.post("/api/setup/profile", headers=H, json={"owner_name": "A", "assistant_name": "J"})
+        _voice_ready(svc)
         assert client.post("/api/enroll/voice/start", headers=H).status_code == 200  # during setup
         client.post("/api/enroll/voice/cancel", headers=H)
         svc.store.save("face", np.eye(3, 512, dtype=np.float32))
