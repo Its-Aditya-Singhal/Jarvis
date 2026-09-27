@@ -77,6 +77,7 @@ def make(settings, verified=True):
     sp = SpeechService(settings, FakeDB(), bus, FakeSTT(), FakeTTS(), lambda: state["verified"], lambda: ("Friday", "Aditya"))
     said = []
     sp.out.say = lambda text, gender=None: said.append(text)
+    sp.out.ping = lambda: said.append("<ping>")
     return sp, seen, said, state
 
 
@@ -108,7 +109,7 @@ def test_name_alone_opens_a_follow_up_window(settings):
     sp, seen, said, _ = make(settings)
     sp.stt.text = "Friday?"
     sp.handle(AUDIO, None)
-    assert said[-1] == "Yes?" and sp.listening
+    assert said[-1] == "<ping>" and sp.listening  # a blip, not a synthesised "Yes?"
     sp.stt.text = "what's on my calendar"  # no name needed now
     sp.handle(AUDIO, "verified")
     heard = [e for e in seen if e["type"] == "heard"]

@@ -5,9 +5,9 @@ A local-first desktop assistant for macOS (Apple Silicon) that keeps checking
 name during setup (JARVIS, FRIDAY, anything). No paid APIs and no cloud: every
 model runs on your Mac.
 
-> **Status: Phase 7 of 10: identity, liveness, speech, local LLM, tools,
-> auth levels and a trained fusion model.** Memory and the privacy dashboard
-> come next. The UI marks
+> **Status: Phase 8 of 10: identity, liveness, speech, local LLM, tools,
+> auth levels, a trained fusion model, and memory.** The privacy dashboard
+> comes next. The UI marks
 > every unbuilt feature as such rather than faking it.
 
 ## What works now
@@ -80,6 +80,23 @@ model runs on your Mac.
   - Stranger protection: an unknown voice speaking drops you to L1 until
     you speak again. Someone else in view caps you at L1. A photo or an
     unknown face means L0.
+- Memory:
+  - Say "remember that my sister's birthday is 12 March" (or "yaad rakhna
+    ki…"), then later ask "when is my sister's birthday?" in English, Hindi
+    or Hinglish.
+  - When you mention something personal ("my exam is on Friday"), the
+    assistant offers **Save to memory?** as a chip. Nothing is saved without
+    your tap.
+  - "Forget …" goes through the level-3 confirmation.
+  - The Memory view lists, edits and deletes facts, and searches or clears
+    conversation history (kept 30 days by default; off, 7 days or forever
+    in the same view).
+  - If a personal detail isn't in memory, the assistant says it doesn't
+    know rather than guessing.
+- Speed: easy commands (timers, alarms, opening apps, notes, time and date,
+  calendar, file search, remember and forget, including Hinglish) skip the
+  language model entirely. Speech recognition runs on the Apple GPU, and
+  saying just the name answers with an instant ping.
 - Security log visible only while the verified owner is at the screen.
 
 ## Architecture
@@ -150,12 +167,21 @@ only) on your own camera. If a real face sits below 0.6, lower
 
 | Stage | Model / method |
 |---|---|
-| Speech to text | faster-whisper `small` (CTranslate2 int8, 8 CPU threads), multilingual; about 1.0–1.3 s per command on an M1 Pro |
+| Speech to text | Whisper `small` on the Apple GPU (MLX), about 0.3 s per command on an M1 Pro. A decoding loop is detected and retried without the name prompt. Falls back to faster-whisper on the CPU (about 1.0–1.3 s) |
 | Language | Whisper's detection, limited to English or Hindi (decoded again if it picks another language) |
 | Wake word | the chosen name, matched in the transcript among the first words, tolerant of spelling and script ("Friday" / "फ्राइडे"); the name is given to Whisper as a descriptive prompt |
 | Hindi / Hinglish matching | Devanagari → Latin transliteration + consonant skeletons, so "subah" = "सुबह" = "subaha" |
-| Text to speech | Kokoro-82M (ONNX int8): female `af_heart` / male `am_michael`; Hindi text switches to `hf_alpha` / `hm_omega` |
-| Playback | sentence by sentence (first words after about 1 s); the microphone pipeline is muted while speaking plus 0.4 s, so the assistant doesn't hear itself |
+| Text to speech | Kokoro-82M (ONNX fp32, 8 threads, about 0.25× real time; fp32 is about 3× faster than int8 on Apple Silicon): female `af_heart` / male `am_michael`; Hindi text switches to `hf_alpha` / `hm_omega` |
+| Playback | the next sentence is synthesised while the current one plays; a long first sentence starts at its first comma; short phrases are cached and common ones pre-built at startup; the mic is muted while speaking plus 0.3 s |
+| End of speech | 0.45 s of silence ends an utterance; a bare name answers with a ping instead of a spoken "Yes?" |
+
+Measured on an M1 Pro, from the moment you stop speaking:
+
+| Request | Before phase 8 | Now |
+|---|---|---|
+| Name alone, until it's listening | about 2.5 s | about 0.8 s (ping) |
+| Easy command ("set a timer for 5 minutes"), until the reply starts | about 4 s | about 1.3–1.8 s |
+| Question for the model ("who wrote Hamlet?"), until the reply starts | about 5 s | about 2.5 s |
 
 ## How the language model is used
 
@@ -164,9 +190,11 @@ only) on your own camera. If a real face sits below 0.6, lower
 | Runtime | Ollama on 127.0.0.1:11434, started by JARVIS if not already running; models kept in `~/Developer/ollama/models` |
 | Default model | `qwen2.5:7b` (Q4, about 4.7 GB); any installed model can be picked in Settings |
 | Output | JSON schema enforced by Ollama: `language` (en/hi/hinglish), `actions` (tool + args + summary), `reply` |
-| Tool catalogue | alarm.set/cancel, timer.set, calendar.create/list/delete, notes.add/search/delete, app.open, files.search. Unknown tools are dropped |
+| Tool catalogue | alarm.set/cancel, timer.set, calendar.create/list/delete, notes.add/search/delete, app.open, files.search, memory.remember/forget, history.search. Unknown tools are dropped |
 | Safety | the model never executes anything; replies to action requests are composed by code; no shell, web or messaging |
 | Context | last 4 exchanges, in memory only, expire after 5 min and are cleared when the owner leaves |
+| Fast path | `llm/fastpath.py` understands common commands with patterns (English, Hinglish, and Devanagari via transliteration) in under 1 ms. Anything it doesn't fully match goes to the model |
+| Prompt cache | the system prompt and examples are identical for every request and primed at startup, so Ollama only evaluates the new message (0.16 s instead of 6 s). Background memory requests reuse the same prefix, and Ollama runs 2 slots so they never block a command |
 
 ## How tools work
 
@@ -184,6 +212,17 @@ directly: the runner only plans them, and deletion happens after confirmation.
 Model output is untrusted: each tool validates its arguments (times in the
 future, sane timer lengths, known apps, allowed folders). AppleScript
 receives values as `argv`, never as script text.
+
+## How memory works
+
+| Part | Detail |
+|---|---|
+| Facts | saved when you say "remember…" (level 2), type one in the Memory view, or tap a suggestion; near-duplicates update the existing fact |
+| Recall | each question to the model is embedded with **bge-m3** (multilingual, via Ollama, about 0.1 s). The closest facts (cosine ≥ 0.45) travel with the message as `[Remembered: …]`. Without the embedding model, fuzzy word matching is used |
+| Suggestions | only for chat turns that sound personal ("my", "I'm", "mera", "mujhe"…), run after the reply is spoken. Relative dates are spelled out in code first ("Friday" becomes "Friday 2 October 2026") because the model gets date arithmetic wrong |
+| History | only turns addressed to the assistant, as text; kept for 30 days (off, 7 days or forever); semantic search ("test" finds "exam") |
+| Storage | facts, history and their embeddings are sealed with AES-256-GCM (embeddings too: a sentence vector can leak its meaning). Audio is never stored |
+| Levels | recall and history search L1, remember L2, forget L3 (confirmation); editing or deleting in the Memory view needs L2 |
 
 ## How the voice ML works
 
@@ -264,6 +303,9 @@ field accuracy.
   phase 9).
 - Audio is processed in memory and discarded. Only voice embeddings are kept,
   sealed the same way as face templates.
+- Memory (facts, conversation history, their embeddings) is sealed the same
+  way. Fusion samples hold scores only. Nothing is sent anywhere: recall and
+  suggestions use the local Ollama models.
 - Security events: unknown face or voice, spoof suspected, liveness check
   failed, liveness lockout, frozen camera feed, voice command while not
   verified, command in a non-owner voice, and a tool blocked because the
@@ -285,11 +327,12 @@ Requirements: macOS on Apple Silicon, Python 3.12, Node 20+, Rust (`brew install
 
 ```bash
 cd backend && python3.12 -m venv .venv && .venv/bin/pip install -e ".[dev]"
-.venv/bin/python ../scripts/download_models.py   # ~1 GB, one time (add "medium" for Whisper medium)
-.venv/bin/python -m pytest                        # 145 tests (LLM tests need the model)
+.venv/bin/python ../scripts/download_models.py   # ~1.8 GB, one time (add "medium" for Whisper medium)
+.venv/bin/python -m pytest                        # 189 tests (LLM tests need the model)
 brew install ollama && mkdir -p ~/Developer/ollama/models
 OLLAMA_MODELS=~/Developer/ollama/models ollama serve &   # JARVIS also starts it itself
 ollama pull qwen2.5:7b                            # ~4.7 GB
+ollama pull bge-m3                                # ~1.2 GB, memory recall
 cd ../app && npm install && npm run tauri dev
 ```
 
@@ -312,6 +355,6 @@ which is fine for this academic project.
 5. ✅ Local LLM via Ollama (configurable model, structured intents)
 6. ✅ Tools: alarm, calendar, notes, app launcher, file search (Apple sync optional)
 7. ✅ Continuous multi-factor auth + trained fusion model, auth levels 1–3
-8. Memory (SQLite + local embeddings)
+8. ✅ Memory (encrypted facts + history, bge-m3 recall, suggestions) and a speed pass
 9. Privacy dashboard + settings + performance modes
 10. Polish, `.dmg` packaging, download website, full docs

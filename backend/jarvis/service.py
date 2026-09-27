@@ -41,6 +41,7 @@ from .brain import Brain
 from .tools.runner import LEVELS, Plan, ToolResult, ToolRunner
 from .tools.scheduler import AlarmScheduler
 from .tools.store import Alarm
+from .memory.manager import Memory
 from .speech_service import SpeechService
 from .voice_service import VoiceService
 
@@ -100,6 +101,7 @@ class AssistantService:
         speech_factory: "Callable[[AssistantService], SpeechService] | None" = None,
         brain_factory: "Callable[[AssistantService], Brain] | None" = None,
         tools_factory: "Callable[[AssistantService], tuple[ToolRunner, AlarmScheduler]] | None" = None,
+        memory_factory: "Callable[[AssistantService], Memory] | None" = None,
     ):
         self.s = settings
         self.clock: Callable[[], float] = time.monotonic  # same clock as the face loop's ``now``
@@ -148,6 +150,14 @@ class AssistantService:
             if self.speech is not None:
                 self.speech.alarm_ringing = lambda: bool(self.alarms and self.alarms.ringing())
                 self.speech.dismiss_alarm = self.dismiss_alarms
+        if self.brain is not None and self.tools is not None and self.tools.apps is not None:
+            self.brain.is_app = lambda name: self.tools.apps.resolve(name) is not None
+        self.memory: Memory | None = memory_factory(self) if memory_factory else None
+        if self.memory is not None:
+            if self.tools is not None:
+                self.tools.memory = self.memory
+            if self.brain is not None:
+                self.brain.recall = self.memory.relevant
         if self.speech is not None:
             self.speech.confirm_pending = lambda: self.pending() is not None
             self.speech.on_confirm = self.confirm_spoken
@@ -319,10 +329,23 @@ class AssistantService:
                 self.bus.log(f"Local language model ready ({self.brain.model})")
             else:
                 self.bus.log(f"Language model unavailable: {self.brain.status()}", "error")
+        if self.memory is not None:
+            # purges expired history and indexes anything saved without embeddings
+            threading.Thread(target=self._start_memory, name="memory-start", daemon=True).start()
         if self.setup_complete and self.face_enrolled:
             self.begin_verification()
         self._thread = threading.Thread(target=self._loop, name="face-loop", daemon=True)
         self._thread.start()
+
+    def _start_memory(self) -> None:
+        try:
+            self.memory.start()
+            if self.memory.semantic:
+                self.bus.log(f"Memory recall ready ({self.s.embed_model})")
+            else:
+                self.bus.log(f"Memory recall by word match only: {self.memory.embed_error}", "warn")
+        except Exception:
+            log.exception("memory start failed")
 
     def stop(self) -> None:
         self._stop.set()
@@ -530,10 +553,39 @@ class AssistantService:
                 reply = " ".join(res.say for res in results)
             result = {"reply": reply, "language": r.language, "actions": actions, "ok": r.ok, "latency_s": round(r.latency_s, 2)}
             kinds = ", ".join(a.tool for a in r.actions) or "conversation"
-            self.bus.log(f"Command understood ({kinds}) in {r.latency_s:.1f} s" if r.ok else "Language model unavailable", "info" if r.ok else "error")
+            how = "instantly" if r.fast else f"in {r.latency_s:.1f} s"
+            self.bus.log(f"Command understood ({kinds}) {how}" if r.ok else "Language model unavailable", "info" if r.ok else "error")
         self.bus.publish({"type": "reply", "text": result["reply"], "actions": result["actions"]})
         self.bus.publish({"type": "say", "text": result["reply"]})
+        if self.memory is not None and result.get("ok", True):
+            # after the reply: history and memory suggestions never slow down the answer
+            chat = not result["actions"]
+            threading.Thread(target=self._after_turn, args=(text, result["reply"], result["language"], chat),
+                             name="memory-turn", daemon=True).start()
         return result
+
+    def _after_turn(self, text: str, reply: str, lang: str, chat: bool) -> None:
+        try:
+            self.memory.log_turn(text, reply, lang)
+            if chat and self.memory.sounds_personal(text):
+                for sug in self.memory.suggest(text):
+                    self.bus.publish({"type": "memory_suggestion", "id": sug.id, "text": sug.text})
+                    self.bus.log("Memory suggestion ready")
+        except Exception:
+            log.exception("memory bookkeeping failed")
+
+    def memory_changed(self) -> None:
+        self.bus.publish({"type": "memory_changed"})
+
+    def accept_suggestion(self, sid: str, accept: bool) -> dict:
+        s = self.memory.pop_suggestion(sid) if self.memory else None
+        if s is None:
+            return {"ok": False}
+        if accept:
+            fact, _ = self.memory.remember(s.text, "suggested")
+            self.bus.log("Saved to memory", "ok")
+            return {"ok": True, "id": fact.id if fact else None}
+        return {"ok": True}
 
     def _blocked_say(self, code: str, lang: str, source: str) -> str:
         if code == "voice_needed" and source == "voice":
@@ -830,6 +882,10 @@ class AssistantService:
                 "liveness": self._liveness_status(),
                 "llm": self.brain.status() if self.brain else "disabled",
                 "tools": "ready" if self.tools else "disabled",
+                "memory": (
+                    ("ready" if self.memory.semantic else f"word match only — {self.memory.embed_error}")
+                    if self.memory else "disabled"
+                ),
                 **(self.speech.status() if self.speech else {"stt": "disabled", "tts": "disabled"}),
             },
             "voice_gender": self.speech.voice_gender() if self.speech else self.db.get("voice_gender", "female"),
@@ -841,6 +897,10 @@ class AssistantService:
                 for a in (self.alarms.ringing() if self.alarms else [])
             ],
             "auth": (auth := self.auth_public()),
+            "suggestions": (
+                [{"id": x.id, "text": x.text} for x in self.memory.suggestions()]
+                if self.memory is not None and auth.get("level", 0) >= 1 else []
+            ),
             # what is about to be deleted is shown to the verified owner only
             "pending": (
                 {"id": p.id, "tool": p.plan.tool, "text": p.say, "expires_s": round(p.expires - self.clock(), 1)}

@@ -54,7 +54,7 @@ class Segmenter:
     start_threshold: float = 0.5
     end_threshold: float = 0.35
     min_speech_s: float = 0.3  # drops clicks; callers apply their own minimums
-    end_silence_s: float = 0.55
+    end_silence_s: float = 0.45  # short: commands are acted on as soon as you stop
     max_s: float = 12.0
     preroll_frames: int = 6
 

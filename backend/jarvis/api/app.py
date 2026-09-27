@@ -29,6 +29,9 @@ from ..events import EventBus
 from ..security.crypto import KeychainKeyProvider, KeyProvider
 from ..security.template_store import TemplateStore
 from ..brain import Brain
+from ..llm.client import OllamaClient
+from ..memory.manager import RETENTION_CHOICES, Memory
+from ..memory.store import MemoryStore
 from ..tools.apple import AppleBridge, AppleError
 from ..tools.apps import AppIndex
 from ..tools.files import FileSearch, FolderError
@@ -91,6 +94,14 @@ class ConfirmIn(BaseModel):
     accept: bool
 
 
+class FactIn(BaseModel):
+    text: str = Field(min_length=1, max_length=300)
+
+
+class RetentionIn(BaseModel):
+    retention: Literal["off", "7d", "30d", "forever"]
+
+
 class SnoozeIn(BaseModel):
     minutes: int = Field(default=5, ge=1, le=60)
 
@@ -113,6 +124,8 @@ def create_app(
     apple: AppleBridge | None = None,
     apps: AppIndex | None = None,
     tools: bool = True,
+    memory: bool = True,
+    memory_client: OllamaClient | None = None,
 ) -> FastAPI:
     s = settings or get_settings()
     db = Database(s.db_path)
@@ -159,6 +172,14 @@ def create_app(
     def make_brain(svc: AssistantService) -> Brain:
         return brain or Brain(s, db, names=lambda: (svc.assistant_name, svc.owner_name), voice_gender=lambda: db.get("voice_gender", "female"))
 
+    def make_memory(svc: AssistantService) -> Memory:
+        client = memory_client or (svc.brain.client if svc.brain else OllamaClient(f"http://{s.ollama_host}", 30.0))
+        return Memory(
+            db, MemoryStore(db, keyp), client, s.embed_model,
+            extractor=svc.brain.extract_facts if svc.brain else None,
+            on_change=svc.memory_changed,
+        )
+
     svc = AssistantService(
         s,
         db,
@@ -170,6 +191,7 @@ def create_app(
         speech_factory=make_speech if (speech and s.speech_enabled) else None,
         brain_factory=make_brain if llm else None,
         tools_factory=make_tools if tools else None,
+        memory_factory=make_memory if (memory and s.memory_enabled) else None,
     )
 
     @asynccontextmanager
@@ -462,6 +484,87 @@ def create_app(
     @app.post("/api/fusion/reset", dependencies=auth + [Depends(require_level2)])
     def fusion_reset():
         return svc.reset_fusion()
+
+    # -- memory ------------------------------------------------------------------------------
+    def memory_or_503() -> Memory:
+        if svc.memory is None:
+            raise HTTPException(503, "memory disabled")
+        return svc.memory
+
+    def fact_out(f) -> dict:
+        return {"id": f.id, "text": f.text, "source": f.source,
+                "created": f.created.isoformat(timespec="minutes"), "updated": f.updated.isoformat(timespec="minutes")}
+
+    @app.get("/api/memory", dependencies=auth + [Depends(require_owner)])
+    def memory_state():
+        m = memory_or_503()
+        return {
+            "facts": [fact_out(f) for f in m.facts()],
+            "suggestions": [{"id": x.id, "text": x.text} for x in m.suggestions()],
+            "status": m.status(),
+            "retention_choices": list(RETENTION_CHOICES),
+        }
+
+    @app.post("/api/memory", dependencies=auth + [Depends(require_level2)])
+    def memory_add(body: FactIn):
+        fact, _ = memory_or_503().remember(body.text, "typed")
+        if fact is None:
+            raise HTTPException(400, "nothing to remember")
+        return fact_out(fact)
+
+    @app.put("/api/memory/{fact_id}", dependencies=auth + [Depends(require_level2)])
+    def memory_edit(fact_id: int, body: FactIn):
+        if not memory_or_503().update(fact_id, body.text):
+            raise HTTPException(404, "no such memory")
+        return {"ok": True}
+
+    @app.delete("/api/memory/{fact_id}", dependencies=auth + [Depends(require_level2)])
+    def memory_delete(fact_id: int):
+        if not memory_or_503().delete(fact_id):
+            raise HTTPException(404, "no such memory")
+        bus.log("Memory deleted")
+        return {"ok": True}
+
+    @app.post("/api/memory/suggestions/{sid}", dependencies=auth + [Depends(require_owner)])
+    def memory_suggestion(sid: str, body: ConfirmIn):
+        memory_or_503()
+        if body.accept:
+            require_level2()  # saving needs the owner's voice, dismissing doesn't
+        return svc.accept_suggestion(sid, body.accept)
+
+    @app.get("/api/history", dependencies=auth + [Depends(require_owner)])
+    def history(days: int = Query(default=30, ge=1, le=3650), q: str = Query(default="", max_length=200)):
+        m = memory_or_503()
+        if q.strip():
+            return {"turns": [
+                {"time": y.ts.isoformat(timespec="seconds"), "you": y.text, "reply": r.text if r else None}
+                for y, r in m.search_history(q, k=20)
+            ], "search": True}
+        turns = sorted(m.history(days), key=lambda t: t.ts)
+        pairs, pending = [], None
+        for t in turns:
+            if t.role == "you":
+                if pending:
+                    pairs.append(pending)
+                pending = {"time": t.ts.isoformat(timespec="seconds"), "you": t.text, "reply": None}
+            elif pending is not None and pending["reply"] is None:
+                pending["reply"] = t.text
+        if pending:
+            pairs.append(pending)
+        return {"turns": pairs[::-1], "search": False}
+
+    @app.put("/api/settings/history", dependencies=auth + [Depends(require_level2)])
+    def set_retention(body: RetentionIn):
+        m = memory_or_503()
+        m.set_retention(body.retention)
+        bus.log(f"Conversation history retention: {body.retention}")
+        return m.status()
+
+    @app.delete("/api/history", dependencies=auth + [Depends(require_level2)])
+    def clear_history():
+        n = memory_or_503().clear_history()
+        bus.log(f"Conversation history cleared ({n} entries)")
+        return {"deleted": n}
 
     @app.get("/api/security/events", dependencies=auth + [Depends(require_owner)])
     def security_events(limit: int = 50):

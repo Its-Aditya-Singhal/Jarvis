@@ -31,6 +31,7 @@ LEVELS = {
     "calendar.list": 1, "notes.search": 1, "files.search": 1,
     "alarm.set": 2, "timer.set": 2, "alarm.cancel": 2, "calendar.create": 2, "notes.add": 2, "app.open": 2,
     "calendar.delete": 3, "notes.delete": 3,
+    "history.search": 1, "memory.remember": 2, "memory.forget": 3,
 }
 MATCH_MIN = 75  # fuzzy score needed to pick a note/event to delete
 MAX_TIMER_S = 24 * 3600
@@ -84,6 +85,7 @@ class ToolRunner:
         self.apple = apple
         self.on_change = on_change
         self.clock = clock
+        self.memory = None  # jarvis.memory.manager.Memory, set when memory is enabled
 
     # -- Apple sync settings --------------------------------------------------------
     @property
@@ -122,6 +124,8 @@ class ToolRunner:
         hi = plan.hi
         if plan.tool == "notes.delete":
             done = self.store.delete_note(plan.item_id)
+        elif plan.tool == "memory.forget" and self.memory is not None:
+            done = self.memory.delete(plan.item_id)
         elif plan.tool == "calendar.delete":
             done = self.store.delete_event(plan.item_id)
         else:
@@ -333,6 +337,53 @@ class ToolRunner:
             return ToolResult("notes.delete", False, f"{_quote(q)} से जुड़ा कोई नोट नहीं मिला।" if hi else f"No note matches {_quote(q)}.")
         n = sorted(scored, key=lambda x: (-x[0], -x[1].created.timestamp()))[0][1]
         return Plan("notes.delete", n.id, f"नोट {_quote(n.text)}" if hi else f"the note {_quote(n.text)}", hi)
+
+    # -- memory ------------------------------------------------------------------------
+    def _memory_remember(self, args: dict, hi: bool) -> ToolResult:
+        if self.memory is None:
+            return ToolResult("memory.remember", False, "मेमोरी बंद है।" if hi else "Memory is turned off.")
+        fact, created = self.memory.remember(str(args.get("text") or ""), "said")
+        if fact is None:
+            return ToolResult("memory.remember", False, "क्या याद रखूँ, समझ नहीं आया।" if hi else "I didn't catch what to remember.")
+        if hi:
+            say = "याद रख लिया।" if created else "यह पहले से याद है, अपडेट कर दिया।"
+        else:
+            say = "Got it, I'll remember that." if created else "I already knew that; updated it."
+        return ToolResult("memory.remember", True, say, {"id": fact.id, "text": fact.text})
+
+    def _plan_memory_forget(self, args: dict, hi: bool) -> Plan | ToolResult:
+        q = " ".join(str(args.get("query") or "").split())[:200]
+        if self.memory is None or not q:
+            return ToolResult("memory.forget", False, "क्या भूलूँ, समझ नहीं आया।" if hi else "I didn't catch what to forget.")
+        hits = self.memory.search(q, k=1, min_sim=0.5)
+        if not hits:
+            return ToolResult("memory.forget", False, f"{_quote(q)} के बारे में मुझे कुछ याद नहीं है।" if hi
+                              else f"I don't have anything remembered about {_quote(q)}.")
+        f = hits[0][1]
+        return Plan("memory.forget", f.id, f"याद की गई बात {_quote(f.text)}" if hi else f"the memory {_quote(f.text)}", hi)
+
+    def _history_search(self, args: dict, hi: bool) -> ToolResult:
+        if self.memory is None:
+            return ToolResult("history.search", False, "मेमोरी बंद है।" if hi else "Memory is turned off.")
+        q = " ".join(str(args.get("query") or "").split())[:200]
+        d = parse_local(f"{args.get('date')}T00:00") if args.get("date") else None
+        found = self.memory.search_history(q, d)
+        now = self.clock()
+        if not found:
+            return ToolResult("history.search", True, "ऐसी कोई पिछली बातचीत नहीं मिली।" if hi
+                              else "I couldn't find that in our past conversations.", {"turns": []})
+        parts = []
+        for you, reply in found[:2]:
+            when = f"{day_phrase(you.ts.date(), now.date(), hi)} {clock_phrase(you.ts, hi)}"
+            if hi:
+                parts.append(f"{when} आपने कहा {_quote(you.text)}" + (f", मैंने जवाब दिया {_quote(reply.text)}" if reply else ""))
+            else:
+                parts.append(f"{when} you said {_quote(you.text)}" + (f" and I replied {_quote(reply.text)}" if reply else ""))
+        say = ("; ".join(parts) + ("।" if hi else "."))
+        say = say[:1].upper() + say[1:]
+        data = {"turns": [{"time": y.ts.isoformat(timespec="minutes"), "you": y.text, "reply": r.text if r else None}
+                          for y, r in found]}
+        return ToolResult("history.search", True, say, data)
 
     # -- apps & files --------------------------------------------------------------------
     def _app_open(self, args: dict, hi: bool) -> ToolResult:

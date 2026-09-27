@@ -1,5 +1,7 @@
 """Spoken output: a queue of phrases, synthesised sentence by sentence and
-played on the default output device while the next sentence is prepared.
+played on the default output device while the next sentence is prepared
+(synthesis of sentence n+1 overlaps playback of sentence n). Short fixed
+phrases are cached, and a listening "ping" replaces a spoken "Yes?".
 
 While the assistant speaks (and briefly after), ``muted()`` is true so the
 microphone pipeline ignores its own voice instead of transcribing it.
@@ -11,6 +13,8 @@ import logging
 import queue
 import threading
 import time
+from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
 from typing import Callable
 
 import numpy as np
@@ -21,8 +25,26 @@ from .tts import SAMPLE_RATE, TextToSpeech
 
 log = logging.getLogger(__name__)
 
-TAIL_MUTE_S = 0.4  # room echo after playback ends
+TAIL_MUTE_S = 0.3  # room echo after playback ends
+PING_MUTE_S = 0.1
 CHIME = "\x00chime"
+PING = "\x00ping"
+CACHE_MAX_CHARS = 60  # short phrases ("Timer started.") are kept after first synthesis
+CACHE_SIZE = 64
+
+
+def _split_clause(sentence: str) -> tuple[str, str]:
+    i = sentence.index(", ", 12)
+    return sentence[:i], sentence[i + 2:]
+
+
+def ping_audio(sr: int = SAMPLE_RATE) -> np.ndarray:
+    """A short rising two-note blip: "I'm listening" (generated, no asset)."""
+    def tone(f: float, dur: float) -> np.ndarray:
+        t = np.arange(int(sr * dur)) / sr
+        env = np.minimum(1, t / 0.005) * np.exp(-t * 18)
+        return (0.25 * env * np.sin(2 * np.pi * f * t)).astype(np.float32)
+    return np.concatenate([tone(988, 0.06), tone(1480, 0.1)])
 
 
 def chime_audio(sr: int = SAMPLE_RATE) -> np.ndarray:
@@ -74,6 +96,8 @@ class SpeechOutput:
         self._mute_until = 0.0
         self._last_level_t = 0.0
         self._thread: threading.Thread | None = None
+        self._cache: OrderedDict[tuple[str, str], np.ndarray] = OrderedDict()
+        self._synth_pool = ThreadPoolExecutor(1, thread_name_prefix="tts")
 
     @property
     def speaking(self) -> bool:
@@ -105,6 +129,32 @@ class SpeechOutput:
     def chime(self) -> None:
         self._q.put((CHIME, None))
 
+    def ping(self) -> None:
+        self._q.put((PING, None))
+
+    def synth(self, text: str, gender: str) -> np.ndarray:
+        key = (text, gender)
+        if key in self._cache:
+            self._cache.move_to_end(key)
+            return self._cache[key]
+        audio = self.tts.synth(text, gender)
+        if len(text) <= CACHE_MAX_CHARS:
+            self._cache[key] = audio
+            while len(self._cache) > CACHE_SIZE:
+                self._cache.popitem(last=False)
+        return audio
+
+    def prewarm(self, phrases: list[str]) -> None:
+        """Synthesise common phrases ahead of time (background, at startup)."""
+        for p in phrases:
+            for sentence in split_sentences(p):
+                if self._closed.is_set():
+                    return
+                try:
+                    self.synth(sentence, self.gender())
+                except Exception:
+                    log.debug("prewarm failed for %r", sentence)
+
     def interrupt(self) -> None:
         while not self._q.empty():
             try:
@@ -126,21 +176,37 @@ class SpeechOutput:
                 break
             self._stop_current.clear()
             self._speaking = True
-            if text != CHIME:
-                self.bus.publish({"type": "tts", "active": True, "text": text})
+            sound = text in (CHIME, PING)
+            announced = False
             try:
                 if text == CHIME:
                     self.player.play(chime_audio(), SAMPLE_RATE, self._level, self._stop_current)
                     continue
-                for sentence in split_sentences(text):
+                if text == PING:
+                    self.player.play(ping_audio(), SAMPLE_RATE, lambda _l: None, self._stop_current)
+                    continue
+                g = gender or self.gender()
+                sentences = split_sentences(text)
+                if sentences and len(sentences[0]) > 50 and ", " in sentences[0][12:]:
+                    # start talking sooner: the first clause is synthesised on its own
+                    head, tail = _split_clause(sentences[0])
+                    sentences[0:1] = [head + ",", tail]
+                nxt = self._synth_pool.submit(self.synth, sentences[0], g) if sentences else None
+                for i in range(len(sentences)):
+                    audio = nxt.result()
+                    # prepare the next sentence while this one plays
+                    nxt = self._synth_pool.submit(self.synth, sentences[i + 1], g) if i + 1 < len(sentences) else None
                     if self._stop_current.is_set():
                         break
-                    audio = self.tts.synth(sentence, gender or self.gender())
+                    if not announced:  # when sound actually starts, not when synthesis does
+                        announced = True
+                        self.bus.publish({"type": "tts", "active": True, "text": text})
                     self.player.play(audio, SAMPLE_RATE, self._level, self._stop_current)
             except Exception:
                 log.exception("speech output failed")
             finally:
-                self._mute_until = time.monotonic() + TAIL_MUTE_S
+                self._mute_until = time.monotonic() + (PING_MUTE_S if text == PING else TAIL_MUTE_S)
                 self._speaking = False
-                self.bus.publish({"type": "tts", "active": False})
+                if announced:
+                    self.bus.publish({"type": "tts", "active": False})
                 self.bus.publish({"type": "level", "level": 0.0, "source": "assistant"})

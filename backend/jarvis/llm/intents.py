@@ -37,6 +37,9 @@ TOOLS: dict[str, tuple[str, str]] = {
     "notes.search": ("Find saved notes", "query"),
     "notes.delete": ("Delete one saved note", "query: words from the note"),
     "app.open": ("Open a Mac application", "name"),
+    "memory.remember": ("Remember something the user tells you to remember", "text: the fact, in the user's words"),
+    "memory.forget": ("Forget one remembered fact", "query: words from the fact"),
+    "history.search": ("Find what was said in past conversations", "query; date: optional ISO date"),
     "files.search": ("Search the user's files", "query"),
 }
 
@@ -97,6 +100,9 @@ Rules:
 - Never say that you did, set, saved or opened anything.
 - Only use the listed tools. For anything else (messages, email, web, purchases, deleting files, running code) return no actions and say briefly that you can't do that.
 - For live information (weather, news, prices, scores) say you have no internet access.
+- A line "[Remembered: ...]" before the user's words lists facts the user earlier asked you to remember, in their own words ("my", "I" = the user). Use them to answer questions; never call memory.remember for them again.
+- Only use memory.remember when the user explicitly asks you to remember something ("remember", "yaad rakhna", "don't forget").
+- Questions about the user's own life (family, preferences, plans, where things are): answer ONLY from the [Remembered: ...] line. If the answer isn't there, say you don't know yet and that they can ask you to remember it. Never guess personal details. Never say you remember something unless it is in [Remembered: ...].
 - The user is {owner}."""
 
 
@@ -117,6 +123,9 @@ FEWSHOT: list[tuple[str, str, dict]] = [
                   {"tool": "files.search", "args": {"query": "lease"}}], "reply": ""}),
     ("hinglish", "bank wala note delete kar do",
      {"actions": [{"tool": "notes.delete", "args": {"query": "bank"}}], "reply": ""}),
+    ("en", "Remember that my passport number ends in 42 and find my passport scan",
+     {"actions": [{"tool": "memory.remember", "args": {"text": "My passport number ends in 42"}},
+                  {"tool": "files.search", "args": {"query": "passport"}}], "reply": ""}),
     ("en", "Who wrote Hamlet?", {"actions": [], "reply": "Hamlet was written by William Shakespeare."}),
     ("hi", "आज मौसम कैसा है?", {"actions": [], "reply": "मेरे पास इंटरनेट नहीं है, इसलिए अभी के मौसम की जानकारी नहीं है।"}),
     ("en", "Send a WhatsApp message to Rahul", {"actions": [], "reply": "Sorry, I can't send messages."}),
@@ -124,7 +133,8 @@ FEWSHOT: list[tuple[str, str, dict]] = [
 
 
 def build_messages(
-    assistant: str, owner: str, now: datetime, lang: str, text: str, history: list[tuple[str, str, str]]
+    assistant: str, owner: str, now: datetime, lang: str, text: str, history: list[tuple[str, str, str]],
+    remembered: list[str] | None = None,
 ) -> list[dict[str, str]]:
     """history: (language, user text, assistant JSON) of recent exchanges."""
     msgs = [{"role": "system", "content": system_prompt(assistant, owner)}]
@@ -134,7 +144,8 @@ def build_messages(
     for h_lang, user, out in history:
         msgs.append({"role": "user", "content": f"{_header(now, h_lang)}\n{user}"})
         msgs.append({"role": "assistant", "content": out})
-    msgs.append({"role": "user", "content": f"{_header(now, lang)}\n{text}"})
+    memo = f"[Remembered: {' | '.join(remembered)}]\n" if remembered else ""
+    msgs.append({"role": "user", "content": f"{_header(now, lang)}\n{memo}{text}"})
     return msgs
 
 
@@ -223,6 +234,12 @@ def describe(a: Action, language: str, now: datetime) -> str:
         return f"“{text('title')}” हटाना" if hi else f"deleting “{text('title')}”"
     if a.tool == "notes.delete" and text("query"):
         return f"“{text('query')}” वाला नोट हटाना" if hi else f"deleting the note about “{text('query')}”"
+    if a.tool == "memory.remember" and text("text"):
+        return f"याद रखना: “{text('text')}”" if hi else f"remembering “{text('text')}”"
+    if a.tool == "memory.forget" and text("query"):
+        return f"“{text('query')}” वाली बात भूलना" if hi else f"forgetting “{text('query')}”"
+    if a.tool == "history.search":
+        return "पिछली बातचीत में ढूँढना" if hi else "searching our past conversations"
     if a.tool == "app.open" and text("name"):
         return f"{text('name')} खोलना" if hi else f"opening {text('name')}"
     if a.tool == "files.search" and text("query"):

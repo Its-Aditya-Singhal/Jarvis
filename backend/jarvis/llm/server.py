@@ -55,7 +55,8 @@ class OllamaServer:
         if binary is None:
             self.error = "Ollama is not installed (brew install ollama)"
             return False
-        env = {**os.environ, "OLLAMA_HOST": self.host, "OLLAMA_FLASH_ATTENTION": "1", "OLLAMA_KV_CACHE_TYPE": "q8_0"}
+        env = {**os.environ, "OLLAMA_HOST": self.host, "OLLAMA_FLASH_ATTENTION": "1", "OLLAMA_KV_CACHE_TYPE": "q8_0",
+               "OLLAMA_NUM_PARALLEL": "2"}  # a background memory request never blocks a command
         if self.models_dir is not None:
             self.models_dir.mkdir(parents=True, exist_ok=True)
             env["OLLAMA_MODELS"] = str(self.models_dir)

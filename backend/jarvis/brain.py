@@ -18,8 +18,12 @@ from typing import Callable
 from .config import Settings
 from .database.db import Database
 from .llm.client import LLMUnavailable, OllamaClient
+from .llm.fastpath import parse_fast
 from .llm.intents import SCHEMA, Action, Intent, build_messages, compose_reply, detect_language, parse_intent
 from .llm.server import OllamaServer
+from .memory.manager import EXTRACT_SCHEMA, EXTRACT_TASK, Memory
+
+personal_question = Memory.sounds_personal
 
 log = logging.getLogger(__name__)
 
@@ -36,6 +40,7 @@ class BrainResult:
     latency_s: float
     ok: bool
     chat: str = ""  # the model's own reply (questions/chat); unused for action requests
+    fast: bool = False  # understood by the instant pattern matcher, not the LLM
 
 
 class Brain:
@@ -60,6 +65,8 @@ class Brain:
         self._lock = threading.Lock()
         self._status: tuple[float, str] | None = None
         self.installed: list[str] = []
+        self.is_app: Callable[[str], bool] = lambda name: False  # set when tools are enabled
+        self.recall: Callable[[str], list[str]] = lambda text: []  # set when memory is enabled
 
     # -- model selection -------------------------------------------------------
     @property
@@ -89,9 +96,27 @@ class Brain:
             return False
         try:
             self.client.warm(self.model)
+            self.prime()
         except LLMUnavailable:
             return False
         return True
+
+    def prime(self) -> None:
+        """Evaluate the constant prompt prefix once, so Ollama's cache makes the
+        first real command as fast as later ones (~0.2 s instead of ~6 s)."""
+        try:
+            self.client.chat_json(self.model, self._messages("hello", "en", self.clock(), recall=False), SCHEMA,
+                                  num_predict=1)
+        except ValueError:
+            pass  # a one-token answer isn't valid JSON; only the cache matters
+
+    def extract_facts(self, text: str) -> list[str]:
+        """Durable personal facts in ``text`` (for memory suggestions). Uses the
+        same system prompt and examples as commands so the cache stays warm."""
+        assistant, owner = self.names()
+        msgs = build_messages(assistant, owner, self.clock(), "en", EXTRACT_TASK + text, [])
+        data = self.client.chat_json(self.model, msgs, EXTRACT_SCHEMA, temperature=0.0, num_predict=80)
+        return [str(f) for f in (data.get("facts") or []) if isinstance(f, str)]
 
     def stop(self) -> None:
         self.server.stop()
@@ -118,13 +143,21 @@ class Brain:
         with self._lock:
             self._history.clear()
 
-    def _messages(self, text: str, lang: str, now: datetime) -> list[dict[str, str]]:
+    def _messages(self, text: str, lang: str, now: datetime, recall: bool = True) -> list[dict[str, str]]:
         assistant, owner = self.names()
+        remembered: list[str] = []
+        if recall:
+            try:
+                remembered = self.recall(text)
+            except Exception:
+                log.exception("memory recall failed")
         cutoff = time.monotonic() - HISTORY_TTL_S
         with self._lock:
             self._history = [h for h in self._history if h[0] >= cutoff][-HISTORY_TURNS:]
             history = [(h[1], h[2], h[3]) for h in self._history]
-        return build_messages(assistant, owner, now, lang, text, history)
+        if recall and not remembered and personal_question(text):
+            remembered = ["(nothing relevant remembered)"]  # stops the model inventing personal details
+        return build_messages(assistant, owner, now, lang, text, history, remembered)
 
     @staticmethod
     def _sorry(hindi: bool, gender: str) -> str:
@@ -138,6 +171,15 @@ class Brain:
         lang = detect_language(text, stt_lang)
         hindi = lang != "en"
         now = self.clock()
+        fast = parse_fast(text, lang, now, self.is_app)
+        if fast is not None:
+            # simple command: no model call at all
+            record = json.dumps({"actions": [{"tool": a.tool, "args": a.args} for a in fast.actions], "reply": fast.reply},
+                                ensure_ascii=False)
+            with self._lock:
+                self._history.append((time.monotonic(), lang, text, record))
+            reply = compose_reply(fast, gender) or self._sorry(hindi, gender)
+            return BrainResult(reply, lang, fast.actions, time.monotonic() - t0, True, fast.reply, fast=True)
         msgs = self._messages(text, lang, now)
         try:
             try:

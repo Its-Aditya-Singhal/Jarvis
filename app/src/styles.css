@@ -373,3 +373,27 @@ code { font-family: var(--mono); font-size: 11.5px; color: var(--accent); }
 .confirm-actions { display: flex; gap: 10px; margin-top: 12px; }
 .btn.danger { border-color: rgba(255, 59, 92, 0.8); color: #ffd0d8; background: rgba(255, 59, 92, 0.16); font-size: 11px; padding: 8px 18px; }
 .btn.danger:hover:not(:disabled) { background: rgba(255, 59, 92, 0.3); box-shadow: 0 0 20px rgba(255, 59, 92, 0.35); }
+
+/* memory */
+.memory-card { grid-column: 1 / -1; }
+.memory-add { margin-bottom: 8px; }
+.memory-add .field, .fact .field, .history-bar .field:first-child { width: 100%; box-sizing: border-box; min-width: 0; }
+.fact { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px dashed rgba(0, 212, 255, 0.08); font-size: 13.5px; }
+.fact > span { flex: 1; }
+.fact .field { flex: 1; }
+.fact em { font-style: normal; font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.15em; color: #b89bff; margin-right: 6px; }
+.fact.suggestion { border: 1px dashed rgba(168, 120, 255, 0.5); border-radius: 5px; padding: 7px 10px; margin-bottom: 6px; }
+.mini { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.12em; padding: 3px 8px; border-radius: 3px; border: 1px solid var(--line-strong); background: none; color: var(--muted); cursor: pointer; }
+.mini:hover { color: var(--text); border-color: var(--accent); }
+.mini.ok { color: var(--ok); border-color: rgba(45, 255, 179, 0.5); }
+.mini.danger:hover { color: var(--alert); border-color: var(--alert); }
+.history-bar { display: flex; gap: 10px; margin-bottom: 8px; }
+.history-bar .field:first-child { flex: 1; }
+.history { max-height: 340px; overflow-y: auto; }
+.history-turn { padding: 8px 0; border-bottom: 1px dashed rgba(0, 212, 255, 0.08); font-size: 13px; }
+.history-turn time { display: block; font-family: var(--mono); font-size: 10.5px; color: var(--accent); opacity: 0.75; margin-bottom: 2px; }
+.history-turn b { font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; color: var(--muted); margin-right: 4px; }
+.suggestions { margin: 12px auto 0; max-width: 560px; display: flex; flex-direction: column; gap: 6px; }
+.suggestion-chip { display: flex; align-items: center; gap: 10px; padding: 7px 12px; border: 1px dashed rgba(168, 120, 255, 0.55); border-radius: 8px; background: rgba(168, 120, 255, 0.06); text-align: left; animation: fadein 0.3s; }
+.suggestion-label { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.15em; color: #b89bff; flex: none; }
+.suggestion-text { flex: 1; font-size: 13.5px; }

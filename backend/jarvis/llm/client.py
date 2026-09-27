@@ -32,6 +32,7 @@ class OllamaClient:
         schema: dict[str, Any],
         temperature: float = 0.2,
         keep_alive: str = "30m",
+        num_predict: int | None = None,
     ) -> dict[str, Any]:
         body = {
             "model": model,
@@ -39,7 +40,8 @@ class OllamaClient:
             "format": schema,
             "stream": False,
             "keep_alive": keep_alive,
-            "options": {"temperature": temperature, "num_ctx": 4096},
+            "options": {"temperature": temperature, "num_ctx": 4096,
+                        **({"num_predict": num_predict} if num_predict else {})},
         }
         try:
             r = self._http.post(f"{self.url}/api/chat", json=body)
@@ -54,6 +56,21 @@ class OllamaClient:
             return json.loads(content)
         except json.JSONDecodeError as exc:
             raise ValueError(f"model returned invalid JSON: {content[:200]}") from exc
+
+    def embed(self, model: str, texts: list[str], keep_alive: str = "30m") -> list[list[float]]:
+        """Sentence embeddings (e.g. bge-m3), one vector per text."""
+        try:
+            r = self._http.post(f"{self.url}/api/embed", json={"model": model, "input": texts, "keep_alive": keep_alive})
+        except httpx.HTTPError as exc:
+            raise LLMUnavailable(f"Ollama not reachable: {exc}") from exc
+        if r.status_code == 404:
+            raise LLMUnavailable(f"model {model} is not installed")
+        if r.status_code >= 400:
+            raise LLMUnavailable(f"Ollama error {r.status_code}: {r.text[:200]}")
+        vecs = r.json().get("embeddings") or []
+        if len(vecs) != len(texts):
+            raise LLMUnavailable("embedding count mismatch")
+        return vecs
 
     def warm(self, model: str) -> None:
         """Load the model into memory so the first command isn't slow."""

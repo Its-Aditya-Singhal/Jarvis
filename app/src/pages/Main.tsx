@@ -11,6 +11,8 @@ import TrustCard from "../components/TrustCard";
 import FilesCard from "../components/FilesCard";
 import VoicePicker from "../components/VoicePicker";
 import ToolsPanel from "./ToolsPanel";
+import MemoryPanel from "./MemoryPanel";
+import SuggestionChips from "../components/SuggestionChips";
 import { ApiError, Challenge, PlannedAction, Status, VoiceGender, api, post } from "../lib/backend";
 import { setStatus, useStore } from "../lib/store";
 
@@ -134,6 +136,7 @@ function Core() {
           <p className={`speech ${showSpeech || assistantSpeaking ? "show" : ""}`}>{speech?.text}</p>
         )}
         {state === "approved" && <ConfirmCard />}
+        {state === "approved" && <SuggestionChips />}
         {state === "approved" && <Conversation turns={conversation} name={name} />}
         {state === "approved" && <CommandBox disabled={thinking} />}
       </div>
@@ -607,6 +610,7 @@ export default function Main() {
         {view === "security" && <SecurityPanel />}
         {view === "settings" && <SettingsPanel />}
         {view === "tools" && <ToolsPanel />}
+        {view === "memory" && <MemoryPanel />}
       </main>
       <ActivityFeed />
     </div>

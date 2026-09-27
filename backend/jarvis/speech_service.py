@@ -64,6 +64,22 @@ def name_prompt(assistant: str, owner: str = "") -> str:
     return text + (f" The user is {fix(owner)}." if owner else "")
 
 
+def common_phrases(owner: str) -> list[str]:
+    """Replies worth synthesising at startup so they play instantly."""
+    return [
+        f"Authentication approved. Hi {owner}, how may I help you today?",
+        "Quick liveness check. Follow the prompts.",
+        "Authentication required. I only take commands from my verified owner.",
+        "That voice doesn't match my owner. Command blocked.",
+        "Authentication failed. You are not my boss.",
+        "Sorry, I didn't catch that.",
+        "To do that I need to hear your voice. Please say it out loud.",
+        "I couldn't confirm your voice. Please say that again.",
+        "Okay, I won't delete it.",
+        "Note saved.",
+    ]
+
+
 def placeholder_reply(command: str, lang: str, gender: str) -> str:
     """Answer used when no assistant brain is attached (e.g. LLM disabled)."""
     short = command if len(command) <= 80 else command[:77] + "…"
@@ -122,7 +138,8 @@ class SpeechService:
     # -- lifecycle -------------------------------------------------------------
     def start(self) -> None:
         if self.stt.load():
-            self.bus.log(f"Speech recognition loaded (Whisper {self.stt.size})")
+            where = "Apple GPU" if getattr(self.stt, "engine", "") == "mlx" else "CPU"
+            self.bus.log(f"Speech recognition loaded (Whisper {self.stt.size}, {where})")
         else:
             self.bus.log(self.stt.error or "Speech recognition unavailable", "error")
         if self.tts.load():
@@ -130,6 +147,9 @@ class SpeechService:
         else:
             self.bus.log(self.tts.error or "Voice synthesis unavailable", "error")
         self.out.start()
+        if self.tts.ready:
+            assistant, owner = self.names()
+            threading.Thread(target=self.out.prewarm, args=(common_phrases(owner),), name="tts-prewarm", daemon=True).start()
         self._thread = threading.Thread(target=self._loop, name="speech-in", daemon=True)
         self._thread.start()
 
@@ -240,7 +260,7 @@ class SpeechService:
             self.bus.publish({"type": "heard", "text": tr.text, "lang": tr.language, "stt_s": latency})
             self._listen_until = time.monotonic() + self.s.followup_s
             self.bus.publish({"type": "listening", "active": True, "seconds": self.s.followup_s})
-            self.out.say("हाँ?" if tr.language == "hi" else "Yes?")
+            self.out.ping()  # instant "go ahead" instead of a synthesised "Yes?"
             return
         if self._listen_until:
             self._listen_until = 0.0

@@ -6,6 +6,7 @@ import {
   AuthPublic,
   BackendEvent,
   EnrollSnapshot,
+  MemorySuggestion,
   PendingConfirm,
   PlannedAction,
   RingingAlarm,
@@ -43,6 +44,10 @@ export interface AppState {
   toolsVersion: number;
   /** a deletion waiting for the owner's confirmation (expiresAt: epoch ms) */
   confirm: (PendingConfirm & { expiresAt: number }) | null;
+  /** facts the assistant offers to remember (tap to save) */
+  suggestions: MemorySuggestion[];
+  /** bumps when facts or history change */
+  memoryVersion: number;
 }
 
 export interface Turn {
@@ -72,6 +77,8 @@ let state: AppState = {
   ringing: [],
   toolsVersion: 0,
   confirm: null,
+  suggestions: [],
+  memoryVersion: 0,
 };
 
 const withExpiry = (p: PendingConfirm | null | undefined) =>
@@ -98,7 +105,13 @@ function handle(e: BackendEvent) {
   switch (e.type) {
     case "status": {
       const { type: _t, ...status } = e;
-      set({ status, auth: status.auth, ringing: status.ringing ?? [], confirm: withExpiry(status.pending) });
+      set({
+        status,
+        auth: status.auth,
+        ringing: status.ringing ?? [],
+        confirm: withExpiry(status.pending),
+        suggestions: status.suggestions ?? [],
+      });
       break;
     }
     case "auth": {
@@ -177,6 +190,13 @@ function handle(e: BackendEvent) {
       set({ confirm: withExpiry(p) });
       break;
     }
+    case "memory_suggestion":
+      if (!state.suggestions.some((s) => s.id === e.id))
+        set({ suggestions: [...state.suggestions, { id: e.id, text: e.text }].slice(-4) });
+      break;
+    case "memory_changed":
+      set({ memoryVersion: state.memoryVersion + 1 });
+      break;
     case "confirm_done":
       if (state.confirm?.id === e.id) set({ confirm: null });
       break;
@@ -191,7 +211,7 @@ export async function refreshStatus() {
     const status = await api<Status>("/api/status");
     // keep the local countdown unless the pending item changed
     const confirm = status.pending?.id === state.confirm?.id ? state.confirm : withExpiry(status.pending);
-    set({ status, auth: status.auth, ringing: status.ringing ?? [], confirm });
+    set({ status, auth: status.auth, ringing: status.ringing ?? [], confirm, suggestions: status.suggestions ?? [] });
   } catch {
     /* backend still starting; the websocket will deliver status */
   }
@@ -199,6 +219,10 @@ export async function refreshStatus() {
 
 export function resetVoiceEnroll() {
   set({ voiceEnroll: null, voiceEnrollComplete: false, voiceEnrollCancelled: null });
+}
+
+export function dropSuggestion(id: string) {
+  set({ suggestions: state.suggestions.filter((s) => s.id !== id) });
 }
 
 export function setStatus(status: Status) {

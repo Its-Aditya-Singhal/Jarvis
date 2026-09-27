@@ -79,6 +79,10 @@ class Settings(BaseSettings):
     llm_autostart: bool = True  # start `ollama serve` if no server is running
     llm_timeout_s: float = 90.0
 
+    # Memory
+    memory_enabled: bool = True
+    embed_model: str = "bge-m3"  # multilingual sentence embeddings via Ollama
+
     # Auth levels + fusion (see jarvis/auth/levels.py)
     fusion_enabled: bool = True
     level1_min_prob: float = 0.5  # fusion score thresholds per level

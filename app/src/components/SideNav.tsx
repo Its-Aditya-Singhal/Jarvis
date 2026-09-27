@@ -3,7 +3,7 @@ export type View = "system" | "auth" | "memory" | "tools" | "security" | "settin
 const ITEMS: { id: View; label: string; phase?: number }[] = [
   { id: "system", label: "System Status" },
   { id: "auth", label: "Authentication" },
-  { id: "memory", label: "Memory", phase: 8 },
+  { id: "memory", label: "Memory" },
   { id: "tools", label: "Tools" },
   { id: "security", label: "Security" },
   { id: "settings", label: "Settings" },

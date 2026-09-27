@@ -187,6 +187,12 @@ export interface Status {
   llm_model: string | null;
   ringing: RingingAlarm[];
   pending: PendingConfirm | null; // owner-only
+  suggestions: MemorySuggestion[]; // owner-only
+}
+
+export interface MemorySuggestion {
+  id: string;
+  text: string;
 }
 
 export interface RingingAlarm {
@@ -261,6 +267,8 @@ export type BackendEvent =
   | { type: "tools_changed" }
   | ({ type: "confirm" } & PendingConfirm)
   | { type: "confirm_done"; id: string; outcome: "done" | "cancelled" | "expired" }
+  | ({ type: "memory_suggestion" } & MemorySuggestion)
+  | { type: "memory_changed" }
   | { type: "listening"; active: boolean; seconds?: number }
   | { type: "speaking"; active: boolean }
   | { type: "voice"; verdict: VoiceState }

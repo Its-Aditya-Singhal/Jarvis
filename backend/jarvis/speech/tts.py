@@ -1,4 +1,8 @@
-"""Text-to-speech with Kokoro-82M (ONNX, int8, CPU) — offline.
+"""Text-to-speech with Kokoro-82M (ONNX on the CPU) — offline.
+
+The fp32 model is used when present: on Apple Silicon it synthesises about
+three times faster than the int8 one (int8 matrix kernels are slow on ARM),
+at 0.25x real time with 8 threads. The int8 model is the fallback.
 
 The owner picks a female or male voice. English text uses American voices;
 text containing Devanagari switches to the Hindi voice of the same gender
@@ -20,7 +24,7 @@ log = logging.getLogger(__name__)
 # espeak warns on every Hindi sentence containing English words; that is expected
 logging.getLogger("phonemizer").setLevel(logging.ERROR)
 
-MODEL_FILE = "kokoro-v1.0.int8.onnx"
+MODEL_FILES = ("kokoro-v1.0.onnx", "kokoro-v1.0.int8.onnx")  # preferred first
 VOICES_FILE = "voices-v1.0.bin"
 SAMPLE_RATE = 24000
 GENDERS = ("female", "male")
@@ -33,7 +37,7 @@ VOICES = {
 
 
 class TextToSpeech:
-    def __init__(self, models_root: Path, speed: float = 1.0, threads: int = 4):
+    def __init__(self, models_root: Path, speed: float = 1.0, threads: int = 8):
         self.dir = Path(models_root) / "kokoro"
         self.speed = speed
         self.threads = threads
@@ -48,7 +52,8 @@ class TextToSpeech:
     def load(self) -> bool:
         if self._k is not None:
             return True
-        model, voices = self.dir / MODEL_FILE, self.dir / VOICES_FILE
+        model = next((self.dir / f for f in MODEL_FILES if (self.dir / f).is_file()), self.dir / MODEL_FILES[-1])
+        voices = self.dir / VOICES_FILE
         if not (model.is_file() and voices.is_file()):
             self.error = f"voice synthesis model missing at {self.dir}"
             return False

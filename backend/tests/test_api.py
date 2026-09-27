@@ -45,7 +45,7 @@ class FakeMic:
 def _client(settings, mic=None):
     app = create_app(
         settings, keys=StaticKeyProvider(), engine=FakeEngine(), camera=FakeCamera(),
-        speaker_engine=FakeSpeaker(), mic=mic or FakeMic(), vad_factory=lambda: (lambda frame: 0.0), speech=False, llm=False, tools=False,
+        speaker_engine=FakeSpeaker(), mic=mic or FakeMic(), vad_factory=lambda: (lambda frame: 0.0), speech=False, llm=False, tools=False, memory=False,
     )
     return TestClient(app), app.state.svc
 
