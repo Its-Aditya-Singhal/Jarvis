@@ -31,12 +31,15 @@ describe("ConfirmCard", () => {
   });
 
   it("labels deletions and counts down", () => {
-    render(<ConfirmCard />);
+    vi.useFakeTimers({ shouldAdvanceTime: true, now: Date.now() - 60_000 });
+    render(<ConfirmCard />); // mounted a minute before the confirmation arrives
+    vi.setSystemTime(Date.now() + 60_000);
     fake.emit({ type: "auth", ...approvedAuth() });
     fake.emit({ type: "confirm", ...pending });
     expect(screen.getByText(pending.text)).toBeInTheDocument();
     expect(screen.getByText(/CONFIRM DELETION/)).toBeInTheDocument();
-    expect(screen.getByText(/^3[01] s$/)).toBeInTheDocument();
+    expect(screen.getByText("30 s")).toBeInTheDocument();
+    vi.useRealTimers();
   });
 
   it("uses a plain CONFIRM label for settings and privacy actions", () => {

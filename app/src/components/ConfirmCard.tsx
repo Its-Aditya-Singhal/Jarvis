@@ -11,6 +11,7 @@ export default function ConfirmCard() {
   useEffect(() => {
     if (!confirm) return;
     setError(null);
+    setNow(Date.now()); // the clock may be stale from before this confirmation arrived
     const id = window.setInterval(() => setNow(Date.now()), 250);
     return () => window.clearInterval(id);
   }, [confirm]);
