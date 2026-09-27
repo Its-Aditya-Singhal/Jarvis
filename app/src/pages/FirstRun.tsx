@@ -4,11 +4,12 @@ import Orb from "../components/Orb";
 /** Before anything else: the on-device models (downloaded once, then fully offline). */
 export default function FirstRun() {
   return (
-    <div className="setup">
+    <div className="setup firstrun-page">
       <section className="setup-card wide firstrun">
-        <div className="firstrun-head">
+        <header className="firstrun-head">
           <Orb mode="idle" className="firstrun-orb" />
-          <div>
+          <div className="firstrun-copy">
+            <span className="firstrun-kicker">SYSTEM INITIALISATION · ON-DEVICE MODELS</span>
             <h1>First, the models.</h1>
             <p className="lead">Everything I do runs on this Mac, so I need my models before we start.</p>
             <p className="muted small">
@@ -16,7 +17,7 @@ export default function FirstRun() {
               used, and an interrupted download picks up where it stopped. After this, I work offline.
             </p>
           </div>
-        </div>
+        </header>
         <ModelDownloads firstRun />
       </section>
     </div>
