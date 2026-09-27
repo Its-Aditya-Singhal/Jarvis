@@ -30,6 +30,7 @@ from ..security.crypto import KeychainKeyProvider, KeyProvider
 from ..security.template_store import TemplateStore
 from ..brain import Brain
 from ..llm.client import OllamaClient
+from ..llm.server import OllamaServer
 from ..memory.manager import RETENTION_CHOICES, Memory
 from ..memory.store import MemoryStore
 from ..netguard import NetGuard
@@ -39,6 +40,7 @@ from ..privacy import ACTIONS as PRIVACY_ACTIONS, inventory
 from ..tools.apple import AppleBridge, AppleError
 from ..tools.apps import AppIndex
 from ..tools.files import FileSearch, FolderError
+from ..tools.mac import MacControl
 from ..tools.runner import ToolRunner
 from ..tools.scheduler import AlarmScheduler
 from ..tools.store import ToolStore
@@ -156,6 +158,9 @@ def create_app(
     memory_client: OllamaClient | None = None,
     guard: NetGuard | None = None,
     perf: PerfMonitor | None = None,
+    mac: MacControl | None = None,
+    llm_client: OllamaClient | None = None,
+    llm_server: OllamaServer | None = None,
 ) -> FastAPI:
     s = settings or get_settings()
     db = Database(s.db_path)
@@ -196,11 +201,12 @@ def create_app(
 
     def make_tools(svc: AssistantService) -> tuple[ToolRunner, AlarmScheduler]:
         tstore = ToolStore(db, keyp)
-        runner = ToolRunner(db, tstore, apps or AppIndex(), files, apple_bridge, on_change=svc.tools_changed)
+        runner = ToolRunner(db, tstore, apps or AppIndex(), files, apple_bridge, on_change=svc.tools_changed, mac=mac)
         return runner, AlarmScheduler(tstore, on_ring=svc.ring, on_change=svc.tools_changed)
 
     def make_brain(svc: AssistantService) -> Brain:
-        return brain or Brain(s, db, names=lambda: (svc.assistant_name, svc.owner_name), voice_gender=lambda: db.get("voice_gender", "female"))
+        return brain or Brain(s, db, names=lambda: (svc.assistant_name, svc.owner_name),
+                              voice_gender=lambda: db.get("voice_gender", "female"), server=llm_server, client=llm_client)
 
     def make_memory(svc: AssistantService) -> Memory:
         client = memory_client or (svc.brain.client if svc.brain else OllamaClient(f"http://{s.ollama_host}", 30.0))
