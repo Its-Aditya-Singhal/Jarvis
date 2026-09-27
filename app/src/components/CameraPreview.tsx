@@ -1,8 +1,9 @@
-import { useStore } from "../lib/store";
+import { usePreview, useStore } from "../lib/store";
 
 /** Low-res mirrored camera view with face brackets. Nothing is stored. */
 export default function CameraPreview({ round = false, className = "" }: { round?: boolean; className?: string }) {
-  const { preview, status } = useStore();
+  const { status } = useStore();
+  const preview = usePreview();
   const cam = status?.camera;
 
   return (

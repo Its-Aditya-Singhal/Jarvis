@@ -28,7 +28,6 @@ export interface AppState {
   enroll: EnrollSnapshot | null;
   enrollComplete: boolean;
   activity: Activity[];
-  preview: Preview | null;
   speech: { text: string; at: number } | null;
   speaking: boolean;
   voiceEnroll: VoiceEnrollSnapshot | null;
@@ -66,7 +65,6 @@ let state: AppState = {
   enroll: null,
   enrollComplete: false,
   activity: [],
-  preview: null,
   speech: null,
   speaking: false,
   voiceEnroll: null,
@@ -96,6 +94,20 @@ const addTurn = (who: Turn["who"], text: string, actions?: PlannedAction[]) =>
 // animations can read it every frame without re-rendering the app.
 let micLevel = 0;
 export const getMicLevel = () => micLevel;
+
+// Camera frames arrive several times a second. They have their own subscription, so a
+// frame re-renders only the camera view, not every component reading the app state.
+let preview: Preview | null = null;
+const previewListeners = new Set<() => void>();
+export function usePreview(): Preview | null {
+  return useSyncExternalStore(
+    (l) => {
+      previewListeners.add(l);
+      return () => previewListeners.delete(l);
+    },
+    () => preview,
+  );
+}
 
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((l) => l());
@@ -139,7 +151,8 @@ function handle(e: BackendEvent) {
       break;
     }
     case "preview":
-      set({ preview: { src: `data:image/jpeg;base64,${e.jpeg}`, boxes: e.boxes } });
+      preview = { src: `data:image/jpeg;base64,${e.jpeg}`, boxes: e.boxes };
+      previewListeners.forEach((l) => l());
       break;
     case "say":
       set({ speech: { text: e.text, at: Date.now() } });
