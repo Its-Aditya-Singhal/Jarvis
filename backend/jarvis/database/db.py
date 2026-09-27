@@ -6,6 +6,7 @@ files managed by :mod:`jarvis.security.template_store`.
 
 from __future__ import annotations
 
+import os
 import sqlite3
 import threading
 import time
@@ -32,7 +33,12 @@ CREATE TABLE IF NOT EXISTS security_events (
 class Database:
     def __init__(self, path: Path | str):
         if str(path) != ":memory:":
-            Path(path).parent.mkdir(parents=True, exist_ok=True)
+            # owner-only: the data folder and the database (SQLite gives its journal the same mode)
+            folder = Path(path).parent
+            folder.mkdir(mode=0o700, parents=True, exist_ok=True)
+            os.chmod(folder, 0o700)
+            Path(path).touch(mode=0o600, exist_ok=True)
+            os.chmod(path, 0o600)
         self._conn = sqlite3.connect(str(path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._lock = threading.Lock()

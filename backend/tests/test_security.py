@@ -47,3 +47,20 @@ def test_database_profile_and_events(tmp_path):
     db.add_security_event("unknown_face", "stranger", face_conf=0.1, blocked=True)
     [ev] = db.security_events()
     assert ev["kind"] == "unknown_face" and ev["blocked"] == 1
+
+
+def test_data_folder_and_database_are_owner_only(tmp_path):
+    import os
+    import stat
+
+    from jarvis.database.db import Database
+
+    folder = tmp_path / "JarvisAssistant"
+    db = Database(folder / "jarvis.sqlite3")
+    db.set("owner_name", "A")
+    assert stat.S_IMODE(os.stat(folder).st_mode) == 0o700
+    assert stat.S_IMODE(os.stat(folder / "jarvis.sqlite3").st_mode) == 0o600
+    db.close()
+    os.chmod(folder / "jarvis.sqlite3", 0o644)  # created by an earlier version
+    Database(folder / "jarvis.sqlite3").close()
+    assert stat.S_IMODE(os.stat(folder / "jarvis.sqlite3").st_mode) == 0o600
