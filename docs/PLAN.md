@@ -11,12 +11,12 @@ the website gets its own design, related to the app but not a copy.
 ## A. Cloud
 
 ### 1. Test & debug infrastructure
-- [ ] Python suite runs on Linux; Mac/hardware tests marked (`@pytest.mark.mac`) and skipped, not deleted
-- [ ] Fakes for camera, microphone, STT/TTS, face/voice models and the LLM so the service runs end to end headless
-- [ ] UI tests (Vitest + Testing Library): setup wizard, settings, privacy, confirm card, status bar
-- [ ] Linters/type checks: ruff + mypy/pyright (backend), ESLint + tsc (UI), cargo clippy (shell)
-- [ ] Command-routing corpus: hundreds of EN / HI / Hinglish phrasings → expected tool + args (fast path and LLM prompt)
-- [ ] GitHub Actions: tests + lint on every push (Linux); `.dmg` build on tags (macOS runner)
+- [x] Python suite runs on Linux; Mac/hardware tests marked (`@pytest.mark.mac`) and skipped, not deleted
+- [x] Fakes for camera, microphone, STT/TTS, face/voice models and the LLM so the service runs end to end headless
+- [x] UI tests (Vitest + Testing Library): setup wizard, settings, privacy, confirm card, status bar
+- [x] Linters/type checks: ruff + mypy/pyright (backend), ESLint + tsc (UI), cargo clippy (shell)
+- [x] Command-routing corpus: hundreds of EN / HI / Hinglish phrasings → expected tool + args (fast path and LLM prompt)
+- [x] GitHub Actions: tests + lint on every push (Linux); `.dmg` build on tags (macOS runner)
 
 ### 2. Full code review, module by module (each bug → test + own commit)
 - [ ] Security: auth level on every tool path, launch token on every REST/WS route, path tricks in file/folder tools, AppleScript/argv safety, offline-guard bypasses, pending-confirmation replay
