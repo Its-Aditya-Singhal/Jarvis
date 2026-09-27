@@ -75,7 +75,9 @@ Build the .dmg on an Apple Silicon Mac with `scripts/build_dmg.sh` (see
 [ARCHITECTURE.md](docs/ARCHITECTURE.md#first-run-and-packaging)); pushing a
 `v*` tag does the same on GitHub Actions and drafts a release.
 
-## Licence notes
+## Licence
+
+JARVIS's own code is under the [MIT licence](LICENSE).
 
 The models JARVIS downloads have their own licences: InsightFace's face models are for non-commercial research
 use; Whisper, Kokoro, ECAPA (SpeechBrain), Silero VAD and Qwen 2.5 are under
