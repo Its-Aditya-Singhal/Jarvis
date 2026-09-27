@@ -31,14 +31,20 @@ class ScriptedEngine:
         self.face = None
 
     def load(self): return True
-    def analyze(self, frame): return [] if self.face is None else [self.face]
+    def analyze(self, frame):
+        if self.face is None:
+            return []
+        return list(self.face) if isinstance(self.face, list) else [self.face]
 
 
-def face(yaw=0.0, width=160.0, eye=0.35, live=0.95):
+STRANGER = np.eye(1, 512, 7, dtype=np.float32)[0]
+
+
+def face(yaw=0.0, width=160.0, eye=0.35, live=0.95, emb=OWNER):
     x0 = 320 - width / 2
     return FaceObservation(
         bbox=np.array([x0, 100, x0 + width, 100 + width * 1.2], np.float32), det_score=0.9,
-        embedding=OWNER, pitch=0.0, yaw=yaw, roll=0.0, landmarks=None, quality=0.9,
+        embedding=emb, pitch=0.0, yaw=yaw, roll=0.0, landmarks=None, quality=0.9,
         frame_width=640, frame_height=480, eye_open=eye, live_score=live,
     )
 
@@ -56,6 +62,7 @@ def make_service(settings):
 def drive(svc, engine, t, frames):
     for f in frames:
         engine.face = f
+        svc.clock = lambda t=t: t  # the trust check reads the same scripted clock
         svc._tick(t)
         t += 1 / 12
     return t
@@ -112,3 +119,29 @@ def test_liveness_can_be_disabled(settings):
     drive(svc, engine, 0.0, [face()] * 6)
     assert svc.owner_verified()
     assert svc.status()["models"]["liveness"] == "disabled"
+
+
+def test_trust_levels_follow_the_scene(settings):
+    svc, engine, db = make_service(settings)
+    t = drive(svc, engine, 0.0, [face()] * 6)
+    assert svc.auth_public()["level"] == 0 and "trust" not in svc.auth_public()
+    t = do_challenge(svc, engine, t)
+    pub = svc.auth_public()
+    # no voice pipeline here, so face + liveness reach level 2
+    assert pub["level"] == 2 and pub["trust"]["prob"] > 0.9 and pub["trust"]["model"] == "default"
+    assert set(pub["trust"]["features"]) >= {"face_sim", "live_fresh", "voice_sim"}
+    # someone unknown steps into view: capped at read-only
+    t = drive(svc, engine, t, [[face(), face(emb=STRANGER, width=120)]] * 4)
+    tr = svc.trust()
+    assert tr.level == 1 and tr.blockers[2] == "bystander"
+    t = drive(svc, engine, t, [face()] * 4)
+    assert svc.trust().level == 2
+
+
+def test_fusion_veto_shows_as_scanning(settings):
+    svc, engine, db = make_service(settings)
+    t = do_challenge(svc, engine, drive(svc, engine, 0.0, [face()] * 6))
+    svc.fusion.prob = lambda x: 0.2  # the combined evidence looks wrong
+    pub = svc.auth_public()
+    assert pub["state"] == "scanning" and pub["level"] == 0 and not svc.owner_verified()
+    assert pub["reason"] == "Combined confidence is too low"

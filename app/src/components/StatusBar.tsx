@@ -79,6 +79,11 @@ export default function StatusBar() {
           tone={status?.models.stt === "ready" && status?.models.tts === "ready" ? "ok" : "warn"}
         />
         <Indicator label="SECURITY" value={security[0]} tone={security[1]} />
+        <Indicator
+          label="AUTH LEVEL"
+          value={`L${auth?.level ?? 0} · ${["LOCKED", "READ", "ACT"][auth?.level ?? 0]}`}
+          tone={(auth?.level ?? 0) >= 2 ? "ok" : (auth?.level ?? 0) === 1 ? "warn" : "off"}
+        />
       </div>
       <div className="clock" data-tauri-drag-region>
         {clock.toLocaleTimeString([], { hour12: false })}

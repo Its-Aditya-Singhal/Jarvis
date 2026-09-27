@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from ..audio.mic import Microphone
 from ..auth.face.engine import FaceEngine
+from ..auth.levels import REASONS
 from ..auth.voice.engine import SpeakerEngine
 from ..camera.capture import Camera
 from ..config import Settings, get_settings
@@ -84,6 +85,10 @@ class AppleIn(BaseModel):
     calendar_sync: bool
     calendar: str = Field(default="", max_length=200)
     notes_sync: bool
+
+
+class ConfirmIn(BaseModel):
+    accept: bool
 
 
 class SnoozeIn(BaseModel):
@@ -196,8 +201,19 @@ def create_app(
             raise HTTPException(401, "invalid token")
 
     def require_owner() -> None:
-        if svc.auth_public()["state"] != "approved":
+        """Level 1: the live, verified owner is at the screen."""
+        if not svc.owner_verified():
             raise HTTPException(403, "owner verification required")
+
+    def require_level2() -> None:
+        """Level 2 for changes that widen access or touch security."""
+        t = svc.trust()
+        if t.level < 1:
+            raise HTTPException(403, "owner verification required")
+        if t.level < 2:
+            code = t.blockers.get(2, "")
+            hint = " — talk to me first (say my name and anything), then try again" if code == "voice_needed" else ""
+            raise HTTPException(403, f"needs level 2: {REASONS.get(code, code)}{hint}")
 
     def require_setup_open() -> None:
         # Enrollment/profile changes are open only during first-time setup.
@@ -370,7 +386,7 @@ def create_app(
     def get_folders():
         return {"folders": [str(p) for p in files.folders()]}
 
-    @app.put("/api/settings/files", dependencies=auth + [Depends(require_owner)])
+    @app.put("/api/settings/files", dependencies=auth + [Depends(require_level2)])
     def set_folders(body: FoldersIn):
         try:
             saved = files.set_folders(body.folders)
@@ -407,7 +423,7 @@ def create_app(
         except AppleError as exc:
             raise HTTPException(502, str(exc)) from exc
 
-    @app.put("/api/settings/apple", dependencies=auth + [Depends(require_owner)])
+    @app.put("/api/settings/apple", dependencies=auth + [Depends(require_level2)])
     def set_apple(body: AppleIn):
         if body.calendar_sync and not body.calendar:
             raise HTTPException(400, "choose an Apple calendar to sync with")
@@ -425,6 +441,27 @@ def create_app(
             raise HTTPException(502, str(exc)) from exc
         bus.log(f"Synced to Apple: {pushed['events']} events, {pushed['notes']} notes", "ok")
         return pushed
+
+    # -- auth levels & fusion -------------------------------------------------------------
+    @app.post("/api/confirm/{pid}", dependencies=auth + [Depends(require_owner)])
+    def confirm(pid: str, body: ConfirmIn):
+        # the level-3 checks (level 2, fresh liveness, fusion) happen inside
+        return svc.confirm(pid, body.accept, "click")
+
+    @app.get("/api/fusion", dependencies=auth + [Depends(require_owner)])
+    def fusion_info():
+        return svc.fusion_info()
+
+    @app.post("/api/fusion/retrain", dependencies=auth + [Depends(require_level2)])
+    def fusion_retrain():
+        try:
+            return svc.retrain_fusion()
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post("/api/fusion/reset", dependencies=auth + [Depends(require_level2)])
+    def fusion_reset():
+        return svc.reset_fusion()
 
     @app.get("/api/security/events", dependencies=auth + [Depends(require_owner)])
     def security_events(limit: int = 50):

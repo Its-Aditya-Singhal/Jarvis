@@ -6,6 +6,7 @@ import {
   AuthPublic,
   BackendEvent,
   EnrollSnapshot,
+  PendingConfirm,
   PlannedAction,
   RingingAlarm,
   Status,
@@ -40,6 +41,8 @@ export interface AppState {
   ringing: RingingAlarm[];
   /** bumps whenever alarms/events/notes change, so views refetch */
   toolsVersion: number;
+  /** a deletion waiting for the owner's confirmation (expiresAt: epoch ms) */
+  confirm: (PendingConfirm & { expiresAt: number }) | null;
 }
 
 export interface Turn {
@@ -68,7 +71,11 @@ let state: AppState = {
   thinking: false,
   ringing: [],
   toolsVersion: 0,
+  confirm: null,
 };
+
+const withExpiry = (p: PendingConfirm | null | undefined) =>
+  p ? { ...p, expiresAt: Date.now() + p.expires_s * 1000 } : null;
 
 let turnSeq = 0;
 const addTurn = (who: Turn["who"], text: string, actions?: PlannedAction[]) =>
@@ -91,7 +98,7 @@ function handle(e: BackendEvent) {
   switch (e.type) {
     case "status": {
       const { type: _t, ...status } = e;
-      set({ status, auth: status.auth, ringing: status.ringing ?? [] });
+      set({ status, auth: status.auth, ringing: status.ringing ?? [], confirm: withExpiry(status.pending) });
       break;
     }
     case "auth": {
@@ -165,6 +172,14 @@ function handle(e: BackendEvent) {
     case "tools_changed":
       set({ toolsVersion: state.toolsVersion + 1 });
       break;
+    case "confirm": {
+      const { type: _t, ...p } = e;
+      set({ confirm: withExpiry(p) });
+      break;
+    }
+    case "confirm_done":
+      if (state.confirm?.id === e.id) set({ confirm: null });
+      break;
     case "listening":
       set({ listeningUntil: e.active ? Date.now() + (e.seconds ?? 8) * 1000 : 0 });
       break;
@@ -174,7 +189,9 @@ function handle(e: BackendEvent) {
 export async function refreshStatus() {
   try {
     const status = await api<Status>("/api/status");
-    set({ status, auth: status.auth, ringing: status.ringing ?? [] });
+    // keep the local countdown unless the pending item changed
+    const confirm = status.pending?.id === state.confirm?.id ? state.confirm : withExpiry(status.pending);
+    set({ status, auth: status.auth, ringing: status.ringing ?? [], confirm });
   } catch {
     /* backend still starting; the websocket will deliver status */
   }

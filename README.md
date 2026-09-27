@@ -5,9 +5,9 @@ A local-first desktop assistant for macOS (Apple Silicon) that keeps checking
 name during setup (JARVIS, FRIDAY, anything). No paid APIs and no cloud: every
 model runs on your Mac.
 
-> **Status: Phase 6 of 10: identity, liveness, speech, local LLM and tools.**
-> The assistant carries out requests for the verified owner. Auth levels,
-> the fusion model, memory and the privacy dashboard come next. The UI marks
+> **Status: Phase 7 of 10: identity, liveness, speech, local LLM, tools,
+> auth levels and a trained fusion model.** Memory and the privacy dashboard
+> come next. The UI marks
 > every unbuilt feature as such rather than faking it.
 
 ## What works now
@@ -64,6 +64,22 @@ model runs on your Mac.
   - **File search:** Spotlight search in Documents, Desktop and Downloads,
     plus folders you add in Settings.
   - A Tools view lists alarms, upcoming events and notes.
+  - Cancel alarms, and delete notes or calendar events (only after you
+    confirm, see below).
+- Auth levels, recomputed from live evidence for every action:
+  - **L1 READ** (face + liveness): questions, reading the calendar, notes
+    and files.
+  - **L2 ACT** (plus your voice verified in the last minute, and nobody
+    else in view): creating things, opening apps, cancelling alarms.
+    Typed commands get L2 only within a minute of your voice being matched.
+  - **L3 CONFIRM** (deletions): L2, a liveness check in the last 10
+    minutes (one is triggered if needed), and an explicit "yes, go ahead"
+    in your verified voice or a click on Confirm within 30 s.
+  - A trained fusion classifier combines face, liveness and voice scores.
+    It can only lower a level, never raise one.
+  - Stranger protection: an unknown voice speaking drops you to L1 until
+    you speak again. Someone else in view caps you at L1. A photo or an
+    unknown face means L0.
 - Security log visible only while the verified owner is at the screen.
 
 ## Architecture
@@ -148,7 +164,7 @@ only) on your own camera. If a real face sits below 0.6, lower
 | Runtime | Ollama on 127.0.0.1:11434, started by JARVIS if not already running; models kept in `~/Developer/ollama/models` |
 | Default model | `qwen2.5:7b` (Q4, about 4.7 GB); any installed model can be picked in Settings |
 | Output | JSON schema enforced by Ollama: `language` (en/hi/hinglish), `actions` (tool + args + summary), `reply` |
-| Tool catalogue | alarm.set, timer.set, calendar.create/list, notes.add/search, app.open, files.search. Unknown tools are dropped |
+| Tool catalogue | alarm.set/cancel, timer.set, calendar.create/list/delete, notes.add/search/delete, app.open, files.search. Unknown tools are dropped |
 | Safety | the model never executes anything; replies to action requests are composed by code; no shell, web or messaging |
 | Context | last 4 exchanges, in memory only, expire after 5 min and are cleared when the owner leaves |
 
@@ -156,13 +172,15 @@ only) on your own camera. If a real face sits below 0.6, lower
 
 | Tool | How | Level* |
 |---|---|---|
-| alarm.set / timer.set | encrypted SQLite + in-app scheduler (rings only while JARVIS runs; alarms > 10 min overdue at startup are marked missed) | 2 |
+| alarm.set / timer.set / alarm.cancel | encrypted SQLite + in-app scheduler (rings only while JARVIS runs; alarms > 10 min overdue at startup are marked missed) | 2 |
 | calendar.create / list | encrypted local events; with Apple sync on, also created in the chosen Apple calendar and listed from all Apple calendars | 2 / 1 |
 | notes.add / search | encrypted local notes (fuzzy search); with sync on, also in Apple Notes folder "JARVIS" | 2 / 1 |
 | app.open | any `.app` in the standard Applications folders, fuzzy and Devanagari-aware name match, opened with `open <bundle>` (no shell, no arguments) | 2 |
 | files.search | `mdfind -onlyin` per allowed folder; file names only; system, library and hidden folders refused | 1 |
+| notes.delete / calendar.delete | resolved to one exact item first (fuzzy match), shown in the confirmation, deleted only after it; copies in Apple's apps are left alone | 3 |
 
-\*Levels are declared now and enforced by the auth levels in phase 7.
+\*See "How auth levels and fusion work". Level-3 tools cannot be run
+directly: the runner only plans them, and deletion happens after confirmation.
 Model output is untrusted: each tool validates its arguments (times in the
 future, sane timer lengths, known apps, allowed folders). AppleScript
 receives values as `argv`, never as script text.
@@ -182,13 +200,56 @@ receives values as `argv`, never as script text.
 Calibration with synthetic macOS voices standing in for different speakers:
 the true speaker scored 0.64–0.77 on unseen sentences and other voices 0.27 or
 below. The exception was two Apple Indian-English voices that are near-clones
-of each other (about 0.52). Phase 7 combines face, voice and liveness in a
-trained fusion model instead of relying on either threshold alone.
+of each other (about 0.52). That is why the fusion model below combines the
+factors instead of relying on either threshold alone.
 
 **Enrollment (training)** collects about 36 face embeddings across poses. Frames
 are discarded immediately and only the embeddings are kept, encrypted.
 **Verification (inference)** compares each live embedding with that template.
-A trained fusion classifier over face, voice and liveness comes in phase 7.
+
+## How auth levels and fusion work
+
+Hard rules come first, then the fusion classifier (see `backend/jarvis/auth/levels.py`):
+
+| Level | Rules | Fusion score |
+|---|---|---|
+| L1 READ | face approved + liveness passed | presence ≥ 0.5 |
+| L2 ACT | L1 + owner voice verified ≤ 60 s ago, no unknown voice since, no bystander | command ≥ 0.8 |
+| L3 CONFIRM | L2 + liveness ≤ 10 min old + explicit confirmation (verified voice or click, 30 s) | command ≥ 0.9 |
+
+- **Features:** 9 scores only, never embeddings: face similarity, face
+  freshness, face quality, passive anti-spoof, liveness freshness, and voice
+  heard / match / freshness, plus other faces in view.
+- **Model:** L2-regularised logistic regression on the features and all
+  their pairwise products, fitted with Newton's method in NumPy. Inference is
+  one dot product. The *presence* score is the same model with the voice
+  features removed, so people talking nearby can't lock you out of reading.
+- **Training data:** there is no public dataset of paired face, voice and
+  liveness scores. The shipped model is trained on 20,000 simulated sessions
+  whose score distributions follow what the pipelines produce here:
+  - owner speaking, owner silent, and owner in hard conditions;
+  - strangers, look-alikes, photos, replayed video, someone else speaking,
+    and stale evidence.
+- **Personal retraining:** while you use the app it keeps feature vectors
+  (scores only) from your own commands, and from strangers, spoofs and
+  unknown voices it catches. Settings → Fusion → *Retrain with my data*
+  weights these 3× against the simulated ones. This needs L2.
+- **Comparison:** `scripts/train_fusion.py` regenerates the shipped model and
+  compares it with scikit-learn models on held-out simulated data:
+
+| Model | Accuracy | ROC AUC | FAR / FRR at L2 (0.8) |
+|---|---|---|---|
+| Linear logistic regression | 93.4% | 0.975 | 5.8% / 10.3% |
+| **Poly-2 logistic regression (shipped)** | 97.8% | 0.997 | 1.6% / 4.2% |
+| Random forest (200 trees) | 98.8% | 0.998 | 1.4% / 1.9% |
+| Gradient boosting | 98.8% | 0.998 | 1.7% / 1.4% |
+
+The poly-2 model is within a point of the tree ensembles, runs in NumPy with
+no extra dependency, and is easy to inspect. With the hard rules added, no
+simulated stranger, look-alike, photo or other-voice session reaches L2. The
+simulated replayed video that also passed a liveness challenge reaches it in
+about 4% of cases. These are simulated numbers and should not be read as
+field accuracy.
 
 ## Security model
 
@@ -205,12 +266,14 @@ A trained fusion classifier over face, voice and liveness comes in phase 7.
   sealed the same way as face templates.
 - Security events: unknown face or voice, spoof suspected, liveness check
   failed, liveness lockout, frozen camera feed, voice command while not
-  verified, command in a non-owner voice, tool blocked because the owner
-  left mid-command. Each records time, outcome
-  and whether access was blocked.
+  verified, command in a non-owner voice, and a tool blocked because the
+  level was too low (or the owner left mid-command). Confirmed deletions and
+  fusion retraining are also logged. Each event records the time, the
+  outcome, and whether access was blocked.
 - **Known gaps:** voice alone has no replay protection, so a recording of
-  the owner's voice may pass voice verification. Commands still require the
-  live owner in front of the camera, and phase 7 fuses the factors. You
+  the owner's voice may pass voice verification. Acting on it still requires
+  the live owner in front of the camera (L2 needs face, liveness and voice
+  together). You
   can't interrupt the assistant while it speaks (it doesn't listen then). The
   passive anti-spoof model is a small CNN: a high-quality 3D mask or a
   real-time deepfake piped into a virtual camera is beyond what it and the
@@ -223,12 +286,15 @@ Requirements: macOS on Apple Silicon, Python 3.12, Node 20+, Rust (`brew install
 ```bash
 cd backend && python3.12 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 .venv/bin/python ../scripts/download_models.py   # ~1 GB, one time (add "medium" for Whisper medium)
-.venv/bin/python -m pytest                        # 94 tests (LLM tests need the model)
+.venv/bin/python -m pytest                        # 145 tests (LLM tests need the model)
 brew install ollama && mkdir -p ~/Developer/ollama/models
 OLLAMA_MODELS=~/Developer/ollama/models ollama serve &   # JARVIS also starts it itself
 ollama pull qwen2.5:7b                            # ~4.7 GB
 cd ../app && npm install && npm run tauri dev
 ```
+
+Optional: regenerate the fusion model and compare it with scikit-learn models:
+`cd backend && .venv/bin/pip install -e ".[train]" && .venv/bin/python ../scripts/train_fusion.py`.
 
 On first launch macOS asks for camera and microphone access for the app (in
 dev: for your terminal). The voice tests use the built-in `say` voices, so
@@ -245,7 +311,7 @@ which is fine for this academic project.
 4. ✅ Speech I/O (faster-whisper STT, Kokoro TTS, wake word = assistant name)
 5. ✅ Local LLM via Ollama (configurable model, structured intents)
 6. ✅ Tools: alarm, calendar, notes, app launcher, file search (Apple sync optional)
-7. Continuous multi-factor auth + trained fusion model, auth levels 1–3
+7. ✅ Continuous multi-factor auth + trained fusion model, auth levels 1–3
 8. Memory (SQLite + local embeddings)
 9. Privacy dashboard + settings + performance modes
 10. Polish, `.dmg` packaging, download website, full docs

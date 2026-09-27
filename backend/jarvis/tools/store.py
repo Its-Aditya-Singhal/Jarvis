@@ -125,6 +125,9 @@ class ToolStore:
             for r in rows
         ]
 
+    def delete_event(self, event_id: int) -> bool:
+        return bool(self.db.run("DELETE FROM events WHERE id = ? RETURNING id", (event_id,)))
+
     def unsynced_events(self) -> list[Event]:
         rows = self.db.run("SELECT * FROM events WHERE apple_uid IS NULL AND start >= ?", (time.time(),))
         return [Event(r["id"], self._open("events", r["title"]), datetime.fromtimestamp(r["start"]),
@@ -143,6 +146,9 @@ class ToolStore:
         rows = self.db.run("SELECT * FROM notes ORDER BY created DESC LIMIT ?", (limit,))
         return [Note(r["id"], self._open("notes", r["text"]), datetime.fromtimestamp(r["created"]), r["apple_id"])
                 for r in rows]
+
+    def delete_note(self, note_id: int) -> bool:
+        return bool(self.db.run("DELETE FROM notes WHERE id = ? RETURNING id", (note_id,)))
 
     def unsynced_notes(self) -> list[Note]:
         return [n for n in self.notes(1000) if n.apple_id is None]

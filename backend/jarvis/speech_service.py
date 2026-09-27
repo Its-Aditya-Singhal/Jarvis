@@ -35,6 +35,20 @@ log = logging.getLogger(__name__)
 PHRASE_MATCH_MIN = 0.55  # enrollment: spoken words vs displayed phrase
 UNAUTHORIZED_EVENT_GAP_S = 20.0
 STOP_WORDS = {"stop", "dismiss", "enough", "okay", "ok", "bas", "band", "ruko", "chup", "बस", "बंद", "रुको", "चुप"}
+YES_WORDS = {"yes", "yeah", "yep", "confirm", "confirmed", "sure", "haan", "han", "haa", "ha", "ji", "हाँ", "हां", "हा", "जी"}
+YES_PHRASES = ("go ahead", "do it", "delete it", "kar do", "kardo", "कर दो", "कर दीजिए", "हटा दो")
+NO_WORDS = {"no", "nope", "cancel", "don't", "dont", "nahi", "nahin", "mat", "नहीं", "नही", "मत", "रहने"}
+
+
+def confirm_answer(text: str) -> bool | None:
+    """True for yes, False for no, None if the utterance is neither."""
+    low = text.lower()
+    words = set(re.findall(r"[\w\u0900-\u097F']+", low))
+    if words & NO_WORDS:
+        return False
+    if words & YES_WORDS or any(p in low for p in YES_PHRASES):
+        return True
+    return None
 
 
 def name_prompt(assistant: str, owner: str = "") -> str:
@@ -83,6 +97,10 @@ class SpeechService:
         # set by the assistant service when tools are enabled
         self.alarm_ringing: Callable[[], bool] = lambda: False
         self.dismiss_alarm: Callable[[], int] = lambda: 0
+        # set by the assistant service: spoken yes/no for a pending deletion
+        self.confirm_pending: Callable[[], bool] = lambda: False
+        self.on_confirm: Callable[[bool, str | None], None] = lambda accept, verdict: None
+        self.on_voice_mismatch: Callable[[], None] = lambda: None
         self.out = SpeechOutput(tts, bus, self.voice_gender, player=player)
         self._q: queue.Queue[tuple[np.ndarray, str | None]] = queue.Queue(maxsize=3)
         self._stop = threading.Event()
@@ -188,7 +206,8 @@ class SpeechService:
             return
         found, rest = find_wake(assistant, tr.text)
         followup = time.monotonic() < self._listen_until
-        if not found and not followup:
+        answer = confirm_answer(rest if found else tr.text) if self.confirm_pending() else None
+        if not found and not followup and answer is None:
             return  # not addressed to the assistant: discarded, never shown
         command = rest if found else tr.text
         command = command[:1].upper() + command[1:]
@@ -209,6 +228,11 @@ class SpeechService:
             )
             self.bus.log("Voice command blocked — voice does not match the owner", "alert")
             self.out.say("That voice doesn't match my owner. Command blocked.")
+            self.on_voice_mismatch()
+            return
+        if answer is not None:
+            self.bus.publish({"type": "heard", "text": command, "lang": tr.language})
+            self.on_confirm(answer, verdict)
             return
 
         latency = round(time.monotonic() - t0, 2)

@@ -20,6 +20,8 @@ class VoiceAuth:
     valid_s: float = 20.0
     min_quality: float = 0.3
     last: VoiceResult | None = None
+    last_verified: VoiceResult | None = None
+    rejected_since_verified: bool = False  # an unrecognised voice spoke after the owner's last match
 
     def judge(self, similarity: float, quality: float, now: float) -> VoiceResult:
         if quality < self.min_quality:
@@ -31,6 +33,11 @@ class VoiceAuth:
         else:
             verdict = "uncertain"
         self.last = VoiceResult(verdict, similarity, quality, now)
+        if verdict == "verified":
+            self.last_verified = self.last
+            self.rejected_since_verified = False
+        elif verdict == "rejected":
+            self.rejected_since_verified = True
         return self.last
 
     def state(self, now: float) -> str:
@@ -41,3 +48,5 @@ class VoiceAuth:
 
     def reset(self) -> None:
         self.last = None
+        self.last_verified = None
+        self.rejected_since_verified = False

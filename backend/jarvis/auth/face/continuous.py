@@ -120,6 +120,11 @@ class ContinuousFaceAuth:
             events.append(("bystander", "Unknown person in view with owner"))
         return events
 
+    @property
+    def smoothed(self) -> float | None:
+        """Smoothed best similarity (internal; for the fusion features)."""
+        return self._smoothed
+
     def snapshot(self) -> AuthSnapshot:
         return AuthSnapshot(
             state=self.state,

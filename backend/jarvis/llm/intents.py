@@ -29,10 +29,13 @@ from ..speech.text import has_devanagari
 TOOLS: dict[str, tuple[str, str]] = {
     "alarm.set": ("Set an alarm", "time: local ISO datetime like 2026-09-28T07:00; label: optional"),
     "timer.set": ("Start a countdown timer", "seconds: integer; label: optional"),
+    "alarm.cancel": ("Cancel alarms/timers", "time: optional local ISO datetime of the alarm; omit to cancel all"),
     "calendar.create": ("Add a calendar event", "title; start: local ISO datetime; end: optional"),
     "calendar.list": ("Read the calendar for a day", "date: ISO date"),
+    "calendar.delete": ("Delete a calendar event", "title; date: optional ISO date"),
     "notes.add": ("Save a note", "text"),
     "notes.search": ("Find saved notes", "query"),
+    "notes.delete": ("Delete one saved note", "query: words from the note"),
     "app.open": ("Open a Mac application", "name"),
     "files.search": ("Search the user's files", "query"),
 }
@@ -92,7 +95,7 @@ Rules:
 - Only include actions requested in the LATEST message. Earlier messages are context only (for follow-ups like "another one at 7:30"); never repeat their actions.
 - Split requests joined by "and", "then", "aur", "phir" into separate actions, one per tool use.
 - Never say that you did, set, saved or opened anything.
-- Only use the listed tools. For anything else (messages, email, web, purchases, deleting, running code) return no actions and say briefly that you can't do that.
+- Only use the listed tools. For anything else (messages, email, web, purchases, deleting files, running code) return no actions and say briefly that you can't do that.
 - For live information (weather, news, prices, scores) say you have no internet access.
 - The user is {owner}."""
 
@@ -112,6 +115,8 @@ FEWSHOT: list[tuple[str, str, dict]] = [
     ("en", "Open Notes and find my files about the lease",
      {"actions": [{"tool": "app.open", "args": {"name": "Notes"}},
                   {"tool": "files.search", "args": {"query": "lease"}}], "reply": ""}),
+    ("hinglish", "bank wala note delete kar do",
+     {"actions": [{"tool": "notes.delete", "args": {"query": "bank"}}], "reply": ""}),
     ("en", "Who wrote Hamlet?", {"actions": [], "reply": "Hamlet was written by William Shakespeare."}),
     ("hi", "आज मौसम कैसा है?", {"actions": [], "reply": "मेरे पास इंटरनेट नहीं है, इसलिए अभी के मौसम की जानकारी नहीं है।"}),
     ("en", "Send a WhatsApp message to Rahul", {"actions": [], "reply": "Sorry, I can't send messages."}),
@@ -210,6 +215,14 @@ def describe(a: Action, language: str, now: datetime) -> str:
         return f"नोट: “{text('text')}”" if hi else f"a note: “{text('text')}”"
     if a.tool == "notes.search" and text("query"):
         return f"नोट्स में “{text('query')}” ढूँढना" if hi else f"a notes search for “{text('query')}”"
+    if a.tool == "alarm.cancel":
+        if t := parse_local(g.get("time")):
+            return f"{clock_phrase(t, True)} का अलार्म रद्द करना" if hi else f"cancelling the {clock_phrase(t, False)} alarm"
+        return "अलार्म रद्द करना" if hi else "cancelling your alarms"
+    if a.tool == "calendar.delete" and text("title"):
+        return f"“{text('title')}” हटाना" if hi else f"deleting “{text('title')}”"
+    if a.tool == "notes.delete" and text("query"):
+        return f"“{text('query')}” वाला नोट हटाना" if hi else f"deleting the note about “{text('query')}”"
     if a.tool == "app.open" and text("name"):
         return f"{text('name')} खोलना" if hi else f"opening {text('name')}"
     if a.tool == "files.search" and text("query"):

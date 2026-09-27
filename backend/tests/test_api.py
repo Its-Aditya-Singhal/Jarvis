@@ -141,3 +141,28 @@ def test_commands_and_model_settings_are_owner_only(settings):
         assert client.get("/api/llm/models", headers=H).status_code == 403
         assert client.put("/api/settings/llm", headers=H, json={"model": "x"}).status_code == 403
         assert client.post("/api/command", json={"text": "hi"}).status_code == 401
+
+
+def test_level_gated_endpoints(settings):
+    from jarvis.auth.levels import Trust
+
+    client, svc = _client(settings)
+    with client:
+        # nobody verified
+        assert client.get("/api/fusion", headers=H).status_code == 403
+        assert client.post("/api/confirm/abc", headers=H, json={"accept": True}).status_code == 403
+        assert client.post("/api/fusion/retrain", headers=H).status_code == 403
+        # the owner at the screen, but hasn't spoken recently: level 1
+        svc.trust = lambda now=None: Trust(1, 0.95, blockers={2: "voice_needed", 3: "voice_needed"})
+        info = client.get("/api/fusion", headers=H).json()
+        assert info["source"] == "default" and info["test"]["auc"] > 0.98
+        assert info["device_samples"] == {"owner": 0, "other": 0}
+        r = client.post("/api/fusion/retrain", headers=H)
+        assert r.status_code == 403 and "talk to me first" in r.json()["detail"]
+        assert client.put("/api/settings/files", headers=H, json={"folders": []}).status_code == 403
+        assert client.post("/api/confirm/abc", headers=H, json={"accept": True}).json()["ok"] is False
+        # level 2
+        svc.trust = lambda now=None: Trust(2, 0.99, l3_ready=True)
+        r = client.post("/api/fusion/retrain", headers=H)
+        assert r.status_code == 400 and "owner samples" in r.json()["detail"]
+        assert client.post("/api/fusion/reset", headers=H).json()["source"] == "default"

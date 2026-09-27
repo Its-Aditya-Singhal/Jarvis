@@ -79,12 +79,25 @@ class Settings(BaseSettings):
     llm_autostart: bool = True  # start `ollama serve` if no server is running
     llm_timeout_s: float = 90.0
 
+    # Auth levels + fusion (see jarvis/auth/levels.py)
+    fusion_enabled: bool = True
+    level1_min_prob: float = 0.5  # fusion score thresholds per level
+    level2_min_prob: float = 0.8
+    level3_min_prob: float = 0.9
+    level2_voice_window_s: float = 60.0  # owner's voice verified this recently -> level 2
+    level3_liveness_max_age_s: float = 600.0  # deletions need a liveness check this recent
+    confirm_ttl_s: float = 30.0  # time to confirm a deletion
+
     # Keychain
     keychain_service: str = "jarvis-assistant"
 
     @property
     def db_path(self) -> Path:
         return self.data_dir / "jarvis.sqlite3"
+
+    @property
+    def fusion_model_path(self) -> Path:
+        return self.data_dir / "fusion_model.json"
 
     @property
     def templates_dir(self) -> Path:

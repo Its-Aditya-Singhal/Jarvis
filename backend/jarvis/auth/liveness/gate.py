@@ -201,6 +201,12 @@ class LivenessGate:
                 events.append(self._start_challenge(now, "No natural blinking seen — liveness check"))
         return events
 
+    def demand(self, now: float, reason: str) -> list[tuple[str, str]]:
+        """Ask for a fresh challenge now (e.g. before a sensitive action)."""
+        if self.state != "passed":
+            return []  # already challenging, or not live yet: nothing to refresh
+        return [self._start_challenge(now, reason)]
+
     # -- output ----------------------------------------------------------------
     def public(self, now: float, owner: bool) -> dict:
         out: dict = {"state": self.state, "reason": self.reason}

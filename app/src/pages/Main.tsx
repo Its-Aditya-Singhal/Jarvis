@@ -5,6 +5,9 @@ import Orb, { OrbMode } from "../components/Orb";
 import SideNav, { View } from "../components/SideNav";
 import VoiceEnroll from "../components/VoiceEnroll";
 import AppleCard from "../components/AppleCard";
+import ConfirmCard from "../components/ConfirmCard";
+import FusionCard from "../components/FusionCard";
+import TrustCard from "../components/TrustCard";
 import FilesCard from "../components/FilesCard";
 import VoicePicker from "../components/VoicePicker";
 import ToolsPanel from "./ToolsPanel";
@@ -130,6 +133,7 @@ function Core() {
         {!(state === "approved" && conversation.some((t) => t.who === "assistant" && t.text === speech?.text)) && (
           <p className={`speech ${showSpeech || assistantSpeaking ? "show" : ""}`}>{speech?.text}</p>
         )}
+        {state === "approved" && <ConfirmCard />}
         {state === "approved" && <Conversation turns={conversation} name={name} />}
         {state === "approved" && <CommandBox disabled={thinking} />}
       </div>
@@ -158,15 +162,21 @@ function Conversation({
               {t.text}
               {t.actions && t.actions.length > 0 && (
                 <span className="actions">
-                  {t.actions.map((a, i) => (
-                    <i
-                      key={i}
-                      className={a.ok === undefined ? "" : a.ok ? "ok" : "fail"}
-                      title={JSON.stringify(a.args)}
-                    >
-                      {a.ok === undefined ? "○" : a.ok ? "✓" : "✗"} {a.tool}
-                    </i>
-                  ))}
+                  {t.actions.map((a, i) => {
+                    const pending = a.data?.pending !== undefined;
+                    const blocked = a.data?.blocked !== undefined;
+                    const cls = a.ok === undefined || pending ? "" : a.ok ? "ok" : blocked ? "blocked" : "fail";
+                    const icon = a.ok === undefined ? "○" : pending ? "?" : a.ok ? "✓" : blocked ? "⛔" : "✗";
+                    return (
+                      <i
+                        key={i}
+                        className={cls}
+                        title={blocked ? `blocked: ${a.data?.blocked}` : JSON.stringify(a.args)}
+                      >
+                        {icon} {a.tool}
+                      </i>
+                    );
+                  })}
                 </span>
               )}
               {files.length > 0 && (
@@ -262,8 +272,11 @@ const VOICE_LABEL: Record<string, [string, string]> = {
   idle: ["WAITING FOR SPEECH", "tone-off"],
 };
 
+const LEVEL_NAME = ["LOCKED", "READ", "ACT"];
+
 function FactorBadges() {
   const { auth, status, speaking } = useStore();
+  const level = auth?.level ?? 0;
   if (!status?.setup_complete) return null;
   const face = auth?.state === "approved" ? "tone-ok" : auth?.state === "denied" ? "tone-alert" : "tone-warn";
   const v = auth?.voice?.state ?? "idle";
@@ -279,6 +292,9 @@ function FactorBadges() {
       <span className={LIVE_LABEL[auth?.liveness?.state ?? "idle"][1]}>
         <i className="dot" /> LIVENESS
         {auth?.liveness?.state === "disabled" ? " · OFF" : ""}
+      </span>
+      <span className={`level-pill l${level}`} title={auth?.trust?.blockers["2"] ?? ""}>
+        L{level} · {LEVEL_NAME[level]}
       </span>
     </div>
   );
@@ -368,6 +384,7 @@ function AuthPanel() {
             every frame that rejects photos and screens.
           </p>
         </div>
+        <TrustCard />
       </div>
       {enrolling && (
         <div className="overlay">
@@ -394,6 +411,10 @@ const EVENT_TITLE: Record<string, string> = {
   unauthorized_command: "COMMAND FROM UNVERIFIED USER",
   voice_mismatch_command: "COMMAND IN UNKNOWN VOICE",
   camera_frozen: "CAMERA FEED FROZEN",
+  tool_blocked: "ACTION BLOCKED — LEVEL TOO LOW",
+  sensitive_action: "DELETION CONFIRMED",
+  fusion_retrained: "FUSION MODEL RETRAINED",
+  fusion_reset: "FUSION MODEL RESET",
 };
 
 function SecurityPanel() {
@@ -554,6 +575,7 @@ function SettingsPanel() {
             </div>
           </div>
           <LlmCard />
+          <FusionCard />
           <FilesCard />
           <AppleCard />
           <div className="card">

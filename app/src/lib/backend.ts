@@ -96,6 +96,46 @@ export interface AuthPublic {
   bystander?: boolean;
   voice?: VoicePublic;
   liveness?: LivenessPublic;
+  /** auth level 0-2 from live evidence (level 3 is granted per confirmed action) */
+  level?: number;
+  trust?: TrustPublic; // owner-only
+}
+
+export interface TrustPublic {
+  level: number;
+  name: string;
+  prob: number | null; // fusion classifier on all evidence: P(the live owner is in control)
+  presence: number | null; // the same without voice evidence (gates level 1)
+  blockers: Record<string, string>; // level -> why it isn't reached
+  l3_ready: boolean;
+  voice_window_s: number | null;
+  features: Record<string, number>;
+  model: string; // default | personal | disabled | error text
+}
+
+export interface PendingConfirm {
+  id: string;
+  tool: string;
+  text: string;
+  expires_s: number;
+}
+
+export interface FusionInfo {
+  enabled: boolean;
+  source: string;
+  trained: string | null;
+  training_samples: { simulated: number; device_owner: number; device_other: number } | null;
+  test: {
+    n: number;
+    accuracy: number;
+    auc: number;
+    level1: { threshold: number; far: number; frr: number };
+    level2: { threshold: number; far: number; frr: number };
+    level3: { threshold: number; far: number; frr: number };
+  } | null;
+  device_samples: { owner: number; other: number };
+  min_owner_samples: number;
+  features: string[];
 }
 
 export type LivenessState = "idle" | "challenge" | "cooldown" | "passed" | "spoof" | "disabled";
@@ -146,6 +186,7 @@ export interface Status {
   listening: boolean;
   llm_model: string | null;
   ringing: RingingAlarm[];
+  pending: PendingConfirm | null; // owner-only
 }
 
 export interface RingingAlarm {
@@ -161,7 +202,7 @@ export interface PlannedAction {
   summary: string;
   ok?: boolean; // present once the tool has run
   result?: string;
-  data?: { files?: string[]; [k: string]: unknown };
+  data?: { files?: string[]; pending?: string; blocked?: string; [k: string]: unknown };
 }
 
 export interface CommandResult {
@@ -218,6 +259,8 @@ export type BackendEvent =
   | ({ type: "alarm"; count: number } & RingingAlarm)
   | { type: "alarm_stopped" }
   | { type: "tools_changed" }
+  | ({ type: "confirm" } & PendingConfirm)
+  | { type: "confirm_done"; id: string; outcome: "done" | "cancelled" | "expired" }
   | { type: "listening"; active: boolean; seconds?: number }
   | { type: "speaking"; active: boolean }
   | { type: "voice"; verdict: VoiceState }

@@ -3,9 +3,10 @@
 Each tool validates its own arguments (the model's JSON is untrusted) and
 returns a ToolResult whose spoken text describes what actually happened, in
 English or Hindi. Nothing here runs shell commands with model-supplied text.
-Sensitivity levels are declared now and enforced by the auth levels in
-phase 7 (1 = read, 2 = create/open); every tool already requires the
-verified owner.
+Each tool declares the auth level it needs (see ``jarvis.auth.levels``):
+1 = read, 2 = create/open/cancel, 3 = delete. Level-3 tools never run
+directly: ``plan`` resolves exactly what would be deleted, the owner
+confirms, and only then ``execute`` deletes those items.
 """
 
 from __future__ import annotations
@@ -28,8 +29,10 @@ log = logging.getLogger(__name__)
 
 LEVELS = {
     "calendar.list": 1, "notes.search": 1, "files.search": 1,
-    "alarm.set": 2, "timer.set": 2, "calendar.create": 2, "notes.add": 2, "app.open": 2,
+    "alarm.set": 2, "timer.set": 2, "alarm.cancel": 2, "calendar.create": 2, "notes.add": 2, "app.open": 2,
+    "calendar.delete": 3, "notes.delete": 3,
 }
+MATCH_MIN = 75  # fuzzy score needed to pick a note/event to delete
 MAX_TIMER_S = 24 * 3600
 MAX_AHEAD = timedelta(days=366)
 
@@ -40,6 +43,16 @@ class ToolResult:
     ok: bool
     say: str
     data: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class Plan:
+    """A destructive action resolved to one exact item, awaiting confirmation."""
+
+    tool: str
+    item_id: int
+    what: str  # e.g. the note's text or the event's title and time
+    hi: bool
 
 
 def _quote(s: str, n: int = 60) -> str:
@@ -97,6 +110,29 @@ class ToolRunner:
             log.exception("tool %s failed", action.tool)
             return ToolResult(action.tool, False, "यह काम करते समय गड़बड़ हो गई।" if hi else "Something went wrong doing that.")
 
+    def plan(self, action: Action, lang: str) -> Plan | ToolResult:
+        """Resolve a level-3 action to the single item it would delete."""
+        hi = lang != "en"
+        planner = getattr(self, "_plan_" + action.tool.replace(".", "_"), None)
+        if planner is None:
+            return ToolResult(action.tool, False, "यह टूल उपलब्ध नहीं है।" if hi else "That tool isn't available.")
+        return planner(action.args, hi)
+
+    def execute(self, plan: Plan) -> ToolResult:
+        hi = plan.hi
+        if plan.tool == "notes.delete":
+            done = self.store.delete_note(plan.item_id)
+        elif plan.tool == "calendar.delete":
+            done = self.store.delete_event(plan.item_id)
+        else:
+            done = False
+        if not done:
+            return ToolResult(plan.tool, False, "वह पहले ही हट चुका है।" if hi else "That was already gone.")
+        self.on_change()
+        # copies synced to Apple's apps are left alone: this app never deletes there
+        say = f"{plan.what} हटा दिया है।" if hi else f"Deleted {plan.what}."
+        return ToolResult(plan.tool, True, say, {"id": plan.item_id})
+
     # -- alarms & timers ---------------------------------------------------------------
     def _alarm_set(self, args: dict, hi: bool) -> ToolResult:
         now = self.clock()
@@ -135,6 +171,27 @@ class ToolRunner:
             length = (f"{m} minute{'s' if m != 1 else ''}" + (f" {s} seconds" if s else "")) if m else f"{s} seconds"
             say = f"Timer started for {length}."
         return ToolResult("timer.set", True, say, {"id": tid, "due": due.isoformat(timespec="seconds")})
+
+    def _alarm_cancel(self, args: dict, hi: bool) -> ToolResult:
+        pending = [a for a in self.store.alarms(("pending",))]
+        t = parse_local(args.get("time"))
+        if t is not None:
+            pending = [a for a in pending if a.kind == "alarm" and abs((a.due - t).total_seconds()) < 60]
+        if not pending:
+            return ToolResult("alarm.cancel", False, "रद्द करने के लिए कोई अलार्म नहीं मिला।" if hi
+                              else "There's no matching alarm or timer to cancel.")
+        for a in pending:
+            self.store.set_alarm_status(a.id, "cancelled")
+        self.on_change()
+        n = len(pending)
+        if hi:
+            say = f"{n} अलार्म/टाइमर रद्द कर दिए हैं।" if n > 1 else "अलार्म रद्द कर दिया है।"
+        elif n == 1:
+            a = pending[0]
+            say = (f"Cancelled the {clock_phrase(a.due, False)} alarm." if a.kind == "alarm" else "Cancelled the timer.")
+        else:
+            say = f"Cancelled {n} alarms and timers."
+        return ToolResult("alarm.cancel", True, say, {"ids": [a.id for a in pending]})
 
     # -- calendar ----------------------------------------------------------------------
     def _calendar_create(self, args: dict, hi: bool) -> ToolResult:
@@ -203,6 +260,28 @@ class ToolRunner:
             {"title": e.title, "start": e.start.isoformat(timespec="minutes"), "source": e.source} for e in events]}
         return ToolResult("calendar.list", True, say, data)
 
+    def _plan_calendar_delete(self, args: dict, hi: bool) -> Plan | ToolResult:
+        now = self.clock()
+        title = " ".join(str(args.get("title") or "").split())[:120]
+        if not title:
+            return ToolResult("calendar.delete", False, "कौन सा इवेंट हटाऊँ, समझ नहीं आया।" if hi else "I didn't catch which event to delete.")
+        d = parse_local(f"{args.get('date')}T00:00") if args.get("date") else None
+        if d is not None:
+            a, b = d, d + timedelta(days=1)
+        else:
+            a, b = now - timedelta(days=1), now + MAX_AHEAD
+        scored = [(fuzz.token_set_ratio(title.lower(), e.title.lower()), e) for e in self.store.events_between(a, b)]
+        scored = [x for x in scored if x[0] >= MATCH_MIN]
+        if not scored:
+            return ToolResult("calendar.delete", False, f"{_quote(title)} नाम का कोई इवेंट नहीं मिला।" if hi
+                              else f"I couldn't find an event called {_quote(title)}.")
+        # best match; ties go to the soonest
+        e = sorted(scored, key=lambda x: (-x[0], x[1].start))[0][1]
+        day = day_phrase(e.start.date(), now.date(), hi)
+        what = (f"{day} {clock_phrase(e.start, True)} का {_quote(e.title)}" if hi
+                else f"{_quote(e.title)} {day} at {clock_phrase(e.start, False)}")
+        return Plan("calendar.delete", e.id, what, hi)
+
     # -- notes -------------------------------------------------------------------------
     def _notes_add(self, args: dict, hi: bool) -> ToolResult:
         text = " ".join(str(args.get("text") or "").split())[:2000]
@@ -243,6 +322,17 @@ class ToolRunner:
             say = f"{len(allnotes)} नोट मिले: {listed}।" if hi else (
                 f"I found {len(allnotes)} note{'s' if len(allnotes) != 1 else ''}: {listed}.")
         return ToolResult("notes.search", True, say, {"notes": allnotes})
+
+    def _plan_notes_delete(self, args: dict, hi: bool) -> Plan | ToolResult:
+        q = " ".join(str(args.get("query") or "").split())[:100]
+        if not q:
+            return ToolResult("notes.delete", False, "कौन सा नोट हटाऊँ, समझ नहीं आया।" if hi else "I didn't catch which note to delete.")
+        scored = [(fuzz.partial_ratio(q.lower(), n.text.lower()), n) for n in self.store.notes(1000)]
+        scored = [x for x in scored if x[0] >= MATCH_MIN]
+        if not scored:
+            return ToolResult("notes.delete", False, f"{_quote(q)} से जुड़ा कोई नोट नहीं मिला।" if hi else f"No note matches {_quote(q)}.")
+        n = sorted(scored, key=lambda x: (-x[0], -x[1].created.timestamp()))[0][1]
+        return Plan("notes.delete", n.id, f"नोट {_quote(n.text)}" if hi else f"the note {_quote(n.text)}", hi)
 
     # -- apps & files --------------------------------------------------------------------
     def _app_open(self, args: dict, hi: bool) -> ToolResult:

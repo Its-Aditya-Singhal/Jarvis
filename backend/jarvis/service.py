@@ -1,15 +1,20 @@
 """Orchestrates the face + liveness pipeline and composes it with the voice pipeline.
 
 The session counts as the verified owner only when the face matches AND the
-liveness gate has confirmed a live person (see ``effective_state``).
+liveness gate has confirmed a live person (see ``effective_state``). On top
+of that, every request is checked against the auth level the current
+evidence allows (``trust``: hard rules + the fusion classifier), and
+deletions wait for an explicit confirmation.
 """
 
 from __future__ import annotations
 
 import base64
 import logging
+import secrets
 import threading
 import time
+from dataclasses import dataclass
 from typing import Callable
 
 import cv2
@@ -19,6 +24,11 @@ from .auth.face.continuous import ContinuousFaceAuth, FrameResult
 from .auth.face.engine import FaceEngine
 from .auth.face.enrollment import EnrollmentSession
 from .auth.face.types import FaceObservation
+from .auth.fusion.features import FEATURES, Evidence, vector, without_voice
+from .auth.fusion.model import FusionModel, load_model
+from .auth.fusion.samples import SampleStore
+from .auth.fusion.train import train as train_fusion
+from .auth.levels import LEVEL_NAMES, REASONS, LevelConfig, Trust, assess
 from .auth.liveness.gate import LiveObs, LivenessConfig, LivenessGate
 from .auth.liveness.replay import FrozenFeedDetector
 from .auth.matching import TemplateMatcher, confidence
@@ -28,7 +38,7 @@ from .database.db import Database
 from .events import EventBus
 from .security.template_store import TemplateStore
 from .brain import Brain
-from .tools.runner import ToolResult, ToolRunner
+from .tools.runner import LEVELS, Plan, ToolResult, ToolRunner
 from .tools.scheduler import AlarmScheduler
 from .tools.store import Alarm
 from .speech_service import SpeechService
@@ -48,6 +58,33 @@ def notify(title: str, text: str) -> None:
         pass
 
 FACE = "face"
+MIN_OWNER_SAMPLES = 10  # before a personal retrain makes sense
+
+# spoken when an action needs a higher level than the evidence allows
+BLOCKED_SAY = {
+    "voice_needed": ("To do that I need to hear your voice. Please say it out loud.",
+                     "यह करने के लिए मुझे आपकी आवाज़ सुननी होगी। कृपया बोलकर कहिए।"),
+    "voice_needed_voice": ("I couldn't confirm your voice. Please say that again.",
+                           "आपकी आवाज़ पक्की नहीं हो पाई। कृपया दोबारा कहिए।"),
+    "voice_rejected": ("An unrecognised voice spoke, so please repeat that yourself.",
+                       "कोई अनजान आवाज़ बोली थी, कृपया आप खुद दोबारा कहिए।"),
+    "bystander": ("Someone else is in view, so I'll only read things for now.",
+                  "कोई और भी दिख रहा है, इसलिए अभी मैं सिर्फ़ जानकारी पढ़ सकती हूँ।"),
+    "low_confidence": ("I'm not confident enough that it's you right now.",
+                       "अभी मुझे पूरा भरोसा नहीं है कि यह आप ही हैं।"),
+    "fresh_liveness": ("First a quick liveness check.", "पहले एक छोटा लाइवनेस चेक।"),
+}
+
+
+@dataclass
+class Pending:
+    """A deletion waiting for the owner's confirmation."""
+
+    id: str
+    plan: Plan
+    lang: str
+    say: str
+    expires: float  # monotonic
 
 
 class AssistantService:
@@ -65,6 +102,7 @@ class AssistantService:
         tools_factory: "Callable[[AssistantService], tuple[ToolRunner, AlarmScheduler]] | None" = None,
     ):
         self.s = settings
+        self.clock: Callable[[], float] = time.monotonic  # same clock as the face loop's ``now``
         self.db = db
         self.store = store
         self.bus = bus
@@ -87,6 +125,22 @@ class AssistantService:
         # speech first: the voice pipeline hands it utterances and asks it about muting
         self.speech: SpeechService | None = speech_factory(self) if speech_factory else None
         self.voice: VoiceService | None = voice_factory(self) if voice_factory else None
+        self.levels = LevelConfig(
+            t1=settings.level1_min_prob,
+            t2=settings.level2_min_prob,
+            t3=settings.level3_min_prob,
+            voice_window_s=settings.level2_voice_window_s,
+            l3_liveness_max_age_s=settings.level3_liveness_max_age_s,
+        )
+        self.fusion: FusionModel | None = None
+        self.fusion_source = "disabled"
+        if settings.fusion_enabled:
+            self.fusion, self.fusion_source = load_model(settings.fusion_model_path)
+        self.samples = SampleStore(db)
+        self._face_quality: float | None = None
+        self._pending: Pending | None = None
+        self._pending_lock = threading.Lock()
+        self._demand_liveness: str | None = None
         self.tools: ToolRunner | None = None
         self.alarms: AlarmScheduler | None = None
         if tools_factory:
@@ -94,9 +148,93 @@ class AssistantService:
             if self.speech is not None:
                 self.speech.alarm_ringing = lambda: bool(self.alarms and self.alarms.ringing())
                 self.speech.dismiss_alarm = self.dismiss_alarms
+        if self.speech is not None:
+            self.speech.confirm_pending = lambda: self.pending() is not None
+            self.speech.on_confirm = self.confirm_spoken
+            self.speech.on_voice_mismatch = lambda: self.record_sample(0, "voice_mismatch")
 
     def owner_verified(self) -> bool:
-        return self.effective_state() == "approved"
+        """Level 1 or higher: the live owner is at the screen."""
+        return self.trust().level >= 1
+
+    # -- auth levels -----------------------------------------------------------
+    def evidence(self, now: float | None = None) -> Evidence:
+        now = self.clock() if now is None else now
+        a = self.auth
+        ev = Evidence(
+            face_state=self.effective_state(),
+            liveness=self.live.state if self.s.liveness_enabled else "disabled",
+            face_sim=a.smoothed,
+            face_age_s=None if a.last_verified_t is None else now - a.last_verified_t,
+            face_quality=self._face_quality,
+            live_score=self.live.live_score if self.s.liveness_enabled else None,
+            live_age_s=None if self.live.passed_t is None else now - self.live.passed_t,
+            voice_enrolled=self.voice_enrolled,
+        )
+        snap = a.snapshot()
+        ev.others = max(0, snap.faces - 1)
+        ev.bystander = snap.bystander
+        v = self.voice
+        if v is not None and v.mode == "verifying":
+            if v.auth.last is not None:
+                ev.voice_sim = v.auth.last.similarity
+                ev.voice_age_s = now - v.auth.last.t
+            if v.auth.last_verified is not None:
+                ev.voice_verified_age_s = now - v.auth.last_verified.t
+            ev.voice_rejected_since = v.auth.rejected_since_verified
+        return ev
+
+    def _assess(self, now: float | None = None) -> tuple[Trust, "np.ndarray"]:
+        ev = self.evidence(now)
+        x = vector(ev, self.levels.voice_window_s)
+        if self.fusion is None:
+            return assess(ev, None, self.levels), x
+        return assess(ev, self.fusion.prob(x), self.levels, self.fusion.prob(without_voice(x))), x
+
+    def trust(self, now: float | None = None) -> Trust:
+        return self._assess(now)[0]
+
+    def record_sample(self, label: int, source: str) -> None:
+        """Keep this moment's feature vector (scores only) for personal retraining."""
+        if self.mode != "verifying":
+            return
+        try:
+            self.samples.add(vector(self.evidence(), self.levels.voice_window_s), label, source)
+        except Exception:
+            log.exception("could not store fusion sample")
+
+    def fusion_info(self) -> dict:
+        m = self.fusion
+        rep = (m.meta.get("report") or {}).get("test_simulated", {}) if m else {}
+        return {
+            "enabled": self.s.fusion_enabled,
+            "source": self.fusion_source,
+            "trained": m.meta.get("trained") if m else None,
+            "training_samples": m.meta.get("samples") if m else None,
+            "test": {k: rep.get(k) for k in ("n", "accuracy", "auc", "level1", "level2", "level3")} if rep else None,
+            "device_samples": self.samples.counts(),
+            "min_owner_samples": MIN_OWNER_SAMPLES,
+            "features": FEATURES,
+        }
+
+    def retrain_fusion(self) -> dict:
+        X, y = self.samples.load()
+        owner = int((y == 1).sum())
+        if owner < MIN_OWNER_SAMPLES:
+            raise ValueError(f"need at least {MIN_OWNER_SAMPLES} owner samples from normal use (have {owner})")
+        model = train_fusion(X, y)
+        model.save(self.s.fusion_model_path)
+        self.fusion, self.fusion_source = model, "personal"
+        self.db.add_security_event("fusion_retrained", f"Fusion model retrained with {len(y)} device samples")
+        self.bus.log(f"Fusion model retrained ({owner} owner / {len(y) - owner} other samples)", "ok")
+        return self.fusion_info()
+
+    def reset_fusion(self) -> dict:
+        self.s.fusion_model_path.unlink(missing_ok=True)
+        self.fusion, self.fusion_source = load_model(None)
+        self.db.add_security_event("fusion_reset", "Fusion model reset to the shipped version")
+        self.bus.log("Fusion model reset to the shipped version")
+        return self.fusion_info()
 
     def effective_state(self) -> str:
         """Public auth state: face match combined with liveness.
@@ -303,8 +441,13 @@ class AssistantService:
         for kind, detail in events:
             self._handle_event(kind, detail, prev, sims)
 
+        self._face_quality = usable[int(np.argmax(sims))].quality if sims else None
+
         live_events: list[tuple[str, str]] = []
         if self.s.liveness_enabled:
+            if self._demand_liveness:
+                reason, self._demand_liveness = self._demand_liveness, None
+                live_events += self.live.demand(now, reason)
             obs = None
             if sims and max(sims) >= self.s.face_reject_threshold:
                 best = usable[int(np.argmax(sims))]
@@ -315,10 +458,11 @@ class AssistantService:
                     eye_open=best.eye_open,
                     live_score=best.live_score,
                 )
-            live_events = self.live.update(self.auth.state, obs, now, frozen=self._frozen)
+            live_events += self.live.update(self.auth.state, obs, now, frozen=self._frozen)
             for kind, detail in live_events:
                 self._handle_liveness(kind, detail, sims)
 
+        self._expire_pending(now)
         changed = self.effective_state() != prev_effective
         # challenges push faster so the countdown and hints stay live
         interval = 0.25 if self.live.state == "challenge" else 1.0
@@ -342,11 +486,14 @@ class AssistantService:
                 blocked=True,
             )
             self.bus.log("Unknown person detected — access denied", "alert")
+            self.record_sample(0, "stranger")
             self.bus.publish(
                 {"type": "say", "text": "Authentication failed. You are not my boss."}
             )
         elif kind == "state_absent":
             self._unlocked = False
+            if self.voice is not None:
+                self.voice.auth.reset()  # a new presence session starts without voice evidence
             if self.brain is not None:
                 self.brain.clear()
             self.bus.log("Owner left — session locked", "warn")
@@ -360,8 +507,9 @@ class AssistantService:
     def command(self, text: str, lang: str = "en", source: str = "voice") -> dict:
         """Run one owner command through the brain and answer (shown + spoken).
 
-        Callers have already checked that the owner is verified. The brain
-        only understands requests in this phase; nothing is executed.
+        Callers have already checked level 1 (the live owner is at the
+        screen). Each proposed action is checked against the level it needs
+        when it runs; deletions become a pending confirmation.
         """
         text = " ".join(text.split())[:500]
         self.bus.publish({"type": "heard", "text": text, "lang": lang, "source": source})
@@ -376,7 +524,7 @@ class AssistantService:
             actions = [{"tool": a.tool, "args": a.args, "summary": a.summary} for a in r.actions]
             reply = r.reply
             if r.actions and self.tools is not None:
-                results = self._run_tools(r.actions, r.language)
+                results = self._run_tools(r.actions, r.language, source)
                 for info, res in zip(actions, results):
                     info.update(ok=res.ok, result=res.say, data=res.data)
                 reply = " ".join(res.say for res in results)
@@ -387,19 +535,134 @@ class AssistantService:
         self.bus.publish({"type": "say", "text": result["reply"]})
         return result
 
-    def _run_tools(self, actions, lang: str) -> list[ToolResult]:
+    def _blocked_say(self, code: str, lang: str, source: str) -> str:
+        if code == "voice_needed" and source == "voice":
+            code = "voice_needed_voice"  # they did speak; the match was just unclear
+        en, hi = BLOCKED_SAY.get(code, (REASONS.get(code, "Not allowed right now."),) * 2)
+        return hi if lang != "en" else en
+
+    def _run_tools(self, actions, lang: str, source: str = "voice") -> list[ToolResult]:
+        hi = lang != "en"
         results: list[ToolResult] = []
+        did_level2 = False
         for a in actions:
-            # the owner may have left while the model was thinking
-            if not self.owner_verified():
-                results.append(ToolResult(a.tool, False, "रुक गया: आप अब सत्यापित नहीं हैं।" if lang != "en"
+            need = LEVELS.get(a.tool, 3)
+            trust = self.trust()  # re-checked per action: the owner may have left while the model was thinking
+            if trust.level == 0:
+                results.append(ToolResult(a.tool, False, "रुक गया: आप अब सत्यापित नहीं हैं।" if hi
                                           else "Stopped: you're no longer verified."))
                 self.db.add_security_event("tool_blocked", f"{a.tool} blocked: owner no longer verified", blocked=True)
                 break
+            if need >= 2 and trust.level < 2:
+                code = trust.blockers.get(2, "low_confidence")
+                results.append(ToolResult(a.tool, False, self._blocked_say(code, lang, source), {"blocked": code}))
+                self.db.add_security_event(
+                    "tool_blocked", f"{a.tool} needs level {need}, have {trust.level}: {REASONS.get(code, code)}", blocked=True
+                )
+                self.bus.log(f"Tool {a.tool} blocked — {REASONS.get(code, code)}", "warn")
+                continue
+            if need == 3:
+                results.append(self._request_confirmation(a, lang, trust))
+                continue
             res = self.tools.run(a, lang)
             self.bus.log(f"Tool {a.tool}: {'done' if res.ok else 'failed'}", "ok" if res.ok else "warn")
             results.append(res)
+            did_level2 |= res.ok and need >= 2
+        if did_level2:
+            self.record_sample(1, "owner_command")
         return results
+
+    # -- confirmations (level 3) ------------------------------------------------------
+    def pending(self) -> Pending | None:
+        p = self._pending
+        return p if p is not None and self.clock() < p.expires else None
+
+    def _finish_pending(self, outcome: str) -> Pending | None:
+        with self._pending_lock:
+            p, self._pending = self._pending, None
+        if p is not None:
+            self.bus.publish({"type": "confirm_done", "id": p.id, "outcome": outcome})
+        return p
+
+    def _expire_pending(self, now: float) -> None:
+        p = self._pending
+        if p is None:
+            return
+        if now >= p.expires:
+            self._finish_pending("expired")
+            self.bus.log("Deletion not confirmed in time — cancelled", "warn")
+        elif self.trust(now).level == 0:
+            self._finish_pending("cancelled")
+            self.bus.log("Pending deletion cancelled — owner no longer verified", "warn")
+
+    def _request_confirmation(self, action, lang: str, trust: Trust) -> ToolResult:
+        hi = lang != "en"
+        if self.pending() is not None:
+            return ToolResult(action.tool, False, "एक बार में एक ही चीज़ हटा सकती हूँ।" if hi else "One deletion at a time, please.")
+        plan = self.tools.plan(action, lang)
+        if isinstance(plan, ToolResult):
+            return plan
+        ttl = self.s.confirm_ttl_s
+        say = f"{plan.what} हटा दूँ? “हाँ, कर दो” बोलिए या Confirm दबाइए।" if hi else (
+            f"Delete {plan.what}? Say “yes, go ahead” or click Confirm.")
+        if trust.needs_fresh_liveness:
+            self._demand_liveness = "Fresh liveness check before a deletion"
+            ttl += 20.0  # time for the challenge
+            say = self._blocked_say("fresh_liveness", lang, "voice") + " " + say
+        pid = secrets.token_hex(4)
+        with self._pending_lock:
+            self._pending = Pending(pid, plan, lang, say, self.clock() + ttl)
+        self.bus.publish({"type": "confirm", "id": pid, "tool": plan.tool, "text": say, "expires_s": ttl})
+        self.bus.log(f"Waiting for confirmation: {plan.tool}")
+        return ToolResult(action.tool, True, say, {"pending": pid})
+
+    def confirm_spoken(self, accept: bool, verdict: str | None) -> None:
+        p = self.pending()
+        if p is not None:
+            self.confirm(p.id, accept, "voice", verdict)
+
+    def confirm(self, pid: str, accept: bool, source: str, verdict: str | None = None) -> dict:
+        p = self.pending()
+        hi = p is not None and p.lang != "en"
+        if p is None or p.id != pid:
+            return self._answer("Nothing is waiting for confirmation.", ok=False)
+        if not accept:
+            self._finish_pending("cancelled")
+            self.bus.log("Deletion cancelled by the owner")
+            return self._answer("ठीक है, नहीं हटाया।" if hi else "Okay, I won't delete it.", ok=True)
+        if source == "voice" and verdict != "verified":
+            # a short "yes" carries too little voice to identify the speaker
+            return self._answer(
+                "आपकी आवाज़ पक्की नहीं हो पाई। “हाँ, कर दो” साफ़ बोलिए या Confirm दबाइए।" if hi
+                else "I couldn't verify your voice from that. Say “yes, go ahead” clearly, or click Confirm.",
+                ok=False,
+            )
+        trust = self.trust()
+        if not trust.l3_ready:
+            code = trust.blockers.get(3, "low_confidence")
+            if code == "fresh_liveness":
+                if self.live.state != "challenge":
+                    self._demand_liveness = "Fresh liveness check before a deletion"
+                    with self._pending_lock:
+                        if self._pending is p:
+                            p.expires = max(p.expires, self.clock() + 25.0)
+                text = "पहले लाइवनेस चेक पूरा कीजिए, फिर पुष्टि कीजिए।" if hi else "Finish the liveness check first, then confirm."
+            else:
+                text = self._blocked_say(code, p.lang, source)
+                self.db.add_security_event("tool_blocked", f"{p.plan.tool} confirmation refused: {REASONS.get(code, code)}", blocked=True)
+            return self._answer(text, ok=False)
+        self._finish_pending("done")
+        res = self.tools.execute(p.plan)
+        self.db.add_security_event("sensitive_action", f"{p.plan.tool} confirmed by {'voice' if source == 'voice' else 'click'}")
+        self.bus.log(f"Tool {p.plan.tool}: {'done' if res.ok else 'failed'} (confirmed)", "ok" if res.ok else "warn")
+        self.record_sample(1, "owner_confirm")
+        action = {"tool": p.plan.tool, "args": {}, "summary": p.plan.what, "ok": res.ok, "result": res.say, "data": res.data}
+        return self._answer(res.say, ok=res.ok, actions=[action])
+
+    def _answer(self, text: str, ok: bool, actions: list | None = None) -> dict:
+        self.bus.publish({"type": "reply", "text": text, "actions": actions or []})
+        self.bus.publish({"type": "say", "text": text})
+        return {"ok": ok, "reply": text}
 
     # -- alarms ------------------------------------------------------------------
     def tools_changed(self) -> None:
@@ -472,6 +735,7 @@ class AssistantService:
                 "spoof_suspected", detail, face_conf=self._face_conf(sims), blocked=True
             )
             self.bus.log(f"Spoof suspected: {detail}", "alert")
+            self.record_sample(0, "spoof")
             self.bus.publish({"type": "say", "text": "Spoof attempt detected. Access denied."})
         elif kind == "liveness_reset":
             self._unlocked = False
@@ -481,12 +745,25 @@ class AssistantService:
         """Auth state safe to show anyone sitting at the screen."""
         snap = self.auth.snapshot()
         state = self.effective_state()
-        owner = state == "approved"
-        out = {
-            "state": state,
-            "reason": self.live.reason if state in ("liveness", "spoof") else snap.reason,
-            "faces": snap.faces,
-        }
+        trust, x = self._assess()
+        reason = self.live.reason if state in ("liveness", "spoof") else snap.reason
+        if state == "approved" and trust.level == 0:
+            # the fusion score vetoed the match
+            state, reason = "scanning", REASONS[trust.blockers.get(1, "low_confidence")]
+        owner = trust.level >= 1
+        out = {"state": state, "reason": reason, "faces": snap.faces, "level": trust.level}
+        if owner:
+            out["trust"] = {
+                "level": trust.level,
+                "name": LEVEL_NAMES[trust.level],
+                "prob": None if trust.prob is None else round(trust.prob, 3),
+                "presence": None if trust.presence is None else round(trust.presence, 3),
+                "blockers": {str(k): REASONS.get(v, v) for k, v in trust.blockers.items()},
+                "l3_ready": trust.l3_ready,
+                "voice_window_s": trust.voice_window_s,
+                "features": {k: round(float(v), 3) for k, v in zip(FEATURES, x)},
+                "model": self.fusion_source,
+            }
         if owner:
             # values are only revealed to the verified owner
             out["face_confidence"] = (
@@ -496,7 +773,7 @@ class AssistantService:
             )
             out["bystander"] = snap.bystander
         if self.s.liveness_enabled:
-            out["liveness"] = self.live.public(time.monotonic(), owner)
+            out["liveness"] = self.live.public(self.clock(), owner)
         else:
             out["liveness"] = {"state": "disabled", "reason": "Liveness checks are turned off"}
         if self.voice is not None:
@@ -563,5 +840,11 @@ class AssistantService:
                 {"id": a.id, "kind": a.kind, "label": a.label, "due": a.due.isoformat(timespec="minutes")}
                 for a in (self.alarms.ringing() if self.alarms else [])
             ],
-            "auth": self.auth_public(),
+            "auth": (auth := self.auth_public()),
+            # what is about to be deleted is shown to the verified owner only
+            "pending": (
+                {"id": p.id, "tool": p.plan.tool, "text": p.say, "expires_s": round(p.expires - self.clock(), 1)}
+                if (p := self.pending()) is not None and auth.get("level", 0) >= 1
+                else None
+            ),
         }
