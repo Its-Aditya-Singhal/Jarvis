@@ -138,6 +138,7 @@ class AssistantService:
         self._stop = threading.Event()
         self._life = threading.Lock()  # start() vs stop(): nothing is switched on once stopping
         self._thread: threading.Thread | None = None
+        self._announce: threading.Timer | None = None
         self._last_state_push = 0.0
         self._last_face_t = time.monotonic()
         self._lock = threading.Lock()
@@ -522,9 +523,9 @@ class AssistantService:
                 threading.Thread(target=self._start_memory, name="memory-start", daemon=True).start()
             self._thread = threading.Thread(target=self._loop, name="face-loop", daemon=True)
             self._thread.start()
-            t = threading.Timer(12.0, self._announce_issues)
-            t.daemon = True
-            t.start()
+            self._announce = threading.Timer(12.0, self._announce_issues)
+            self._announce.daemon = True
+            self._announce.start()
 
         self._unless_stopping(launch)
 
@@ -559,6 +560,8 @@ class AssistantService:
     def stop(self) -> None:
         with self._life:
             self._stop.set()
+        if self._announce is not None:
+            self._announce.cancel()
         self.perf.stop()
         if self._thread:
             self._thread.join(timeout=2)

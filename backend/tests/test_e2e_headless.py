@@ -242,3 +242,21 @@ def test_quitting_while_models_load_leaves_nothing_running(settings):
     alive = {t.name for t in threading.enumerate() if t.name in workers}
     assert not alive, f"still running after stop: {alive}"
     assert rig.camera.status == "off" and rig.mic.status == "off"
+
+
+def test_nothing_keeps_running_after_the_app_stops(settings):
+    import threading
+
+    before = {t.ident for t in threading.enumerate()}
+    h = Harness(settings)
+    with h.client:
+        h.wait_models()
+        h.svc.speech.out.say("Hello there.")  # uses the synthesis worker
+        h.wait_for(lambda: bool(h.scene.said))
+    end = time.monotonic() + 5
+    while time.monotonic() < end:
+        left = [t.name for t in threading.enumerate() if t.ident not in before and t.is_alive()]
+        if not left:
+            break
+        time.sleep(0.05)
+    assert not left, f"threads left running: {left}"

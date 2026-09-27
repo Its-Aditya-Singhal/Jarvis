@@ -114,6 +114,7 @@ class SpeechOutput:
         self._closed.set()
         self._stop_current.set()
         self._q.put(("", None))
+        self._synth_pool.shutdown(wait=False, cancel_futures=True)
 
     def say(self, text: str, gender: str | None = None) -> None:
         text = " ".join(text.split())
