@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import threading
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -41,7 +42,7 @@ class TextToSpeech:
         self.dir = Path(models_root) / "kokoro"
         self.speed = speed
         self.threads = threads
-        self._k = None
+        self._k: Any = None  # kokoro_onnx.Kokoro
         self._lock = threading.Lock()
         self.error: str | None = None
 

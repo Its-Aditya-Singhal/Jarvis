@@ -207,7 +207,7 @@ def create_app(
 
     def make_brain(svc: AssistantService) -> Brain:
         return brain or Brain(s, db, names=lambda: (svc.assistant_name, svc.owner_name),
-                              voice_gender=lambda: db.get("voice_gender", "female"), server=llm_server, client=llm_client)
+                              voice_gender=lambda: db.get("voice_gender") or "female", server=llm_server, client=llm_client)
 
     def make_memory(svc: AssistantService) -> Memory:
         client = memory_client or (svc.brain.client if svc.brain else OllamaClient(f"http://{s.ollama_host}", 30.0))

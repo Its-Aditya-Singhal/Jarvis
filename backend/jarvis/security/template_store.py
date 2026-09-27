@@ -49,7 +49,8 @@ class TemplateStore:
             return None
         st = path.stat()
         try:
-            samples = int(len(self.load(modality)))
+            t = self.load(modality)
+            samples = None if t is None else len(t)
         except Exception:
             samples = None  # unreadable (e.g. the key is gone)
         return {"bytes": st.st_size, "modified": st.st_mtime, "samples": samples}

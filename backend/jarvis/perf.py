@@ -15,6 +15,7 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from .netguard import observe_connections
 
@@ -84,7 +85,7 @@ class PerfMonitor:
         self.stats: dict = {}
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
-        self._proc = None
+        self._proc: Any = None  # psutil.Process, created on the first sample
 
     def start(self) -> None:
         self.on_battery, self.battery_pct = self.power()

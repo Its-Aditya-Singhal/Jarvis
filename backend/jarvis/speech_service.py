@@ -101,7 +101,7 @@ class SpeechService:
         owner_verified: Callable[[], bool],
         names: Callable[[], tuple[str, str]],
         player=None,
-        on_command: Callable[[str, str], None] | None = None,
+        on_command: Callable[[str, str], object] | None = None,
     ):
         self.s = settings
         self.db = db

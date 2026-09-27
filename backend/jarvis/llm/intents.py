@@ -154,9 +154,9 @@ def build_messages(
 ) -> list[dict[str, str]]:
     """history: (language, user text, assistant JSON) of recent exchanges."""
     msgs = [{"role": "system", "content": system_prompt(assistant, owner)}]
-    for ex_lang, user, out in FEWSHOT:
+    for ex_lang, user, example in FEWSHOT:
         msgs.append({"role": "user", "content": f"{_header(_EX_NOW, ex_lang)}\n{user}"})
-        msgs.append({"role": "assistant", "content": json.dumps(out, ensure_ascii=False)})
+        msgs.append({"role": "assistant", "content": json.dumps(example, ensure_ascii=False)})
     for h_lang, user, out in history:
         msgs.append({"role": "user", "content": f"{_header(now, h_lang)}\n{user}"})
         msgs.append({"role": "assistant", "content": out})
@@ -185,7 +185,7 @@ def parse_intent(data: dict[str, Any], language: str, now: datetime) -> Intent:
     for a in data.get("actions") or []:
         if not isinstance(a, dict) or a.get("tool") not in TOOLS:
             continue
-        args = a.get("args") if isinstance(a.get("args"), dict) else {}
+        args: dict[str, Any] = a["args"] if isinstance(a.get("args"), dict) else {}
         act = Action(a["tool"], args)
         act.summary = describe(act, language, now)
         actions.append(act)

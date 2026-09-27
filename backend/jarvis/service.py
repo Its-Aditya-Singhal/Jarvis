@@ -16,6 +16,7 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 import cv2
 import numpy as np
@@ -167,8 +168,8 @@ class AssistantService:
             if self.speech is not None:
                 self.speech.alarm_ringing = lambda: bool(self.alarms and self.alarms.ringing())
                 self.speech.dismiss_alarm = self.dismiss_alarms
-        if self.brain is not None and self.tools is not None and self.tools.apps is not None:
-            self.brain.is_app = lambda name: self.tools.apps.resolve(name) is not None
+        if self.brain is not None and self.tools is not None and (apps := self.tools.apps) is not None:
+            self.brain.is_app = lambda name: apps.resolve(name) is not None
         self.memory: Memory | None = memory_factory(self) if memory_factory else None
         if self.memory is not None:
             if self.tools is not None:
@@ -181,8 +182,8 @@ class AssistantService:
             self.speech.on_voice_mismatch = lambda: self.record_sample(0, "voice_mismatch")
             self.speech.ack = lambda: self.prefs.get("voice.ack")
             self.speech.unverified_reply = self._unverified_reply
-        if self.memory is not None and self.brain is not None:
-            self.brain.recall = lambda text: self.memory.relevant(text) if self.prefs.get("memory.enabled") else []
+        if (memory := self.memory) is not None and self.brain is not None:
+            self.brain.recall = lambda text: memory.relevant(text) if self.prefs.get("memory.enabled") else []
         self.guard = guard or NetGuard()
         self.guard.offline = lambda: self.prefs.get("privacy.offline")
         self.perf = perf or PerfMonitor(self._power_changed, ollama_host=settings.ollama_host)
@@ -304,6 +305,7 @@ class AssistantService:
             self.bus.log(f"Performance mode: {name.capitalize()}" + (f" ({self._mode_note})" if notes else ""))
 
     def _swap_stt(self, size: str) -> None:
+        assert self.speech is not None  # only called when speech is on
         cur = self.speech.stt
         new = SpeechToText(self.s.models_dir, size)
         has_mlx = any((new.mlx_path / f).is_file() for f in ("weights.npz", "weights.safetensors"))
@@ -360,7 +362,7 @@ class AssistantService:
         x = vector(ev, self.levels.voice_window_s)
         if self.fusion is None:
             return assess(ev, None, self.levels), x
-        return assess(ev, self.fusion.prob(x), self.levels, self.fusion.prob(without_voice(x))), x
+        return assess(ev, float(self.fusion.prob(x)), self.levels, float(self.fusion.prob(without_voice(x)))), x
 
     def trust(self, now: float | None = None) -> Trust:
         return self._assess(now)[0]
@@ -522,12 +524,15 @@ class AssistantService:
         return health.issues(st, self.s.data_dir, self.perf.stats)
 
     def _start_memory(self) -> None:
+        m = self.memory
+        if m is None:
+            return
         try:
-            self.memory.start()
-            if self.memory.semantic:
+            m.start()
+            if m.semantic:
                 self.bus.log(f"Memory recall ready ({self.s.embed_model})")
             else:
-                self.bus.log(f"Memory recall by word match only: {self.memory.embed_error}", "warn")
+                self.bus.log(f"Memory recall by word match only: {m.embed_error}", "warn")
         except Exception:
             log.exception("memory start failed")
 
@@ -743,7 +748,7 @@ class AssistantService:
             with self._command_lock:  # one at a time; the model is the bottleneck
                 r = self.brain.respond(text, lang)
             self.bus.publish({"type": "thinking", "active": False})
-            actions = [{"tool": a.tool, "args": a.args, "summary": a.summary} for a in r.actions]
+            actions: list[dict[str, Any]] = [{"tool": a.tool, "args": a.args, "summary": a.summary} for a in r.actions]
             reply = r.reply
             if r.actions and self.tools is not None:
                 results = self._run_tools(r.actions, r.language, source)
@@ -764,10 +769,13 @@ class AssistantService:
         return result
 
     def _after_turn(self, text: str, reply: str, lang: str, chat: bool) -> None:
+        m = self.memory
+        if m is None:
+            return
         try:
-            self.memory.log_turn(text, reply, lang)
-            if chat and self.suggestions_on() and self.memory.sounds_personal(text):
-                for sug in self.memory.suggest(text):
+            m.log_turn(text, reply, lang)
+            if chat and self.suggestions_on() and m.sounds_personal(text):
+                for sug in m.suggest(text):
                     self.bus.publish({"type": "memory_suggestion", "id": sug.id, "text": sug.text})
                     self.bus.log("Memory suggestion ready")
         except Exception:
@@ -777,11 +785,12 @@ class AssistantService:
         self.bus.publish({"type": "memory_changed"})
 
     def accept_suggestion(self, sid: str, accept: bool) -> dict:
-        s = self.memory.pop_suggestion(sid) if self.memory else None
-        if s is None:
+        m = self.memory
+        s = m.pop_suggestion(sid) if m else None
+        if m is None or s is None:
             return {"ok": False}
         if accept:
-            fact, _ = self.memory.remember(s.text, "suggested")
+            fact, _ = m.remember(s.text, "suggested")
             self.bus.log("Saved to memory", "ok")
             return {"ok": True, "id": fact.id if fact else None}
         return {"ok": True}
@@ -815,6 +824,7 @@ class AssistantService:
             if need == 3:
                 results.append(self._request_confirmation(a, lang, trust))
                 continue
+            assert self.tools is not None  # actions only run when tools are on
             res = self.tools.run(a, lang)
             self.bus.log(f"Tool {a.tool}: {'done' if res.ok else 'failed'}", "ok" if res.ok else "warn")
             results.append(res)
@@ -850,6 +860,7 @@ class AssistantService:
         hi = lang != "en"
         if self.pending() is not None:
             return ToolResult(action.tool, False, "एक बार में एक ही चीज़ हटा सकती हूँ।" if hi else "One deletion at a time, please.")
+        assert self.tools is not None
         plan = self.tools.plan(action, lang)
         if isinstance(plan, ToolResult):
             return plan
@@ -920,7 +931,11 @@ class AssistantService:
             return self._answer(text, ok=False)
         self._finish_pending("done")
         try:
-            res = p.run() if p.run is not None else self.tools.execute(p.plan)
+            if p.run is not None:
+                res = p.run()
+            else:
+                assert self.tools is not None  # a tool plan exists only when tools are on
+                res = self.tools.execute(p.plan)
         except Exception as exc:
             log.exception("confirmed action %s failed", p.plan.tool)
             res = ToolResult(p.plan.tool, False, f"That failed: {exc}")
@@ -972,7 +987,8 @@ class AssistantService:
         if not self.face_enrolled:
             v = self.voice
             last = v.auth.last_verified if v is not None and v.mode == "verifying" else None
-            if last is not None and self.clock() - last.t <= RECOVERY_VOICE_S and not v.auth.rejected_since_verified:
+            if v is not None and last is not None and self.clock() - last.t <= RECOVERY_VOICE_S \
+                    and not v.auth.rejected_since_verified:
                 return True, "voice verified"
             if v is not None and v.enrolled:
                 return False, f"Say “{self.assistant_name}, it's me” so I can recognise your voice first"

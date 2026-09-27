@@ -91,7 +91,7 @@ class ToolRunner:
         self.apple = apple
         self.on_change = on_change
         self.clock = clock
-        self.memory = None  # jarvis.memory.manager.Memory, set when memory is enabled
+        self.memory: Any = None  # jarvis.memory.manager.Memory, set when memory is enabled
 
     # -- Apple sync settings --------------------------------------------------------
     @property
@@ -164,7 +164,7 @@ class ToolRunner:
 
     def _timer_set(self, args: dict, hi: bool) -> ToolResult:
         try:
-            secs = int(float(args.get("seconds")))
+            secs = int(float(args.get("seconds")))  # type: ignore[arg-type]  # missing -> TypeError, handled
         except (TypeError, ValueError):
             secs = 0
         if not 1 <= secs <= MAX_TIMER_S:
@@ -290,6 +290,7 @@ class ToolRunner:
         day = day_phrase(e.start.date(), now.date(), hi)
         what = (f"{day} {clock_phrase(e.start, True)} का {_quote(e.title)}" if hi
                 else f"{_quote(e.title)} {day} at {clock_phrase(e.start, False)}")
+        assert e.id is not None  # stored events always have an id
         return Plan("calendar.delete", e.id, what, hi)
 
     # -- notes -------------------------------------------------------------------------
@@ -520,6 +521,7 @@ class ToolRunner:
         pushed = {"events": 0, "notes": 0}
         if self.calendar_sync and self.apple_calendar:
             for e in self.store.unsynced_events():
+                assert e.id is not None
                 self.store.set_event_apple(e.id, self.apple.create_event(self.apple_calendar, e.title, e.start, e.end))
                 pushed["events"] += 1
         if self.notes_sync:

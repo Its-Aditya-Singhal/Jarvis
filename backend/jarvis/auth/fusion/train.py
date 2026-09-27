@@ -87,17 +87,17 @@ def train(
     cut = int(len(y) * 0.8)
     Xtr, ytr, wtr = X[:cut], y[:cut], np.ones(cut)
     n_gen = n_imp = 0
-    if personal_X is not None and len(personal_X):
+    if personal_X is not None and personal_y is not None and len(personal_X):
         n_gen, n_imp = int((personal_y == 1).sum()), int((personal_y == 0).sum())
         Xtr = np.vstack([Xtr, personal_X])
         ytr = np.concatenate([ytr, personal_y])
         wtr = np.concatenate([wtr, np.full(len(personal_y), PERSONAL_WEIGHT)])
     mean, scale, coef, b = fit_logreg(expand(Xtr), ytr, wtr)
     model = FusionModel(mean, scale, coef, b)
-    report = {"test_simulated": evaluate(model.prob(X[cut:]), y[cut:], scen[cut:])}
-    if n_gen and n_imp:
+    report = {"test_simulated": evaluate(np.asarray(model.prob(X[cut:])), y[cut:], scen[cut:])}
+    if n_gen and n_imp and personal_X is not None and personal_y is not None:
         # fitted on these too, so this is a sanity check, not an unbiased estimate
-        report["device_samples"] = evaluate(model.prob(personal_X), personal_y)
+        report["device_samples"] = evaluate(np.asarray(model.prob(personal_X)), personal_y)
     model.meta = {
         "trained": datetime.now().isoformat(timespec="seconds"),
         "samples": {"simulated": int(cut), "device_owner": n_gen, "device_other": n_imp},

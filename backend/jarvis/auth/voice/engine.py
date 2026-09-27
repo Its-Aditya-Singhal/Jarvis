@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import threading
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -26,7 +27,7 @@ class SpeakerEngine:
         self.model_dir = Path(models_root) / "speechbrain" / "spkrec-ecapa-voxceleb"
         self.error: str | None = None
         self._lock = threading.Lock()
-        self._modules = None
+        self._modules: Any = None  # (torch, fbank, norm, model) once loaded
 
     @property
     def available(self) -> bool:

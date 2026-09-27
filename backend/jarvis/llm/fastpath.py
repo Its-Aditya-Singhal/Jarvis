@@ -163,7 +163,7 @@ def _one(t: str, now: datetime, is_app: Callable[[str], bool], hi: bool, orig: s
          or re.fullmatch(rf"{POLITE}(.+?) (?:jaga dena|jagana|utha dena|uthana){TAIL}", t))
     if m:
         wake = m.group(1).startswith("wake") or "jaga" in t or "utha" in t
-        when = m.group(m.lastindex)
+        when = m.group(m.lastindex or 0)
         if (at := _clock(when, now, wake=wake or "subah" in when)) is not None:
             return [Action("alarm.set", {"time": at.isoformat(timespec="minutes")})], ""
     if re.fullmatch(rf"{POLITE}(?:cancel|delete|remove|turn off|stop) (?:all )?(?:my |the )?(?:{ALARM}s?|{TIMER}s?)(?: and (?:{ALARM}s?|{TIMER}s?))?{TAIL}", t) \

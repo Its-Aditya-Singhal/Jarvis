@@ -82,7 +82,7 @@ class Database:
         with self._lock:
             cur = self._conn.execute(sql, params)
             self._conn.commit()
-        return int(cur.lastrowid)
+        return int(cur.lastrowid or 0)
 
     # -- security events ---------------------------------------------------
     def add_security_event(
@@ -100,7 +100,7 @@ class Database:
                 (time.time(), kind, detail, face_conf, voice_conf, int(blocked)),
             )
             self._conn.commit()
-            return int(cur.lastrowid)
+            return int(cur.lastrowid or 0)
 
     def security_events(self, limit: int = 100) -> list[dict[str, Any]]:
         with self._lock:

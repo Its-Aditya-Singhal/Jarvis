@@ -21,7 +21,7 @@ import secrets
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
@@ -81,7 +81,7 @@ def build(settings: Settings, scene: Scene | None = None, ollama: FakeOllama | N
     home = apps_root / "home"
     for d in ("Documents", "Downloads", "Desktop"):
         (home / d).mkdir(parents=True, exist_ok=True)
-    kwargs = dict(
+    kwargs: dict[str, Any] = dict(
         keys=StaticKeyProvider(), engine=rig.face, camera=rig.camera, speaker_engine=rig.speaker, mic=rig.mic,
         vad_factory=fake_vad, stt=rig.stt, tts=rig.tts, player=FakePlayer(),
         apple=AppleBridge(run=fake_osascript), apps=AppIndex([fake_apps_dir(apps_root)], opener=opened.append),

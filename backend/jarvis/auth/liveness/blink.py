@@ -48,7 +48,7 @@ def eye_openness(
         if width < 1e-6:
             return None
         value = float(e[:, 1].max() - e[:, 1].min()) / width
-        if ref is not None:
+        if ref is not None and gray is not None:
             mask = np.zeros(gray.shape[:2], np.uint8)
             cv2.fillPoly(mask, [cv2.convexHull(e.astype(np.int32))], 1)
             px = gray[mask > 0]

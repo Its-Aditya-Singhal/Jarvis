@@ -195,6 +195,7 @@ class SpeechOutput:
                     sentences[0:1] = [head + ",", tail]
                 nxt = self._synth_pool.submit(self.synth, sentences[0], g) if sentences else None
                 for i in range(len(sentences)):
+                    assert nxt is not None  # submitted for sentence i before the loop or in the last pass
                     audio = nxt.result()
                     # prepare the next sentence while this one plays
                     nxt = self._synth_pool.submit(self.synth, sentences[i + 1], g) if i + 1 < len(sentences) else None

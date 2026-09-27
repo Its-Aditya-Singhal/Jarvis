@@ -92,15 +92,15 @@ class NetGuard:
                 guard.check(h, port if isinstance(port, int) else None, "dns")
             return orig_getaddrinfo(host, port, *args, **kwargs)
 
-        socket.socket.connect = connect
-        socket.socket.connect_ex = connect_ex
+        socket.socket.connect = connect  # type: ignore[method-assign]
+        socket.socket.connect_ex = connect_ex  # type: ignore[method-assign]
         socket.getaddrinfo = getaddrinfo
 
     def uninstall(self) -> None:  # tests
         if not self._installed:
             return
-        socket.socket.connect = self._orig["connect"]
-        socket.socket.connect_ex = self._orig["connect_ex"]
+        socket.socket.connect = self._orig["connect"]  # type: ignore[method-assign]
+        socket.socket.connect_ex = self._orig["connect_ex"]  # type: ignore[method-assign]
         socket.getaddrinfo = self._orig["getaddrinfo"]
         self._installed = False
 

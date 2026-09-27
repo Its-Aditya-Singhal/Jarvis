@@ -6,6 +6,7 @@ import logging
 import threading
 import time
 from collections.abc import Callable
+from typing import Any
 
 import numpy as np
 
@@ -94,7 +95,7 @@ class VoiceService:
 
     def public(self, owner_verified: bool) -> dict:
         now = time.monotonic()
-        out = {"state": self.auth.state(now) if self.mode == "verifying" else "idle"}
+        out: dict[str, Any] = {"state": self.auth.state(now) if self.mode == "verifying" else "idle"}
         last = self.auth.last
         # similarity is only shown to the verified owner
         if owner_verified and last is not None and out["state"] != "idle":
@@ -186,10 +187,13 @@ class VoiceService:
                 self._speaking = False
                 self.bus.publish({"type": "speaking", "active": False})
             return
+        vad = self.vad
+        if vad is None:
+            return
         self._buf = np.concatenate([self._buf, block])
         while len(self._buf) >= BLOCK:
             frame, self._buf = self._buf[:BLOCK], self._buf[BLOCK:]
-            utt = self.segmenter.push(frame, self.vad(frame))
+            utt = self.segmenter.push(frame, vad(frame))
             if self.segmenter.active != self._speaking:
                 self._speaking = self.segmenter.active
                 self.bus.publish({"type": "speaking", "active": self._speaking})

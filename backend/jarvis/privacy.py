@@ -77,7 +77,7 @@ def inventory(svc: AssistantService) -> dict:
         a, b = _span(db, "history", "ts")
         keep = svc.memory.retention if svc.memory else "—"
         items.append({"id": "history", "title": "Conversation history", "present": n > 0,
-                      "detail": f"{n} messages · kept {keep}" + (f" · since {_iso(a)[:10]}" if a else ""),
+                      "detail": f"{n} messages · kept {keep}" + (f" · since {(_iso(a) or '')[:10]}" if a else ""),
                       "updated": _iso(b), "protection": f"Text only · {ENC}", "action": "clear_history"})
     if {"notes", "alarms", "events"} <= tables:
         c = {t: db.count(t) for t in ("notes", "alarms", "events")}

@@ -19,6 +19,7 @@ import threading
 import zlib
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -45,7 +46,7 @@ class SpeechToText:
         self.engine_pref = engine  # auto | mlx | cpu
         self.engine = "none"
         self.threads = threads
-        self._model = None
+        self._model: Any = None  # faster-whisper model or _MlxWhisper
         self._lock = threading.Lock()
         self.error: str | None = None
 
