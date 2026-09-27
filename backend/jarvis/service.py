@@ -45,6 +45,7 @@ from .perf import MODES, PerfMonitor, effective_mode
 from .prefs import FACE_PRESETS, LIVENESS_PRESETS, PREFS, VOICE_PRESETS, Prefs
 from .security.template_store import TemplateStore
 from .speech.stt import SpeechToText
+from .speech.text import to_latin
 from .speech_service import SpeechService
 from .tools.runner import LEVELS, Plan, ToolResult, ToolRunner
 from .tools.scheduler import AlarmScheduler
@@ -511,6 +512,7 @@ class AssistantService:
             # Ollama loads the model in its own process: meanwhile, load speech and voice here
             self._unless_stopping(lambda: threading.Thread(target=self._start_brain, args=(brain,),
                                                            name="llm-start", daemon=True).start())
+        to_latin("नमस्ते")  # load the Hindi transliteration tables now (~0.2 s), not on the first Hindi command
         if self.speech is not None:
             self.speech.start()  # loads models, then refuses to start if stopped meanwhile
         if self.voice is not None:

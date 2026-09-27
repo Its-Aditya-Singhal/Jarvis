@@ -331,3 +331,17 @@ def test_face_verification_starts_before_the_slow_models_finish_loading(settings
         release.set()
         starter.join(10)
         svc.stop()
+
+
+def test_the_first_hindi_command_is_instant(settings):
+    """Transliteration tables load during startup, not on the owner's first Hindi command."""
+    import subprocess
+    import sys
+
+    code = ("import sys, tempfile, pathlib; from jarvis.config import Settings; from jarvis.headless import build\n"
+            "app, rig = build(Settings(data_dir=pathlib.Path(tempfile.mkdtemp()) / 'd'))\n"
+            "assert 'indic_transliteration' not in sys.modules\n"
+            "app.state.svc.start(); app.state.svc.stop()\n"
+            "print('indic_transliteration' in sys.modules)")
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=120)
+    assert out.stdout.strip().endswith("True"), out.stderr[-500:]
