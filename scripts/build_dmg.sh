@@ -38,6 +38,7 @@ rm -rf backend/build backend/dist
 (cd backend && .venv/bin/pyinstaller --noconfirm --clean --distpath dist --workpath build sidecar/jarvis-backend.spec)
 SIDECAR="backend/dist/jarvis-backend"
 [[ -x "$SIDECAR/jarvis-backend" ]] || { echo "PyInstaller produced no backend" >&2; exit 1; }
+[[ -f "$SIDECAR/_internal/objects/meanshape_68.pkl" ]] || { echo "insightface's meanshape_68.pkl is missing from the backend" >&2; exit 1; }
 
 echo "==> Desktop app (Tauri)"
 (cd app && npm ci && npx tauri build --bundles app)

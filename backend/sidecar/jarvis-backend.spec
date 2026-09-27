@@ -36,6 +36,12 @@ for pkg in PACKAGES:
     binaries += b
     hiddenimports += h
 
+# insightface's get_object() reads <bundle>/objects/*.pkl once frozen, not its package folder:
+# without meanshape_68.pkl the 3D landmark model fails on every face
+import insightface  # noqa: E402
+
+datas += [(os.path.join(os.path.dirname(insightface.__file__), "data", "objects", "*.pkl"), "objects")]
+
 a = Analysis(
     [os.path.join(SPECPATH, "run_backend.py")],  # noqa: F821
     pathex=[BACKEND],
