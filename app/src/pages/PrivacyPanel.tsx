@@ -53,7 +53,7 @@ export default function PrivacyPanel() {
 
   const exportData = async () => {
     const stamp = new Date().toISOString().slice(0, 10);
-    let path: string | null = null;
+    let path: string | null;
     if (inTauri) {
       const { save } = await import("@tauri-apps/plugin-dialog");
       path = await save({

@@ -38,7 +38,7 @@ export default function FilesCard() {
   };
 
   const add = async () => {
-    let picked: string | null = null;
+    let picked: string | null;
     if (inTauri) {
       const { open } = await import("@tauri-apps/plugin-dialog");
       const r = await open({ directory: true, multiple: false, title: "Allow file search in…" });
