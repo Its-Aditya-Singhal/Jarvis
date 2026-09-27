@@ -9,9 +9,9 @@ models downloaded on first run · app keeps its command-center look (polish only
 the website gets its own design, related to the app but not a copy.
 
 ## Where to pick up
-- Work on `main` (`cloud-1.0` is merged and stale). Next: **A.3 "Files, deeper"**, then "Ask Claude", then A.4 (Phase 10), then B.
+- Work on `main` (`cloud-1.0` is merged and stale). Next: **A.3 "Files, deeper"**, then A.4 (Phase 10), then B.
 - Open question from the owner: what Settings → Microphone says when JARVIS is started the usual way (the new diagnostics name the cause and the app to allow).
-- Screen & clipboard commands need a first-run check on the Mac: Screen Recording (screenshot), System Events (dark mode), Accessibility (typing), and that each Settings page lands on the right pane.
+- Screen & clipboard commands need a first-run check on the Mac: Screen Recording (screenshot), System Events (dark mode), Accessibility (typing), and that each Settings page lands on the right pane. "Ask Claude/ChatGPT": the app gets ⌘N + the pasted prompt (not sent); claude.ai pre-fills via `?q=`; ChatGPT on the web gets the prompt on the clipboard (its `?q=` sends at once).
 - Rules: no paid APIs or services · no Claude/AI co-author trailers or credits in commits or files · commit after each fix · ask before starting each big phase · every command goes through the tool registry with an auth level (no shell from model text).
 - Checks: `backend/.venv/bin/python -m pytest -q`, `ruff check .`, `mypy` (in `backend/`); `npm test`, `npm run lint` (in `app/`); `cargo clippy` (in `app/src-tauri/`).
 - Local run for UI checks: `npm run tauri dev` in `app/` (needs Ollama: `~/Developer/ollama/start.sh`).
@@ -37,7 +37,7 @@ the website gets its own design, related to the app but not a copy.
 - [x] Screen & display: screenshot, brightness, dark mode, open a System Settings page
 - [x] Clipboard & text: read clipboard, save clipboard as a note, type/paste dictated text into the front app
 - [ ] Files, deeper: recent/dated files ("the PDF I downloaded yesterday"), reveal in Finder, move to Trash (level 3)
-- [ ] Ask Claude: "open Claude and ask it to build a website for …" → opens Claude (app, else claude.ai) with the dictated prompt pre-filled; shows the prompt before sending; same for ChatGPT
+- [x] Ask Claude: "open Claude and ask it to build a website for …" → opens Claude (app, else claude.ai) with the dictated prompt pre-filled; shows the prompt before sending; same for ChatGPT
 
 ### 4. Phase 10
 - [ ] App polish: spacing/type/motion consistency, empty/loading/error states, ⌘K command palette, keyboard shortcuts, About page, accessibility pass
