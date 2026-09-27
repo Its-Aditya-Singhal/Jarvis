@@ -13,6 +13,7 @@ from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_OLLAMA_MODELS = Path.home() / "Developer" / "ollama" / "models"
 
 
 def _default_data_dir() -> Path:
@@ -70,6 +71,13 @@ class Settings(BaseSettings):
     stt_model: str = "small"  # faster-whisper size in models/whisper/<size>: small | medium
     tts_speed: float = 1.0
     followup_s: float = 8.0  # after "<name>" alone, listen this long without the name
+
+    # Local LLM (Ollama)
+    llm_model: str = "qwen2.5:7b"  # default; the owner can switch in Settings
+    ollama_host: str = "127.0.0.1:11434"
+    ollama_models_dir: Path | None = DEFAULT_OLLAMA_MODELS  # None = Ollama's own default
+    llm_autostart: bool = True  # start `ollama serve` if no server is running
+    llm_timeout_s: float = 90.0
 
     # Keychain
     keychain_service: str = "jarvis-assistant"

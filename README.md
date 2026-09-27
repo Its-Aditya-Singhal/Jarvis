@@ -5,9 +5,9 @@ A local-first desktop assistant for macOS (Apple Silicon) that keeps checking
 name during setup (JARVIS, FRIDAY, anything). No paid APIs and no cloud: every
 model runs on your Mac.
 
-> **Status: Phase 4 of 10: identity, liveness and speech.** The assistant
-> hears and answers you, but acting on commands needs the local LLM
-> (phase 5) and tools (phase 6). The UI marks
+> **Status: Phase 5 of 10: identity, liveness, speech and a local LLM.**
+> The assistant understands requests and answers questions. Carrying out
+> actions (alarms, notes, apps…) arrives with the tools in phase 6. The UI marks
 > every unbuilt feature as such rather than faking it.
 
 ## What works now
@@ -44,8 +44,15 @@ model runs on your Mac.
     different voice is refused even then.
   - Speech not addressed to the assistant by name is dropped straight after
     transcription. It is never shown, logged or stored.
-  - Until phase 5 the assistant says what it heard and explains that it
-    can't act yet, rather than pretending to.
+- Local language model (Ollama, default `qwen2.5:7b`): answers questions in
+  English or Hindi. It turns requests into structured intents, including
+  compound ones ("wake me at 7 and note to buy milk" becomes two actions),
+  and resolves times like "kal subah saat baje". Until the tools arrive, it
+  restates what it understood and says it can't carry it out yet. That reply
+  is built in code, so the model can never claim an action was done.
+  - Type commands too (English, हिंदी or Hinglish), owner only.
+  - Switch models in Settings. If Ollama or the model is missing, the app
+    says so plainly.
   - Voice enrollment now checks that you actually read the phrase shown.
 - Security log visible only while the verified owner is at the screen.
 
@@ -70,6 +77,8 @@ backend/jarvis/
   service.py            camera → face engine → enrollment / continuous verification + liveness gate
   voice_service.py      mic → VAD → speaker embedding → enrollment / verification → speech
   speech_service.py     transcription, wake word, owner checks, spoken replies
+  llm/                  Ollama server manager + client, intent schema and prompt
+  brain.py              command → intent (JSON) → reply; short in-memory context
 models/                 downloaded models (git-ignored)
 scripts/download_models.py
 ```
@@ -120,6 +129,17 @@ only) on your own camera. If a real face sits below 0.6, lower
 | Hindi / Hinglish matching | Devanagari → Latin transliteration + consonant skeletons, so "subah" = "सुबह" = "subaha" |
 | Text to speech | Kokoro-82M (ONNX int8): female `af_heart` / male `am_michael`; Hindi text switches to `hf_alpha` / `hm_omega` |
 | Playback | sentence by sentence (first words after about 1 s); the microphone pipeline is muted while speaking plus 0.4 s, so the assistant doesn't hear itself |
+
+## How the language model is used
+
+| Part | Detail |
+|---|---|
+| Runtime | Ollama on 127.0.0.1:11434, started by JARVIS if not already running; models kept in `~/Developer/ollama/models` |
+| Default model | `qwen2.5:7b` (Q4, about 4.7 GB); any installed model can be picked in Settings |
+| Output | JSON schema enforced by Ollama: `language` (en/hi/hinglish), `actions` (tool + args + summary), `reply` |
+| Tool catalogue | alarm.set, timer.set, calendar.create/list, notes.add/search, app.open, files.search. Unknown tools are dropped |
+| Safety | the model never executes anything; replies to action requests are composed by code; no shell, web or messaging |
+| Context | last 4 exchanges, in memory only, expire after 5 min and are cleared when the owner leaves |
 
 ## How the voice ML works
 
@@ -176,7 +196,10 @@ Requirements: macOS on Apple Silicon, Python 3.12, Node 20+, Rust (`brew install
 ```bash
 cd backend && python3.12 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 .venv/bin/python ../scripts/download_models.py   # ~1 GB, one time (add "medium" for Whisper medium)
-.venv/bin/python -m pytest                        # 69 tests
+.venv/bin/python -m pytest                        # 83 tests (LLM tests need the model)
+brew install ollama && mkdir -p ~/Developer/ollama/models
+OLLAMA_MODELS=~/Developer/ollama/models ollama serve &   # JARVIS also starts it itself
+ollama pull qwen2.5:7b                            # ~4.7 GB
 cd ../app && npm install && npm run tauri dev
 ```
 
@@ -193,7 +216,7 @@ which is fine for this academic project.
 2. ✅ Voice enrollment + speaker verification (ECAPA)
 3. ✅ Liveness (passive anti-spoof + blink/turn challenges)
 4. ✅ Speech I/O (faster-whisper STT, Kokoro TTS, wake word = assistant name)
-5. Local LLM via Ollama (configurable model)
+5. ✅ Local LLM via Ollama (configurable model, structured intents)
 6. Tools: alarm, calendar, notes, app launcher, file search (permissioned)
 7. Continuous multi-factor auth + trained fusion model, auth levels 1–3
 8. Memory (SQLite + local embeddings)

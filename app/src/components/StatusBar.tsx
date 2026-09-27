@@ -16,7 +16,8 @@ function Indicator({ label, value, tone }: { label: string; value: string; tone:
 }
 
 export default function StatusBar() {
-  const { connected, status, auth, speaking, assistantSpeaking, listeningUntil } = useStore();
+  const { connected, status, auth, speaking, assistantSpeaking, listeningUntil, thinking } = useStore();
+  const llm = status?.models.llm;
   const mic = status?.mic.status ?? "off";
   const [clock, setClock] = useState(() => new Date());
   useEffect(() => {
@@ -47,7 +48,11 @@ export default function StatusBar() {
       </div>
       <div className="indicators" data-tauri-drag-region>
         <Indicator label="CORE" value={connected ? "ONLINE" : "OFFLINE"} tone={connected ? "ok" : "alert"} />
-        <Indicator label="LOCAL AI" value="PHASE 5" tone="off" />
+        <Indicator
+          label="LOCAL AI"
+          value={thinking ? "THINKING" : llm === "ready" ? "ONLINE" : llm ? "OFFLINE" : "—"}
+          tone={llm === "ready" ? "ok" : "alert"}
+        />
         <Indicator
           label="CAMERA"
           value={cam === "active" ? "ACTIVE" : cam === "error" ? "BLOCKED" : cam.toUpperCase()}

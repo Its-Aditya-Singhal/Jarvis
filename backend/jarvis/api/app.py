@@ -27,6 +27,7 @@ from ..database.db import Database
 from ..events import EventBus
 from ..security.crypto import KeychainKeyProvider, KeyProvider
 from ..security.template_store import TemplateStore
+from ..brain import Brain
 from ..service import AssistantService
 from ..speech.stt import SpeechToText
 from ..speech.tts import TextToSpeech
@@ -57,6 +58,14 @@ class VoiceIn(BaseModel):
     gender: Gender
 
 
+class CommandIn(BaseModel):
+    text: str = Field(min_length=1, max_length=500)
+
+
+class ModelIn(BaseModel):
+    model: str = Field(min_length=1, max_length=100)
+
+
 def create_app(
     settings: Settings | None = None,
     keys: KeyProvider | None = None,
@@ -70,6 +79,8 @@ def create_app(
     tts: TextToSpeech | None = None,
     player=None,
     speech: bool = True,
+    brain: Brain | None = None,
+    llm: bool = True,
 ) -> FastAPI:
     s = settings or get_settings()
     db = Database(s.db_path)
@@ -101,7 +112,11 @@ def create_app(
             owner_verified=svc.owner_verified,
             names=lambda: (svc.assistant_name, svc.owner_name),
             player=player,
+            on_command=lambda text, lang: svc.command(text, lang, "voice"),
         )
+
+    def make_brain(svc: AssistantService) -> Brain:
+        return brain or Brain(s, db, names=lambda: (svc.assistant_name, svc.owner_name), voice_gender=lambda: db.get("voice_gender", "female"))
 
     svc = AssistantService(
         s,
@@ -112,6 +127,7 @@ def create_app(
         camera or Camera(s.camera_index),
         voice_factory=make_voice if voice else None,
         speech_factory=make_speech if (speech and s.speech_enabled) else None,
+        brain_factory=make_brain if llm else None,
     )
 
     @asynccontextmanager
@@ -241,6 +257,30 @@ def create_app(
     def set_voice(body: VoiceIn):
         db.set("voice_gender", body.gender)
         bus.log(f"Assistant voice set to {body.gender}")
+        return svc.status()
+
+    @app.post("/api/command", dependencies=auth + [Depends(require_owner)])
+    def typed_command(body: CommandIn):
+        from ..speech.text import has_devanagari
+
+        return svc.command(body.text, "hi" if has_devanagari(body.text) else "en", "typed")
+
+    @app.get("/api/llm/models", dependencies=auth + [Depends(require_owner)])
+    def llm_models():
+        if svc.brain is None:
+            raise HTTPException(503, "language model disabled")
+        return {"current": svc.brain.model, "installed": svc.brain.installed_models(), "status": svc.brain.status()}
+
+    @app.put("/api/settings/llm", dependencies=auth + [Depends(require_owner)])
+    def set_llm(body: ModelIn):
+        if svc.brain is None:
+            raise HTTPException(503, "language model disabled")
+        try:
+            svc.brain.set_model(body.model)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        bus.log(f"Language model set to {body.model}")
+        threading.Thread(target=svc.brain.start, daemon=True).start()  # warm the new model
         return svc.status()
 
     @app.get("/api/security/events", dependencies=auth + [Depends(require_owner)])

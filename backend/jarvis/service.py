@@ -27,6 +27,7 @@ from .config import Settings
 from .database.db import Database
 from .events import EventBus
 from .security.template_store import TemplateStore
+from .brain import Brain
 from .speech_service import SpeechService
 from .voice_service import VoiceService
 
@@ -46,6 +47,7 @@ class AssistantService:
         camera: Camera,
         voice_factory: "Callable[[AssistantService], VoiceService] | None" = None,
         speech_factory: "Callable[[AssistantService], SpeechService] | None" = None,
+        brain_factory: "Callable[[AssistantService], Brain] | None" = None,
     ):
         self.s = settings
         self.db = db
@@ -65,6 +67,8 @@ class AssistantService:
         self._thread: threading.Thread | None = None
         self._last_state_push = 0.0
         self._lock = threading.Lock()
+        self.brain: Brain | None = brain_factory(self) if brain_factory else None
+        self._command_lock = threading.Lock()
         # speech first: the voice pipeline hands it utterances and asks it about muting
         self.speech: SpeechService | None = speech_factory(self) if speech_factory else None
         self.voice: VoiceService | None = voice_factory(self) if voice_factory else None
@@ -146,6 +150,11 @@ class AssistantService:
             self.speech.start()
         if self.voice is not None:
             self.voice.start()
+        if self.brain is not None:
+            if self.brain.start():
+                self.bus.log(f"Local language model ready ({self.brain.model})")
+            else:
+                self.bus.log(f"Language model unavailable: {self.brain.status()}", "error")
         if self.setup_complete and self.face_enrolled:
             self.begin_verification()
         self._thread = threading.Thread(target=self._loop, name="face-loop", daemon=True)
@@ -160,6 +169,8 @@ class AssistantService:
             self.voice.stop()
         if self.speech is not None:
             self.speech.stop()
+        if self.brain is not None:
+            self.brain.stop()
 
     # -- modes ---------------------------------------------------------------
     def begin_enrollment(self) -> None:
@@ -308,12 +319,39 @@ class AssistantService:
             )
         elif kind == "state_absent":
             self._unlocked = False
+            if self.brain is not None:
+                self.brain.clear()
             self.bus.log("Owner left — session locked", "warn")
         elif kind == "state_scanning":
             self.bus.log(detail)
         elif kind == "bystander":
             self.db.add_security_event("bystander", detail)
             self.bus.log("Unknown person in view with owner", "warn")
+
+    # -- commands --------------------------------------------------------------
+    def command(self, text: str, lang: str = "en", source: str = "voice") -> dict:
+        """Run one owner command through the brain and answer (shown + spoken).
+
+        Callers have already checked that the owner is verified. The brain
+        only understands requests in this phase; nothing is executed.
+        """
+        text = " ".join(text.split())[:500]
+        self.bus.publish({"type": "heard", "text": text, "lang": lang, "source": source})
+        if self.brain is None:
+            reply = "My language model is turned off."
+            result = {"reply": reply, "language": lang, "actions": [], "ok": False}
+        else:
+            self.bus.publish({"type": "thinking", "active": True})
+            with self._command_lock:  # one at a time; the model is the bottleneck
+                r = self.brain.respond(text, lang)
+            self.bus.publish({"type": "thinking", "active": False})
+            actions = [{"tool": a.tool, "args": a.args, "summary": a.summary} for a in r.actions]
+            result = {"reply": r.reply, "language": r.language, "actions": actions, "ok": r.ok, "latency_s": round(r.latency_s, 2)}
+            kinds = ", ".join(a.tool for a in r.actions) or "conversation"
+            self.bus.log(f"Command understood ({kinds}) in {r.latency_s:.1f} s" if r.ok else "Language model unavailable", "info" if r.ok else "error")
+        self.bus.publish({"type": "reply", "text": result["reply"], "actions": result["actions"]})
+        self.bus.publish({"type": "say", "text": result["reply"]})
+        return result
 
     def _greet(self) -> None:
         self._unlocked = True
@@ -427,10 +465,11 @@ class AssistantService:
                 "face": "ready" if self.engine.ready else (self.engine.error or "not loaded"),
                 "voice": self.voice.model_status() if self.voice else "disabled",
                 "liveness": self._liveness_status(),
-                "llm": "not_implemented",
+                "llm": self.brain.status() if self.brain else "disabled",
                 **(self.speech.status() if self.speech else {"stt": "disabled", "tts": "disabled"}),
             },
             "voice_gender": self.speech.voice_gender() if self.speech else self.db.get("voice_gender", "female"),
             "listening": bool(self.speech and self.speech.listening),
+            "llm_model": self.brain.model if self.brain else None,
             "auth": self.auth_public(),
         }

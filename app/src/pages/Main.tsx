@@ -5,7 +5,7 @@ import Orb, { OrbMode } from "../components/Orb";
 import SideNav, { View } from "../components/SideNav";
 import VoiceEnroll from "../components/VoiceEnroll";
 import VoicePicker from "../components/VoicePicker";
-import { ApiError, Challenge, Status, VoiceGender, api } from "../lib/backend";
+import { ApiError, Challenge, PlannedAction, Status, VoiceGender, api, post } from "../lib/backend";
 import { setStatus, useStore } from "../lib/store";
 
 interface SecurityEvent {
@@ -39,7 +39,7 @@ function useNow(ms: number, active: boolean): number {
 }
 
 function Core() {
-  const { connected, status, auth, speech, listeningUntil, conversation, assistantSpeaking } = useStore();
+  const { connected, status, auth, speech, listeningUntil, conversation, assistantSpeaking, thinking } = useStore();
   const now = useNow(500, listeningUntil > Date.now());
   const listening = listeningUntil > now;
   const name = (status?.assistant_name ?? "JARVIS").toUpperCase();
@@ -69,7 +69,10 @@ function Core() {
       break;
     case "approved":
       mode = "approved";
-      if (listening) {
+      if (thinking) {
+        title = "THINKING…";
+        sub = `Local model · ${status?.llm_model ?? ""}`;
+      } else if (listening) {
         title = "LISTENING…";
         sub = `Go ahead, ${status?.owner_name}.`;
       } else if (assistantSpeaking) {
@@ -123,12 +126,19 @@ function Core() {
           <p className={`speech ${showSpeech || assistantSpeaking ? "show" : ""}`}>{speech?.text}</p>
         )}
         {state === "approved" && <Conversation turns={conversation} name={name} />}
+        {state === "approved" && <CommandBox disabled={thinking} />}
       </div>
     </div>
   );
 }
 
-function Conversation({ turns, name }: { turns: { who: string; text: string; at: number }[]; name: string }) {
+function Conversation({
+  turns,
+  name,
+}: {
+  turns: { who: string; text: string; at: number; actions?: PlannedAction[] }[];
+  name: string;
+}) {
   const recent = turns.filter((t) => Date.now() - t.at < 120_000).slice(-2);
   if (!recent.length) return null;
   return (
@@ -136,10 +146,52 @@ function Conversation({ turns, name }: { turns: { who: string; text: string; at:
       {recent.map((t) => (
         <div key={t.at} className={`turn ${t.who}`}>
           <b>{t.who === "you" ? "YOU" : name}</b>
-          <span>{t.text}</span>
+          <span>
+            {t.text}
+            {t.actions && t.actions.length > 0 && (
+              <span className="actions">
+                {t.actions.map((a, i) => (
+                  <i key={i} title={JSON.stringify(a.args)}>
+                    {a.tool} · NOT EXECUTED (P6)
+                  </i>
+                ))}
+              </span>
+            )}
+          </span>
         </div>
       ))}
     </div>
+  );
+}
+
+/** Typed commands for when speaking isn't convenient (owner only). */
+function CommandBox({ disabled }: { disabled: boolean }) {
+  const [text, setText] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const send = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const t = text.trim();
+    if (!t) return;
+    setText("");
+    setError(null);
+    try {
+      await post("/api/command", { text: t });
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Backend unreachable");
+    }
+  };
+  return (
+    <form className="command-box" onSubmit={send}>
+      <input
+        className="field"
+        value={text}
+        maxLength={500}
+        placeholder="Type a command… (English, हिंदी or Hinglish)"
+        onChange={(e) => setText(e.target.value)}
+        disabled={disabled}
+      />
+      {error && <p className="error small">{error}</p>}
+    </form>
   );
 }
 
@@ -338,6 +390,56 @@ function SecurityPanel() {
   );
 }
 
+function LlmCard() {
+  const { status } = useStore();
+  const [models, setModels] = useState<string[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    api<{ installed: string[] }>("/api/llm/models")
+      .then((r) => setModels(r.installed))
+      .catch((e) => setError(e instanceof ApiError ? e.message : "unavailable"));
+  }, []);
+  const current = status?.llm_model ?? "";
+  const change = async (model: string) => {
+    setBusy(true);
+    setError(null);
+    try {
+      setStatus(await api<Status>("/api/settings/llm", { method: "PUT", body: JSON.stringify({ model }) }));
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Backend unreachable");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const st = status?.models.llm ?? "—";
+  return (
+    <div className="card">
+      <div className="panel-title">LOCAL LANGUAGE MODEL</div>
+      <div className="kv">
+        <span>Status</span>
+        <b className={st === "ready" ? "tone-ok" : "tone-alert"}>{st === "ready" ? "READY" : st}</b>
+      </div>
+      <div className="kv">
+        <span>Model</span>
+        <select className="field select" value={current} disabled={busy || !models?.length} onChange={(e) => change(e.target.value)}>
+          {!models?.includes(current) && <option value={current}>{current} (not installed)</option>}
+          {models?.map((m) => (
+            <option key={m} value={m}>
+              {m}
+            </option>
+          ))}
+        </select>
+      </div>
+      {error && <p className="error small">{error}</p>}
+      <p className="muted small">
+        Runs through Ollama on this Mac; nothing leaves the device. Add models with{" "}
+        <code>ollama pull &lt;name&gt;</code> (stored in ~/Developer/ollama/models).
+      </p>
+    </div>
+  );
+}
+
 function SettingsPanel() {
   const { auth, status } = useStore();
   const approved = auth?.state === "approved";
@@ -376,11 +478,12 @@ function SettingsPanel() {
               <b>{status?.assistant_name}</b>
             </div>
           </div>
+          <LlmCard />
           <div className="card">
             <div className="panel-title">MORE SETTINGS</div>
             <p className="muted small">
-              Performance modes, model choice, privacy controls and profile management arrive with the privacy
-              dashboard in phase 9.
+              Performance modes, privacy controls and profile management arrive with the privacy dashboard in
+              phase 9.
             </p>
           </div>
         </div>

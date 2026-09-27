@@ -49,7 +49,7 @@ def name_prompt(assistant: str, owner: str = "") -> str:
 
 
 def placeholder_reply(command: str, lang: str, gender: str) -> str:
-    """Honest phase-4 answer: heard, but no language model to act yet."""
+    """Answer used when no assistant brain is attached (e.g. LLM disabled)."""
     short = command if len(command) <= 80 else command[:77] + "…"
     if lang == "hi":
         verb = "पाऊँगा" if gender == "male" else "पाऊँगी"
@@ -68,6 +68,7 @@ class SpeechService:
         owner_verified: Callable[[], bool],
         names: Callable[[], tuple[str, str]],
         player=None,
+        on_command: Callable[[str, str], None] | None = None,
     ):
         self.s = settings
         self.db = db
@@ -76,6 +77,7 @@ class SpeechService:
         self.tts = tts
         self.owner_verified = owner_verified
         self.names = names
+        self.on_command = on_command  # (text, language) -> handled by the assistant brain
         self.out = SpeechOutput(tts, bus, self.voice_gender, player=player)
         self._q: queue.Queue[tuple[np.ndarray, str | None]] = queue.Queue(maxsize=3)
         self._stop = threading.Event()
@@ -201,8 +203,8 @@ class SpeechService:
             return
 
         latency = round(time.monotonic() - t0, 2)
-        self.bus.publish({"type": "heard", "text": command or tr.text, "lang": tr.language, "stt_s": latency})
         if not command.strip():
+            self.bus.publish({"type": "heard", "text": tr.text, "lang": tr.language, "stt_s": latency})
             self._listen_until = time.monotonic() + self.s.followup_s
             self.bus.publish({"type": "listening", "active": True, "seconds": self.s.followup_s})
             self.out.say("हाँ?" if tr.language == "hi" else "Yes?")
@@ -210,7 +212,10 @@ class SpeechService:
         if self._listen_until:
             self._listen_until = 0.0
             self.bus.publish({"type": "listening", "active": False})
-        self.bus.log("Command received (" + ("Hindi" if tr.language == "hi" else "English") + ")")
+        if self.on_command is not None:
+            self.on_command(command, tr.language)
+            return
+        self.bus.publish({"type": "heard", "text": command, "lang": tr.language, "stt_s": latency})
         reply = placeholder_reply(command, tr.language, self.voice_gender())
         self.bus.publish({"type": "reply", "text": reply})
         self.out.say(reply)

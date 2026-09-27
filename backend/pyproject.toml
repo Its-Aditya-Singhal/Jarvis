@@ -20,6 +20,7 @@ dependencies = [
   "kokoro-onnx>=0.4",
   "rapidfuzz>=3.9",
   "indic-transliteration>=2.3",
+  "httpx>=0.27",
 ]
 
 [project.optional-dependencies]

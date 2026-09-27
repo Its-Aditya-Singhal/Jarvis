@@ -45,7 +45,7 @@ class FakeMic:
 def _client(settings, mic=None):
     app = create_app(
         settings, keys=StaticKeyProvider(), engine=FakeEngine(), camera=FakeCamera(),
-        speaker_engine=FakeSpeaker(), mic=mic or FakeMic(), vad_factory=lambda: (lambda frame: 0.0), speech=False,
+        speaker_engine=FakeSpeaker(), mic=mic or FakeMic(), vad_factory=lambda: (lambda frame: 0.0), speech=False, llm=False,
     )
     return TestClient(app), app.state.svc
 
@@ -132,3 +132,12 @@ def test_voice_choice_at_setup_and_owner_only_change(settings):
         assert client.post("/api/speech/preview", headers=H, json={"gender": "female"}).status_code == 503
         # changing the voice later needs the verified owner
         assert client.put("/api/settings/voice", headers=H, json={"gender": "female"}).status_code == 403
+
+
+def test_commands_and_model_settings_are_owner_only(settings):
+    client, _ = _client(settings)
+    with client:
+        assert client.post("/api/command", headers=H, json={"text": "what time is it"}).status_code == 403
+        assert client.get("/api/llm/models", headers=H).status_code == 403
+        assert client.put("/api/settings/llm", headers=H, json={"model": "x"}).status_code == 403
+        assert client.post("/api/command", json={"text": "hi"}).status_code == 401

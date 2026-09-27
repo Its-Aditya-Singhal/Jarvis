@@ -6,6 +6,7 @@ import {
   AuthPublic,
   BackendEvent,
   EnrollSnapshot,
+  PlannedAction,
   Status,
   VoiceEnrollSnapshot,
   api,
@@ -34,12 +35,14 @@ export interface AppState {
   /** owner-addressed turns only; unaddressed speech never reaches the UI */
   conversation: Turn[];
   listeningUntil: number;
+  thinking: boolean;
 }
 
 export interface Turn {
   who: "you" | "assistant";
   text: string;
   at: number;
+  actions?: PlannedAction[];
 }
 
 let state: AppState = {
@@ -58,10 +61,13 @@ let state: AppState = {
   assistantSpeaking: false,
   conversation: [],
   listeningUntil: 0,
+  thinking: false,
 };
 
-const addTurn = (who: Turn["who"], text: string) =>
-  set({ conversation: [...state.conversation, { who, text, at: Date.now() }].slice(-6) });
+let turnSeq = 0;
+const addTurn = (who: Turn["who"], text: string, actions?: PlannedAction[]) =>
+  // at + seq keeps keys unique when two turns land in the same millisecond
+  set({ conversation: [...state.conversation, { who, text, at: Date.now() + ++turnSeq / 1000, actions }].slice(-6) });
 
 // The microphone level arrives ~15x/second. It lives outside React state so
 // animations can read it every frame without re-rendering the app.
@@ -137,7 +143,10 @@ function handle(e: BackendEvent) {
       addTurn("you", e.text);
       break;
     case "reply":
-      addTurn("assistant", e.text);
+      addTurn("assistant", e.text, e.actions);
+      break;
+    case "thinking":
+      set({ thinking: e.active });
       break;
     case "listening":
       set({ listeningUntil: e.active ? Date.now() + (e.seconds ?? 8) * 1000 : 0 });

@@ -144,6 +144,21 @@ export interface Status {
   auth: AuthPublic;
   voice_gender: VoiceGender;
   listening: boolean;
+  llm_model: string | null;
+}
+
+export interface PlannedAction {
+  tool: string;
+  args: Record<string, unknown>;
+  summary: string;
+}
+
+export interface CommandResult {
+  reply: string;
+  language: string;
+  actions: PlannedAction[];
+  ok: boolean;
+  latency_s?: number;
 }
 
 export interface EnrollSnapshot {
@@ -186,8 +201,9 @@ export type BackendEvent =
   | { type: "say"; text: string }
   | { type: "level"; level: number; source?: "assistant" }
   | { type: "tts"; active: boolean; text?: string }
-  | { type: "heard"; text: string; lang: "en" | "hi"; stt_s: number }
-  | { type: "reply"; text: string }
+  | { type: "heard"; text: string; lang: "en" | "hi"; stt_s?: number; source?: "voice" | "typed" }
+  | { type: "reply"; text: string; actions?: PlannedAction[] }
+  | { type: "thinking"; active: boolean }
   | { type: "listening"; active: boolean; seconds?: number }
   | { type: "speaking"; active: boolean }
   | { type: "voice"; verdict: VoiceState }
