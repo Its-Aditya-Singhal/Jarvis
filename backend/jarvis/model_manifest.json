@@ -13,7 +13,13 @@
           "size": 288621354,
           "sha256": "80ffe37d8a5940d59a7384c201a2a38d4741f2f3c51eef46ebb28218a7b0ca2f",
           "extract": "models/buffalo_l",
-          "members": ["det_10g.onnx", "w600k_r50.onnx", "1k3d68.onnx", "2d106det.onnx", "genderage.onnx"],
+          "members": [
+            "det_10g.onnx",
+            "w600k_r50.onnx",
+            "1k3d68.onnx",
+            "2d106det.onnx",
+            "genderage.onnx"
+          ],
           "unpacked": 341268726
         }
       ]
@@ -42,13 +48,13 @@
           "path": "speechbrain/spkrec-ecapa-voxceleb/embedding_model.ckpt",
           "url": "https://huggingface.co/speechbrain/spkrec-ecapa-voxceleb/resolve/main/embedding_model.ckpt",
           "size": 83316686,
-          "sha256": ""
+          "sha256": "0575cb64845e6b9a10db9bcb74d5ac32b326b8dc90352671d345e2ee3d0126a2"
         },
         {
           "path": "speechbrain/spkrec-ecapa-voxceleb/hyperparams.yaml",
           "url": "https://huggingface.co/speechbrain/spkrec-ecapa-voxceleb/resolve/main/hyperparams.yaml",
-          "size": 2000,
-          "sha256": ""
+          "size": 1919,
+          "sha256": "6f78854fa04ba59e761437b76a2575d3aba5e5016de3e9b69f0c9a5077fb1a41"
         }
       ]
     },
@@ -61,26 +67,26 @@
         {
           "path": "whisper/small/config.json",
           "url": "https://huggingface.co/Systran/faster-whisper-small/resolve/main/config.json",
-          "size": 3000,
-          "sha256": ""
+          "size": 2370,
+          "sha256": "b55496ac7940a7ae47d2c01eab40edfd8701feec1229d9cce3b40014383fb828"
         },
         {
           "path": "whisper/small/model.bin",
           "url": "https://huggingface.co/Systran/faster-whisper-small/resolve/main/model.bin",
           "size": 483546902,
-          "sha256": ""
+          "sha256": "3e305921506d8872816023e4c273e75d2419fb89b24da97b4fe7bce14170d671"
         },
         {
           "path": "whisper/small/tokenizer.json",
           "url": "https://huggingface.co/Systran/faster-whisper-small/resolve/main/tokenizer.json",
           "size": 2203239,
-          "sha256": ""
+          "sha256": "fb7b63191e9bb045082c79fd742a3106a12c99513ab30df4a0d47fa6cb6fd0ab"
         },
         {
           "path": "whisper/small/vocabulary.txt",
           "url": "https://huggingface.co/Systran/faster-whisper-small/resolve/main/vocabulary.txt",
-          "size": 460000,
-          "sha256": ""
+          "size": 459861,
+          "sha256": "34ce3fe1c5041027b3f8d42912270993f986dbc4bb34cf27f951e34a1e453913"
         }
       ]
     },
@@ -94,14 +100,14 @@
         {
           "path": "whisper-mlx/small/config.json",
           "url": "https://huggingface.co/mlx-community/whisper-small-mlx/resolve/main/config.json",
-          "size": 1000,
-          "sha256": ""
+          "size": 266,
+          "sha256": "e8f58e638208af66d5d5d67801259dc7a12d199e971967a9f9d33a8e3635668e"
         },
         {
           "path": "whisper-mlx/small/weights.npz",
           "url": "https://huggingface.co/mlx-community/whisper-small-mlx/resolve/main/weights.npz",
-          "size": 481000000,
-          "sha256": ""
+          "size": 481307592,
+          "sha256": "55b6674c9b339702d486e2b1573839a66f8ec8f821ed2886993ef717a86b09f5"
         }
       ]
     },
@@ -134,26 +140,26 @@
         {
           "path": "whisper/medium/config.json",
           "url": "https://huggingface.co/Systran/faster-whisper-medium/resolve/main/config.json",
-          "size": 3000,
-          "sha256": ""
+          "size": 2257,
+          "sha256": "3622a2ddc41ec0e0fd4e68c13c6830f03b90c38d89aaad184de02c8c642cf807"
         },
         {
           "path": "whisper/medium/model.bin",
           "url": "https://huggingface.co/Systran/faster-whisper-medium/resolve/main/model.bin",
           "size": 1527906378,
-          "sha256": ""
+          "sha256": "9b45e1009dcc4ab601eff815b61d80e60ce3fd8c74c1a14f4a282258286b51ae"
         },
         {
           "path": "whisper/medium/tokenizer.json",
           "url": "https://huggingface.co/Systran/faster-whisper-medium/resolve/main/tokenizer.json",
           "size": 2203239,
-          "sha256": ""
+          "sha256": "fb7b63191e9bb045082c79fd742a3106a12c99513ab30df4a0d47fa6cb6fd0ab"
         },
         {
           "path": "whisper/medium/vocabulary.txt",
           "url": "https://huggingface.co/Systran/faster-whisper-medium/resolve/main/vocabulary.txt",
-          "size": 460000,
-          "sha256": ""
+          "size": 459861,
+          "sha256": "34ce3fe1c5041027b3f8d42912270993f986dbc4bb34cf27f951e34a1e453913"
         }
       ]
     },
@@ -167,14 +173,14 @@
         {
           "path": "whisper-mlx/medium/config.json",
           "url": "https://huggingface.co/mlx-community/whisper-medium-mlx/resolve/main/config.json",
-          "size": 1000,
-          "sha256": ""
+          "size": 268,
+          "sha256": "3ff0b3f17a5a3a614327ffd835a3c8f6c78f39cbd39e84dbff4b0ae267c4d2e4"
         },
         {
           "path": "whisper-mlx/medium/weights.npz",
           "url": "https://huggingface.co/mlx-community/whisper-medium-mlx/resolve/main/weights.npz",
-          "size": 1530000000,
-          "sha256": ""
+          "size": 1524924912,
+          "sha256": "10b597c2bcb1bcc38b2d3d24cd4f0885f461a7cd70e8444d6ad5a763ece549ea"
         }
       ]
     }
