@@ -5,8 +5,8 @@ A local-first desktop assistant for macOS (Apple Silicon) that keeps checking
 name during setup (JARVIS, FRIDAY, anything). No paid APIs and no cloud: every
 model runs on your Mac.
 
-> **Status: Phase 2 of 10: face and voice identity.** Liveness, speech
-> recognition, the local LLM and tools arrive in later phases. The UI marks
+> **Status: Phase 3 of 10: face, voice and liveness.** Speech recognition,
+> the local LLM and tools arrive in later phases. The UI marks
 > every unbuilt feature as such rather than faking it.
 
 ## What works now
@@ -28,6 +28,12 @@ model runs on your Mac.
   MIC indicator react to your voice live.
 - Voice re-enrollment from the Authentication panel. Only the face-verified
   owner can do it, and it aborts if they leave.
+- Liveness: a face match alone no longer unlocks anything. At unlock you
+  get a short randomised challenge ("blink twice" plus a random turn left,
+  turn right or move closer), and the check repeats at random times while
+  the session is open. An anti-spoof model scores every frame, so photos and
+  screens are blocked (**SPOOF DETECTED**). Frozen or looped camera feeds are
+  rejected too.
 - Security log visible only while the verified owner is at the screen.
 
 ## Architecture
@@ -43,10 +49,11 @@ backend/jarvis/
   audio/mic.py          microphone capture in the backend (16 kHz), same reasoning
   auth/face/            engine, quality, enrollment (training), continuous (inference)
   auth/voice/           Silero VAD + segmenter, ECAPA engine, quality, enrollment, verification
+  auth/liveness/        passive anti-spoof, blink detector, challenges, replay checks, gate
   auth/matching.py      top-k cosine template matching shared by face and voice
   security/             Keychain key, AES-256-GCM template store
   database/db.py        SQLite: profile + security events
-  service.py            camera → face engine → enrollment / continuous verification
+  service.py            camera → face engine → enrollment / continuous verification + liveness gate
   voice_service.py      mic → VAD → speaker embedding → enrollment / verification
 models/                 downloaded models (git-ignored)
 scripts/download_models.py
@@ -60,9 +67,33 @@ scripts/download_models.py
 | Alignment | 5-point similarity transform to 112×112 |
 | Embedding | ArcFace ResNet-50 trained on WebFace600K, 512-d, L2-normalised |
 | Head pose / expression | 68-point 3D landmark model (pitch/yaw/roll, mouth-to-eye ratio) |
+| Eyelids | 106-point 2D landmark model (eye contours for blink detection) |
 | Quality gate | detector score × face size × sharpness (Laplacian variance) × exposure |
 | Matching | mean of top-5 cosine similarities to the enrolled set |
 | Decision | median over a 6-frame window: ≥ 0.42 approve, < 0.25 stranger, hysteresis while approved |
+
+## How liveness works
+
+The face matcher decides *who* is present. The liveness gate decides whether
+that face belongs to a live person. The owner counts as verified only when
+both agree.
+
+| Layer | Method |
+|---|---|
+| Passive anti-spoof | InsightFace liveness addon: 80×80 CNN on a 5-point aligned crop → live probability, every frame |
+| Blink | eye openness = contour height/width (106-pt) × pixel contrast inside the eye vs. face brightness; a blink is a drop below 0.75× the person's own rolling baseline that reopens within 0.9 s |
+| Challenge-response | "blink twice" plus random others (turn left ≥ 18°, turn right, move 25% closer), random order, 8 s per step; analysis runs at 12 fps during a challenge |
+| Continuity | the face may not jump position or size between frames mid-challenge (phone swapped in) |
+| Replay heuristics | bit-identical frames for 2 s = virtual/frozen feed; no natural blink for 150 s → re-challenge |
+| Decisions | passing a challenge also needs a median live score ≥ 0.6 during it; a sustained median < 0.25 = spoof; 0.25–0.6 while unlocked → immediate re-challenge |
+| Session | re-challenge at a random time 5–15 min after each pass; liveness is lost after 5 s out of view; 3 failures → 60 s lockout |
+
+Calibration so far: direct photos scored 0.92–0.99, while downscaled or
+recaptured faces scored 0.001–0.06. Closed eyes measured 37% of open-eye
+openness on a webcam-sized face. These results come from sample images, not
+a live webcam, so check the anti-spoof score (Authentication panel, owner
+only) on your own camera. If a real face sits below 0.6, lower
+`JARVIS_LIVENESS_PASS_THRESHOLD`.
 
 ## How the voice ML works
 
@@ -100,10 +131,16 @@ A trained fusion classifier over face, voice and liveness comes in phase 7.
   phase 9).
 - Audio is processed in memory and discarded. Only voice embeddings are kept,
   sealed the same way as face templates.
-- **Known gaps:** until phase 3 there is no liveness check, so a good photo
-  of the owner may pass face verification, and a recording of the owner may
-  pass voice verification. Until phase 4 enrollment doesn't check that the
-  displayed phrase was the one actually spoken.
+- Security events: unknown face or voice, spoof suspected, liveness check
+  failed, liveness lockout, frozen camera feed. Each records time, outcome
+  and whether access was blocked.
+- **Known gaps:** voice has no replay protection yet, so a recording of the
+  owner may pass voice verification. Phase 4 adds spoken-phrase checks, and
+  phase 7 fuses voice with face and liveness. Until phase 4, enrollment
+  doesn't check that the displayed phrase was the one actually spoken. The
+  passive anti-spoof model is a small CNN: a high-quality 3D mask or a
+  real-time deepfake piped into a virtual camera is beyond what it and the
+  challenges can guarantee.
 
 ## Setup (developer)
 
@@ -112,7 +149,7 @@ Requirements: macOS on Apple Silicon, Python 3.12, Node 20+, Rust (`brew install
 ```bash
 cd backend && python3.12 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 .venv/bin/python ../scripts/download_models.py   # ~370 MB, one time
-.venv/bin/python -m pytest                        # 33 tests
+.venv/bin/python -m pytest                        # 56 tests
 cd ../app && npm install && npm run tauri dev
 ```
 
@@ -127,7 +164,7 @@ which is fine for this academic project.
 
 1. ✅ Foundation + face identity
 2. ✅ Voice enrollment + speaker verification (ECAPA)
-3. Liveness (passive anti-spoof + blink/turn challenges)
+3. ✅ Liveness (passive anti-spoof + blink/turn challenges)
 4. Speech I/O (faster-whisper STT, Piper/Kokoro TTS, wake word = assistant name)
 5. Local LLM via Ollama (configurable model)
 6. Tools: alarm, calendar, notes, app launcher, file search (permissioned)

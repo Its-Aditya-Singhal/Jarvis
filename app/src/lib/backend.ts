@@ -84,7 +84,9 @@ export function connectEvents(
 
 // ---- event / status types ------------------------------------------------
 
-export type AuthState = "no_profile" | "scanning" | "approved" | "denied" | "absent";
+// "liveness": the face matched but a live person hasn't been confirmed yet
+// "spoof": the matched face looks like a photo/screen, or the camera feed is frozen
+export type AuthState = "no_profile" | "scanning" | "liveness" | "approved" | "denied" | "absent" | "spoof";
 
 export interface AuthPublic {
   state: AuthState;
@@ -93,6 +95,29 @@ export interface AuthPublic {
   face_confidence?: number | null; // only present while the owner is verified
   bystander?: boolean;
   voice?: VoicePublic;
+  liveness?: LivenessPublic;
+}
+
+export type LivenessState = "idle" | "challenge" | "cooldown" | "passed" | "spoof" | "disabled";
+
+export interface Challenge {
+  step: string;
+  prompt: string;
+  hint: string;
+  step_index: number;
+  step_count: number;
+  steps: string[];
+  remaining_s: number;
+}
+
+export interface LivenessPublic {
+  state: LivenessState;
+  reason: string;
+  challenge?: Challenge;
+  cooldown_s?: number;
+  live_score?: number | null; // owner-only
+  checked_ago?: number | null; // owner-only
+  next_check_s?: number | null; // owner-only
 }
 
 export type VoiceState = "idle" | "verified" | "uncertain" | "rejected";

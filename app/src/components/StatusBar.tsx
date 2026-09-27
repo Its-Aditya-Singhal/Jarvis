@@ -28,7 +28,11 @@ export default function StatusBar() {
   const security: [string, Tone] =
     auth?.state === "denied"
       ? ["INTRUDER", "alert"]
-      : auth?.state === "approved"
+      : auth?.state === "spoof"
+        ? ["SPOOF", "alert"]
+        : auth?.state === "liveness"
+          ? ["LIVENESS", "warn"]
+          : auth?.state === "approved"
         ? ["PROTECTED", "ok"]
         : auth?.state === "absent"
           ? ["LOCKED", "warn"]

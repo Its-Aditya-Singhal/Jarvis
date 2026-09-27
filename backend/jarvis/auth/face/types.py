@@ -19,6 +19,9 @@ class FaceObservation:
     quality: float
     frame_width: int
     frame_height: int
+    kps: np.ndarray | None = None  # 5 detector keypoints, pixels
+    eye_open: float | None = None  # eye openness from the 106-point landmarks
+    live_score: float | None = None  # passive anti-spoof live probability
 
     @property
     def width(self) -> float:
@@ -27,3 +30,10 @@ class FaceObservation:
     @property
     def rel_width(self) -> float:
         return self.width / max(self.frame_width, 1)
+
+    @property
+    def center(self) -> tuple[float, float]:
+        return (
+            float(self.bbox[0] + self.bbox[2]) / 2 / max(self.frame_width, 1),
+            float(self.bbox[1] + self.bbox[3]) / 2 / max(self.frame_height, 1),
+        )

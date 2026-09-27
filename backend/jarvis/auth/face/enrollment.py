@@ -3,7 +3,8 @@
 The user is walked through poses/expressions. A step only collects samples
 once the requested pose is actually observed (head pose from the 3D landmark
 model, distance from face size, smile from mouth/eye geometry). Only the
-embeddings are kept; frames are never stored.
+embeddings are kept; frames are never stored. Frames the passive liveness
+model flags as a photo or screen are not enrolled.
 
 Left/right and up/down are sign-agnostic: whichever direction the user turns
 first for "left" defines the sign, and "right" then requires the opposite.
@@ -60,6 +61,7 @@ class EnrollmentSession:
     samples_per_step: int = 4
     min_interval_s: float = 0.3
     min_quality: float = 0.35
+    min_live_score: float | None = None  # passive liveness gate; None disables
     step_index: int = 0
     embeddings: list[np.ndarray] = field(default_factory=list)
     labels: list[str] = field(default_factory=list)
@@ -140,6 +142,13 @@ class EnrollmentSession:
         o = faces[0]
         if o.quality < self.min_quality:
             self.hint = "Hold still — improve lighting if possible"
+            return False
+        if (
+            self.min_live_score is not None
+            and o.live_score is not None
+            and o.live_score < self.min_live_score
+        ):
+            self.hint = "A real face is required — photos and screens are rejected"
             return False
         step = STEPS[self.step_index]
         ok, hint = self._pose_ok(step.key, o)

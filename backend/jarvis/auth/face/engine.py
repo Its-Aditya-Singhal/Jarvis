@@ -3,7 +3,8 @@
 Pipeline per frame: SCRFD detector -> 5-point similarity alignment to 112x112
 -> ArcFace (ResNet-50, WebFace600K) 512-d embedding. The 68-point 3D landmark
 model supplies head pose (pitch/yaw/roll) and mouth/eye geometry used by the
-guided enrollment.
+guided enrollment; the 106-point 2D model tracks the eyelids for blink
+detection, and the passive liveness model scores each face for spoofing.
 """
 
 from __future__ import annotations
@@ -12,8 +13,11 @@ import logging
 import threading
 from pathlib import Path
 
+import cv2
 import numpy as np
 
+from ..liveness.blink import eye_openness
+from ..liveness.passive import PassiveLiveness
 from .quality import frame_quality
 from .types import FaceObservation
 
@@ -27,6 +31,7 @@ class FaceEngine:
         self._app = None
         self._lock = threading.Lock()
         self.error: str | None = None
+        self.liveness = PassiveLiveness(self.models_root)
 
     @property
     def model_dir(self) -> Path:
@@ -48,11 +53,13 @@ class FaceEngine:
 
             app = FaceAnalysis(
                 name=str(self.model_dir),
-                allowed_modules=["detection", "recognition", "landmark_3d_68"],
+                allowed_modules=["detection", "recognition", "landmark_3d_68", "landmark_2d_106"],
             )
             app.prepare(ctx_id=0, det_size=(640, 640))
             self._app = app
             self.error = None
+            if not self.liveness.load():
+                log.warning("passive liveness unavailable: %s", self.liveness.error)
             return True
         except Exception as exc:  # keep the app alive if the model fails
             log.exception("face engine failed to load")
@@ -69,6 +76,7 @@ class FaceEngine:
         with self._lock:
             faces = self._app.get(frame_bgr)
         h, w = frame_bgr.shape[:2]
+        gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
         out: list[FaceObservation] = []
         for f in faces:
             if f.embedding is None:
@@ -76,6 +84,8 @@ class FaceEngine:
             emb = np.asarray(f.normed_embedding, dtype=np.float32)
             pose = f.pose if f.pose is not None else (0.0, 0.0, 0.0)
             lmk = f.landmark_3d_68[:, :2] if f.landmark_3d_68 is not None else None
+            lmk106 = getattr(f, "landmark_2d_106", None)
+            kps = np.asarray(f.kps, dtype=np.float32) if f.kps is not None else None
             out.append(
                 FaceObservation(
                     bbox=np.asarray(f.bbox, dtype=np.float32),
@@ -88,6 +98,9 @@ class FaceEngine:
                     quality=frame_quality(frame_bgr, f.bbox, float(f.det_score)),
                     frame_width=w,
                     frame_height=h,
+                    kps=kps,
+                    eye_open=eye_openness(lmk106, gray, f.bbox),
+                    live_score=self.liveness.score(frame_bgr, kps),
                 )
             )
         # largest face first

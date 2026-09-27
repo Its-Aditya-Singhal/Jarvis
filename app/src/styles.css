@@ -115,6 +115,10 @@ input { user-select: text; }
 .state-denied h1 { color: var(--alert); text-shadow: 0 0 18px rgba(255, 59, 92, 0.6); animation: glitch 2.4s infinite; }
 .state-denied p { color: #ff8da0; }
 .state-absent h1 { color: var(--warn); text-shadow: 0 0 18px rgba(255, 176, 32, 0.45); }
+.state-liveness h1 { color: #b89bff; text-shadow: 0 0 18px rgba(168, 120, 255, 0.5); }
+.state-liveness.cooling h1 { color: var(--warn); text-shadow: 0 0 18px rgba(255, 176, 32, 0.45); }
+.state-spoof h1 { color: var(--alert); text-shadow: 0 0 18px rgba(255, 59, 92, 0.6); animation: glitch 2.4s infinite; }
+.state-spoof p { color: #ff8da0; }
 .state-offline h1 { color: var(--off); text-shadow: none; }
 @keyframes glitch {
   0%, 92%, 100% { transform: none; }
@@ -268,3 +272,15 @@ input { user-select: text; }
 .card-btn { margin-top: 12px; }
 .overlay { position: fixed; inset: 0; z-index: 50; background: rgba(1, 5, 10, 0.82); backdrop-filter: blur(6px); display: grid; place-items: center; padding: 24px; animation: fadein 0.3s; }
 .overlay-card { width: min(980px, 100%); background: var(--bg-2); border: 1px solid var(--line-strong); border-radius: 8px; padding: 32px; }
+
+/* liveness challenge */
+.challenge { margin: 14px auto 0; padding: 12px 22px 10px; width: 320px; border: 1px solid rgba(168, 120, 255, 0.45); border-radius: 10px; background: rgba(168, 120, 255, 0.07); box-shadow: 0 0 24px rgba(168, 120, 255, 0.15) inset; }
+.challenge-icon { font-size: 30px; line-height: 1.1; color: #c9b3ff; letter-spacing: 0.1em; animation: pulse 1.2s ease-in-out infinite; }
+.challenge-prompt { margin-top: 4px; font-size: 18px; color: var(--text); letter-spacing: 0.03em; }
+.challenge-hint { margin-top: 2px; font-size: 12.5px; color: #b89bff; min-height: 1.2em; }
+.challenge-steps { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 8px; font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
+.challenge-steps i { width: 26px; height: 3px; border-radius: 2px; background: rgba(168, 120, 255, 0.2); }
+.challenge-steps i.active { background: #b89bff; box-shadow: 0 0 8px #a878ff; }
+.challenge-steps i.done { background: var(--ok); }
+.challenge-steps span { margin-left: 6px; }
+@keyframes pulse { 50% { opacity: 0.45; transform: scale(0.94); } }

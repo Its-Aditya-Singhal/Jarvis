@@ -1,11 +1,12 @@
 import { useEffect, useRef } from "react";
 import { getMicLevel } from "../lib/store";
 
-export type OrbMode = "idle" | "scanning" | "approved" | "denied" | "locked" | "offline";
+export type OrbMode = "idle" | "scanning" | "challenge" | "approved" | "denied" | "locked" | "offline";
 
 const PALETTE: Record<OrbMode, [number, number, number]> = {
   idle: [0, 212, 255],
   scanning: [40, 160, 255],
+  challenge: [168, 120, 255],
   approved: [45, 255, 179],
   denied: [255, 59, 92],
   locked: [255, 176, 32],
@@ -15,6 +16,7 @@ const PALETTE: Record<OrbMode, [number, number, number]> = {
 const SPEED: Record<OrbMode, number> = {
   idle: 1,
   scanning: 2.8,
+  challenge: 2,
   approved: 1.3,
   denied: 0.7,
   locked: 0.35,
@@ -183,7 +185,7 @@ export default function Orb({ mode, level = 0, listen = false, className }: Prop
       ctx.restore();
 
       // scanning sweep
-      if (m === "scanning") {
+      if (m === "scanning" || m === "challenge") {
         ctx.save();
         ctx.rotate(t * 1.3);
         for (let i = 0; i < 24; i++) {

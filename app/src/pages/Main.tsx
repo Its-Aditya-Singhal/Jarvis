@@ -4,7 +4,7 @@ import CameraPreview from "../components/CameraPreview";
 import Orb, { OrbMode } from "../components/Orb";
 import SideNav, { View } from "../components/SideNav";
 import VoiceEnroll from "../components/VoiceEnroll";
-import { ApiError, api } from "../lib/backend";
+import { ApiError, Challenge, api } from "../lib/backend";
 import { useStore } from "../lib/store";
 
 interface SecurityEvent {
@@ -59,6 +59,24 @@ function Core() {
       title = justChanged ? "AUTHENTICATION APPROVED" : `${name} ONLINE`;
       sub = justChanged ? `Welcome back, ${status?.owner_name}.` : "Voice commands arrive in phase 4";
       break;
+    case "liveness": {
+      const live = auth?.liveness;
+      if (live?.state === "cooldown") {
+        mode = "locked";
+        title = "LIVENESS CHECK FAILED";
+        sub = `${live.reason} · retrying in ${Math.ceil(live.cooldown_s ?? 0)} s`;
+      } else {
+        mode = "challenge";
+        title = "LIVENESS CHECK";
+        sub = live?.reason ?? "Prove you're live";
+      }
+      break;
+    }
+    case "spoof":
+      mode = "denied";
+      title = "SPOOF DETECTED";
+      sub = `${auth?.reason ?? ""} — photos, screens and replayed video are not accepted.`;
+      break;
     case "denied":
       mode = "denied";
       title = "AUTHENTICATION DENIED";
@@ -72,17 +90,46 @@ function Core() {
   }
 
   return (
-    <div className={`core state-${state}`}>
+    <div className={`core state-${state} ${mode === "locked" ? "cooling" : ""}`}>
       <Orb mode={mode} listen={state !== "offline"} className="core-orb" />
       <div className="core-text">
         <h1>{title}</h1>
         <p>{sub}</p>
+        {state === "liveness" && auth?.liveness?.challenge && <ChallengeCard c={auth.liveness.challenge} />}
         <FactorBadges />
         <p className={`speech ${showSpeech ? "show" : ""}`}>{speech?.text}</p>
       </div>
     </div>
   );
 }
+
+// the preview is mirrored, so the person's left is on the left of the screen
+const STEP_ICON: Record<string, string> = { blink: "◉ ◉", turn_left: "←", turn_right: "→", closer: "⤢" };
+
+function ChallengeCard({ c }: { c: Challenge }) {
+  return (
+    <div className="challenge">
+      <div className="challenge-icon">{STEP_ICON[c.step] ?? "•"}</div>
+      <div className="challenge-prompt">{c.prompt}</div>
+      <div className="challenge-hint">{c.hint || "\u00a0"}</div>
+      <div className="challenge-steps">
+        {c.steps.map((st, i) => (
+          <i key={i} className={i < c.step_index ? "done" : i === c.step_index ? "active" : ""} title={st} />
+        ))}
+        <span>{Math.ceil(c.remaining_s)} s</span>
+      </div>
+    </div>
+  );
+}
+
+const LIVE_LABEL: Record<string, [string, string]> = {
+  passed: ["LIVE PERSON CONFIRMED", "tone-ok"],
+  challenge: ["CHALLENGE IN PROGRESS", "tone-warn"],
+  idle: ["NOT YET PROVEN", "tone-warn"],
+  cooldown: ["CHECK FAILED — WAITING", "tone-alert"],
+  spoof: ["SPOOF SUSPECTED", "tone-alert"],
+  disabled: ["DISABLED", "tone-off"],
+};
 
 const VOICE_LABEL: Record<string, [string, string]> = {
   verified: ["VERIFIED", "tone-ok"],
@@ -105,8 +152,8 @@ function FactorBadges() {
       <span className={voice}>
         <i className="dot" /> VOICE{speaking ? " · HEARING" : ""}
       </span>
-      <span className="tone-off">
-        <i className="dot" /> LIVENESS · P3
+      <span className={LIVE_LABEL[auth?.liveness?.state ?? "idle"][1]}>
+        <i className="dot" /> LIVENESS{auth?.liveness?.state === "disabled" ? " · OFF" : ""}
       </span>
     </div>
   );
@@ -121,6 +168,7 @@ function AuthPanel() {
     if (!approved) setEnrolling(false);
   }, [approved]);
   const voice = auth?.voice;
+  const live = auth?.liveness;
   const vLabel = status?.voice_enrolled ? VOICE_LABEL[voice?.state ?? "idle"] : ["NOT ENROLLED", "tone-warn"];
   const row = (k: string, v: string, tone = "") => (
     <div className="kv">
@@ -158,9 +206,14 @@ function AuthPanel() {
         </div>
         <div className="card">
           <div className="panel-title">LIVENESS</div>
-          {row("Status", "NOT YET IMPLEMENTED", "tone-off")}
+          {row("Status", ...(LIVE_LABEL[live?.state ?? "idle"] as [string, string]))}
+          {row("Anti-spoof score", approved && live?.live_score != null ? `${Math.round(live.live_score * 100)}%` : "hidden")}
+          {row("Last check", approved && live?.checked_ago != null ? `${Math.round(live.checked_ago)} s ago` : "—")}
+          {row("Next random check", approved && live?.next_check_s != null ? `within ${Math.ceil(live.next_check_s / 60)} min` : "—")}
+          {row("Model", status?.models.liveness === "ready" ? "Anti-spoof CNN + challenges · local" : (status?.models.liveness ?? "—"))}
           <p className="muted small">
-            Until phase 3, a photo of the owner may pass face verification. Liveness checks close that gap.
+            Randomised blink / turn / move-closer challenges at unlock and at random times, plus a texture check on
+            every frame that rejects photos and screens.
           </p>
         </div>
       </div>
@@ -183,6 +236,10 @@ const EVENT_TITLE: Record<string, string> = {
   unknown_face: "UNKNOWN USER DETECTED",
   bystander: "UNKNOWN PERSON NEAR OWNER",
   unknown_voice: "UNKNOWN VOICE DETECTED",
+  spoof_suspected: "SPOOF ATTEMPT DETECTED",
+  liveness_failed: "LIVENESS CHECK FAILED",
+  liveness_lockout: "LIVENESS LOCKOUT",
+  camera_frozen: "CAMERA FEED FROZEN",
 };
 
 function SecurityPanel() {

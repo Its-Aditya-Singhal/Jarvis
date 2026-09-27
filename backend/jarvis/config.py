@@ -53,6 +53,18 @@ class Settings(BaseSettings):
     voice_top_k: int = 5
     voice_valid_s: float = 20.0  # a voice match counts for this long
 
+    # Liveness (see jarvis/auth/liveness)
+    liveness_enabled: bool = True
+    liveness_pass_threshold: float = 0.6  # median passive live score needed to pass a challenge
+    liveness_spoof_threshold: float = 0.25  # sustained median below this = spoof
+    liveness_challenge_steps: int = 2  # "blink twice" + random others
+    liveness_step_timeout_s: float = 8.0
+    liveness_recheck_min_s: float = 300.0  # random re-challenge window while unlocked
+    liveness_recheck_max_s: float = 900.0
+    liveness_blink_gap_s: float = 150.0  # no natural blink this long -> re-challenge
+    liveness_lost_reset_s: float = 5.0  # owner out of view this long -> re-prove
+    challenge_fps: float = 12.0  # analysis rate while a challenge runs (blinks are short)
+
     # Keychain
     keychain_service: str = "jarvis-assistant"
 

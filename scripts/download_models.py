@@ -21,6 +21,13 @@ def face() -> None:
     print(f"face models ready: {path}")
 
 
+def liveness() -> None:
+    """Passive anti-spoof model (1.5 MB), SHA-256 verified by insightface's addon catalog."""
+    from insightface.addons.catalog import ensure_addon
+
+    print(f"liveness model ready: {ensure_addon('liveness', root=str(MODELS))}")
+
+
 def voice() -> None:
     """ECAPA-TDNN speaker embedding weights (~83 MB). Silero VAD ships inside its pip package."""
     target = MODELS / "speechbrain" / "spkrec-ecapa-voxceleb"
@@ -38,4 +45,5 @@ def voice() -> None:
 
 if __name__ == "__main__":
     face()
+    liveness()
     voice()
