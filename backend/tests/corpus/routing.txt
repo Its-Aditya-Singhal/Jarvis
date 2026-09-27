@@ -277,6 +277,53 @@ fast | system.lock() | mac lock kar do
 gap  | system.battery() | is my battery low
 gap  | system.lock() | I'm stepping away, lock it
 
+# -- screen & display ------------------------------------------------------------------------
+fast | screen.shot() | take a screenshot
+fast | screen.shot() | screenshot
+fast | screen.shot() | capture the screen
+fast | screen.shot() | screenshot lo
+fast | screen.shot() | screen ka screenshot le lo
+fast | screen.shot(to=clipboard) | copy a screenshot to the clipboard
+fast | display.brightness(change=10) | brightness up
+fast | display.brightness(change=10) | increase the brightness
+fast | display.brightness(change=10) | make the screen brighter
+fast | display.brightness(change=10) | brightness badhao
+fast | display.brightness(change=-10) | dim the screen
+fast | display.brightness(change=-10) | lower the brightness
+fast | display.brightness(change=-10) | brightness kam karo
+fast | display.brightness(level=40) | set brightness to 40
+fast | display.brightness(level=100) | full brightness
+fast | display.brightness() | what's the brightness
+fast | display.dark_mode(on=true) | turn on dark mode
+fast | display.dark_mode(on=true) | switch to dark mode
+fast | display.dark_mode(on=true) | dark mode on karo
+fast | display.dark_mode(on=false) | turn off dark mode
+fast | display.dark_mode(on=false) | switch to light mode
+fast | display.dark_mode() | toggle dark mode
+fast | settings.open(page=wifi) | open wifi settings
+fast | settings.open(page=bluetooth) | open bluetooth settings
+fast | settings.open(page=sound) | open settings for sound
+fast | settings.open(page=display) | show me the display settings
+fast | settings.open(page=microphone) | open microphone settings
+fast | settings.open(page=wifi) | wifi settings kholo
+llm  | display.brightness | it's too bright
+llm  | display.dark_mode | my eyes hurt, make everything dark
+llm  | settings.open | take me to where I change my wallpaper
+
+# -- clipboard & typing ----------------------------------------------------------------------
+fast | clipboard.read() | what's on my clipboard
+fast | clipboard.read() | read my clipboard
+fast | clipboard.read() | what did i copy
+fast | clipboard.read() | clipboard mein kya hai
+fast | clipboard.note() | save my clipboard as a note
+fast | clipboard.note() | make a note of the clipboard
+fast | clipboard.note() | clipboard ko note mein save karo
+fast | text.type(text=Hello world) | type hello world
+fast | text.type(text=Thanks for the update) | type out thanks for the update
+fast | text.type(text=Kal milte hain) | kal milte hain type karo
+llm  | clipboard.note | paste what I copied into my notes
+llm  | text.type | write "on my way" in this chat
+
 # -- notes -----------------------------------------------------------------------------------
 fast | notes.add(text=Call Dr. Mehta) | take a note to call Dr. Mehta
 fast | notes.add(text=Buy milk) | add a note to buy milk

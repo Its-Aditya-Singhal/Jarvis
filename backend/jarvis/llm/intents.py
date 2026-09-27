@@ -45,6 +45,13 @@ TOOLS: dict[str, tuple[str, str]] = {
     "system.battery": ("Read the battery level", "none"),
     "system.lock": ("Lock the screen", "none"),
     "alarm.list": ("List alarms and timers that are set", "none"),
+    "screen.shot": ("Take a screenshot of the whole screen", "to: clipboard (optional; default saves a file)"),
+    "display.brightness": ("Change or read the screen brightness", "level: 0-100 | change: +/-number; no args = read"),
+    "display.dark_mode": ("Turn dark mode on or off", "on: true/false; omit to toggle"),
+    "settings.open": ("Open a System Settings page (Wi-Fi, Bluetooth, Sound, Displays, Battery, Privacy…)", "page"),
+    "clipboard.read": ("Read out the text on the clipboard", "none"),
+    "clipboard.note": ("Save the clipboard's text as a note", "none"),
+    "text.type": ("Type (paste) dictated text into the app in front", "text: exactly what to type"),
     "memory.remember": ("Remember something the user tells you to remember", "text: the fact, in the user's words"),
     "memory.forget": ("Forget one remembered fact", "query: words from the fact"),
     "history.search": ("Find what was said in past conversations", "query; date: optional ISO date"),
@@ -264,6 +271,10 @@ def describe(a: Action, language: str, now: datetime) -> str:
         return f"{text('name')} फ़ोल्डर खोलना" if hi else f"opening the {text('name')} folder"
     if a.tool == "web.open" and text("target"):
         return f"{text('target')} खोलना" if hi else f"opening {text('target')}"
+    if a.tool == "settings.open" and text("page"):
+        return f"{text('page')} सेटिंग्स खोलना" if hi else f"opening {text('page')} settings"
+    if a.tool == "text.type" and text("text"):
+        return f"टाइप करना: “{text('text')}”" if hi else f"typing “{text('text')}”"
     if a.tool == "files.search" and text("query"):
         return f"फ़ाइलों में “{text('query')}” ढूँढना" if hi else f"a file search for “{text('query')}”"
     generic = {"alarm.set": "अलार्म", "timer.set": "टाइमर", "calendar.create": "कैलेंडर इवेंट"}

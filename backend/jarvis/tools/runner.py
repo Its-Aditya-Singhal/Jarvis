@@ -12,6 +12,7 @@ confirms, and only then ``execute`` deletes those items.
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
@@ -24,7 +25,7 @@ from ..llm.intents import Action, clock_phrase, day_phrase, parse_local
 from .apple import AppleBridge, AppleError
 from .apps import AppIndex
 from .files import FileSearch
-from .mac import SITES, MacControl
+from .mac import SETTINGS_TITLES, SITES, MacControl, settings_page
 from .store import Event, ToolStore
 
 log = logging.getLogger(__name__)
@@ -36,6 +37,8 @@ LEVELS = {
     "history.search": 1, "memory.remember": 2, "memory.forget": 3,
     "alarm.list": 1, "system.battery": 1, "system.lock": 1,  # locking only protects
     "app.close": 2, "folder.open": 2, "web.open": 2, "system.volume": 2, "media.control": 2,
+    "screen.shot": 2, "display.brightness": 2, "display.dark_mode": 2, "settings.open": 2,
+    "clipboard.read": 1, "clipboard.note": 2, "text.type": 2,
 }
 MATCH_MIN = 75  # fuzzy score needed to pick a note/event to delete
 MAX_TIMER_S = 24 * 3600
@@ -475,6 +478,117 @@ class ToolRunner:
     def _system_lock(self, args: dict, hi: bool) -> ToolResult:
         self.mac.lock()
         return ToolResult("system.lock", True, "स्क्रीन लॉक कर दी है।" if hi else "Locking the screen.")
+
+    # -- screen & display ---------------------------------------------------------------
+    def _screen_shot(self, args: dict, hi: bool) -> ToolResult:
+        to_clip = str(args.get("to") or "").lower() == "clipboard"
+        try:
+            path = self.mac.screenshot(to_clipboard=to_clip)
+        except PermissionError:
+            return ToolResult("screen.shot", False, "स्क्रीनशॉट के लिए macOS की अनुमति चाहिए: System Settings, Privacy & Security, "
+                              "Screen Recording में JARVIS को चालू कीजिए, फिर दोबारा कहिए।" if hi else
+                              "macOS needs your permission first: turn on JARVIS in System Settings, Privacy & Security, "
+                              "Screen Recording, then ask again.", {"permission": "screen_recording"})
+        if path is None:
+            return ToolResult("screen.shot", True, "स्क्रीनशॉट क्लिपबोर्ड में कॉपी कर दिया है।" if hi
+                              else "Screenshot copied to the clipboard.", {"clipboard": True})
+        where = path.parent.name or "Home"
+        return ToolResult("screen.shot", True, f"स्क्रीनशॉट {where} में सेव कर दिया है।" if hi
+                          else f"Screenshot saved to your {where}.", {"path": str(path)})
+
+    def _display_brightness(self, args: dict, hi: bool) -> ToolResult:
+        cur = self.mac.get_brightness()
+        if cur is None:
+            return ToolResult("display.brightness", False, "इस स्क्रीन की ब्राइटनेस मैं नहीं बदल सकता।" if hi
+                              else "I can't control this screen's brightness.")
+        if "level" in args and str(args["level"]).lstrip("-").isdigit():
+            level = int(args["level"])
+        elif "change" in args and str(args["change"]).lstrip("-").isdigit():
+            level = cur + int(args["change"])
+        else:
+            return ToolResult("display.brightness", True, f"ब्राइटनेस {cur}% पर है।" if hi else f"Brightness is at {cur}%.",
+                              {"level": cur})
+        done = self.mac.set_brightness(level)
+        if done is None:
+            return ToolResult("display.brightness", False, "ब्राइटनेस नहीं बदल पाया।" if hi else "I couldn't change the brightness.")
+        return ToolResult("display.brightness", True, f"ब्राइटनेस {done}% कर दी है।" if hi else f"Brightness set to {done}%.",
+                          {"level": done})
+
+    def _display_dark_mode(self, args: dict, hi: bool) -> ToolResult:
+        cur = self.mac.dark_mode()
+        want = args.get("on")
+        if isinstance(want, str):
+            want = {"true": True, "on": True, "false": False, "off": False}.get(want.lower())
+        on = (not cur) if want is None else bool(want)
+        if on != cur:
+            self.mac.set_dark_mode(on)
+        if hi:
+            say = "डार्क मोड चालू कर दिया है।" if on else "लाइट मोड चालू कर दिया है।"
+        else:
+            say = ("Dark mode is on." if on else "Light mode is on.") if on != cur else (
+                "Dark mode is already on." if on else "Light mode is already on.")
+        return ToolResult("display.dark_mode", True, say, {"dark": on})
+
+    def _settings_open(self, args: dict, hi: bool) -> ToolResult:
+        spoken = " ".join(str(args.get("page") or "").split())[:60]
+        root = re.fullmatch(r"(?:(?:mac |system )?(?:settings|preferences)|system settings|)", spoken.lower())
+        pane = None if root else settings_page(spoken)
+        if pane is None and not root:
+            self.mac.open_settings(None)
+            return ToolResult("settings.open", True, f"{_quote(spoken)} वाला पेज नहीं पता, System Settings खोल दी है।" if hi
+                              else f"I don't know a {_quote(spoken)} page, so I opened System Settings.", {"page": None})
+        self.mac.open_settings(pane)
+        title = SETTINGS_TITLES[pane] if pane else "System Settings"
+        return ToolResult("settings.open", True, f"{title} खोल दिया है।" if hi else f"Opening {title}"
+                          + (" in System Settings." if pane else "."), {"page": pane})
+
+    # -- clipboard & typing ---------------------------------------------------------------
+    def _clipboard_text(self, tool: str, hi: bool) -> str | ToolResult:
+        clip = self.mac.clipboard
+        if clip.concealed():
+            return ToolResult(tool, False, "क्लिपबोर्ड में पासवर्ड है, इसलिए मैं उसे नहीं पढ़ूँगा।" if hi
+                              else "Your clipboard holds a password, so I'll leave it alone.", {"concealed": True})
+        text = (clip.text() or "").strip()
+        if not text:
+            return ToolResult(tool, False, "क्लिपबोर्ड में कोई टेक्स्ट नहीं है।" if hi
+                              else "There's no text on your clipboard.")
+        return text
+
+    def _clipboard_read(self, args: dict, hi: bool) -> ToolResult:
+        text = self._clipboard_text("clipboard.read", hi)
+        if isinstance(text, ToolResult):
+            return text
+        spoken = _quote(text, 200)
+        return ToolResult("clipboard.read", True, f"क्लिपबोर्ड में है: {spoken}।" if hi else f"Your clipboard says {spoken}.",
+                          {"text": text[:5000]})
+
+    def _clipboard_note(self, args: dict, hi: bool) -> ToolResult:
+        text = self._clipboard_text("clipboard.note", hi)
+        if isinstance(text, ToolResult):
+            return text
+        res = self._notes_add({"text": text}, hi)
+        res.tool = "clipboard.note"
+        if res.ok:  # "Note saved, also in Apple Notes." -> "Saved your clipboard as a note, also in Apple Notes."
+            res.say = res.say.replace("नोट सेव कर दिया है", "क्लिपबोर्ड वाला टेक्स्ट नोट में सेव कर दिया है", 1) if hi else \
+                res.say.replace("Note saved", "Saved your clipboard as a note", 1)
+        return res
+
+    def _text_type(self, args: dict, hi: bool) -> ToolResult:
+        text = str(args.get("text") or "").strip()[:5000]
+        if not text:
+            return ToolResult("text.type", False, "क्या टाइप करूँ, समझ नहीं आया।" if hi else "I didn't catch what to type.")
+        try:
+            app = self.mac.type_text(text)
+        except LookupError:
+            return ToolResult("text.type", False, "पहले उस ऐप पर जाइए जहाँ टाइप करना है, फिर कहिए।" if hi
+                              else "Switch to the app you want me to type in, then ask again.")
+        except PermissionError:
+            return ToolResult("text.type", False, "टाइप करने के लिए macOS की अनुमति चाहिए: System Settings, Privacy & Security, "
+                              "Accessibility में JARVIS को चालू कीजिए।" if hi else
+                              "macOS needs your permission first: turn on JARVIS in System Settings, Privacy & Security, "
+                              "Accessibility, then ask again.", {"permission": "accessibility"})
+        return ToolResult("text.type", True, f"{app} में टाइप कर दिया है।" if hi else f"Typed it into {app}.",
+                          {"app": app, "chars": len(text)})
 
     def _alarm_list(self, args: dict, hi: bool) -> ToolResult:
         now = self.clock()

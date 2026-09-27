@@ -6,5 +6,7 @@
   <string>The camera is used locally to verify that you are the owner. No images leave this Mac.</string>
   <key>NSMicrophoneUsageDescription</key>
   <string>The microphone is used locally for voice commands and voice verification.</string>
+  <key>NSAppleEventsUsageDescription</key>
+  <string>Voice commands control other apps on this Mac, such as switching dark mode, typing dictated text and playing music.</string>
 </dict>
 </plist>

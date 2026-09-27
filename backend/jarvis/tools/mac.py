@@ -1,21 +1,27 @@
 """Everyday Mac controls: quit apps, open folders and websites, volume, media,
-battery, locking the screen.
+battery, locking the screen, screenshots, brightness, dark mode, System
+Settings pages, and the clipboard.
 
 Nothing here runs a shell or passes model text to one: apps are quit through
 AppKit's polite ``terminate`` (the app can still ask to save), folders must be
 known locations or the owner's allowed search folders, websites must be
 http(s) URLs or become a search, and AppleScript only receives fixed scripts
-with values passed as argv.
+with values passed as argv. System Settings pages come from a fixed list, and
+dictated text is typed by pasting it (the owner's clipboard is put back after).
 """
 
 from __future__ import annotations
 
+import ctypes
 import logging
 import re
 import subprocess
+import time
 import unicodedata
 from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
+from typing import Any
 from urllib.parse import quote_plus, urlparse
 
 from rapidfuzz import fuzz, process
@@ -69,6 +75,171 @@ KEEP_RUNNING = {"finder", "jarvis", "loginwindow", "dock", "systemuiserver"}
 PLAYERS = ("Spotify", "Music")
 
 
+# spoken page name -> System Settings pane (macOS 13+ ids; the Privacy_* anchors still open the right list)
+_PRIVACY = "com.apple.preference.security?Privacy_"
+SETTINGS_PAGES = {
+    "wifi": "com.apple.wifi-settings-extension", "wi fi": "com.apple.wifi-settings-extension",
+    "wireless": "com.apple.wifi-settings-extension", "internet": "com.apple.Network-Settings.extension",
+    "network": "com.apple.Network-Settings.extension", "bluetooth": "com.apple.BluetoothSettings",
+    "sound": "com.apple.Sound-Settings.extension", "audio": "com.apple.Sound-Settings.extension",
+    "volume": "com.apple.Sound-Settings.extension",
+    "display": "com.apple.Displays-Settings.extension", "displays": "com.apple.Displays-Settings.extension",
+    "screen": "com.apple.Displays-Settings.extension", "brightness": "com.apple.Displays-Settings.extension",
+    "monitor": "com.apple.Displays-Settings.extension",
+    "battery": "com.apple.Battery-Settings.extension", "power": "com.apple.Battery-Settings.extension",
+    "notifications": "com.apple.Notifications-Settings.extension",
+    "notification": "com.apple.Notifications-Settings.extension",
+    "focus": "com.apple.Focus-Settings.extension", "do not disturb": "com.apple.Focus-Settings.extension",
+    "screen time": "com.apple.Screen-Time-Settings.extension",
+    "general": "com.apple.systempreferences.GeneralSettings",
+    "about": "com.apple.SystemProfiler.AboutExtension", "about this mac": "com.apple.SystemProfiler.AboutExtension",
+    "software update": "com.apple.Software-Update-Settings.extension",
+    "update": "com.apple.Software-Update-Settings.extension", "updates": "com.apple.Software-Update-Settings.extension",
+    "storage": "com.apple.settings.Storage", "date and time": "com.apple.Date-Time-Settings.extension",
+    "date time": "com.apple.Date-Time-Settings.extension",
+    "date": "com.apple.Date-Time-Settings.extension", "time": "com.apple.Date-Time-Settings.extension",
+    "language": "com.apple.Localization-Settings.extension",
+    "language and region": "com.apple.Localization-Settings.extension",
+    "sharing": "com.apple.Sharing-Settings.extension", "airdrop": "com.apple.Sharing-Settings.extension",
+    "time machine": "com.apple.Time-Machine-Settings.extension", "backup": "com.apple.Time-Machine-Settings.extension",
+    "login items": "com.apple.LoginItems-Settings.extension", "startup": "com.apple.LoginItems-Settings.extension",
+    "appearance": "com.apple.Appearance-Settings.extension", "dark mode": "com.apple.Appearance-Settings.extension",
+    "accessibility": "com.apple.Accessibility-Settings.extension",
+    "control center": "com.apple.ControlCenter-Settings.extension",
+    "siri": "com.apple.Siri-Settings.extension",
+    "privacy": "com.apple.settings.PrivacySecurity.extension",
+    "security": "com.apple.settings.PrivacySecurity.extension",
+    "privacy and security": "com.apple.settings.PrivacySecurity.extension",
+    "privacy security": "com.apple.settings.PrivacySecurity.extension",  # "&" is lost in transcription
+    "desktop": "com.apple.Desktop-Settings.extension", "dock": "com.apple.Desktop-Settings.extension",
+    "desktop and dock": "com.apple.Desktop-Settings.extension",
+    "wallpaper": "com.apple.Wallpaper-Settings.extension", "background": "com.apple.Wallpaper-Settings.extension",
+    "screen saver": "com.apple.ScreenSaver-Settings.extension", "screensaver": "com.apple.ScreenSaver-Settings.extension",
+    "lock screen": "com.apple.Lock-Screen-Settings.extension",
+    "touch id": "com.apple.Touch-ID-Settings.extension", "password": "com.apple.Touch-ID-Settings.extension",
+    "passwords": "com.apple.Passwords-Settings.extension",
+    "users": "com.apple.Users-Groups-Settings.extension", "users and groups": "com.apple.Users-Groups-Settings.extension",
+    "internet accounts": "com.apple.Internet-Accounts-Settings.extension",
+    "accounts": "com.apple.Internet-Accounts-Settings.extension",
+    "keyboard": "com.apple.Keyboard-Settings.extension", "trackpad": "com.apple.Trackpad-Settings.extension",
+    "mouse": "com.apple.Mouse-Settings.extension",
+    "printers": "com.apple.Print-Scan-Settings.extension", "printer": "com.apple.Print-Scan-Settings.extension",
+    "microphone": _PRIVACY + "Microphone", "mic": _PRIVACY + "Microphone", "camera": _PRIVACY + "Camera",
+    "screen recording": _PRIVACY + "ScreenCapture", "location": _PRIVACY + "LocationServices",
+    "location services": _PRIVACY + "LocationServices", "full disk access": _PRIVACY + "AllFiles",
+    "files and folders": _PRIVACY + "FilesAndFolders", "automation": _PRIVACY + "Automation",
+}
+SETTINGS_TITLES = {  # how each pane is named aloud
+    "com.apple.wifi-settings-extension": "Wi-Fi", "com.apple.Network-Settings.extension": "Network",
+    "com.apple.BluetoothSettings": "Bluetooth", "com.apple.Sound-Settings.extension": "Sound",
+    "com.apple.Displays-Settings.extension": "Displays", "com.apple.Battery-Settings.extension": "Battery",
+    "com.apple.Notifications-Settings.extension": "Notifications", "com.apple.Focus-Settings.extension": "Focus",
+    "com.apple.Screen-Time-Settings.extension": "Screen Time", "com.apple.systempreferences.GeneralSettings": "General",
+    "com.apple.SystemProfiler.AboutExtension": "About", "com.apple.Software-Update-Settings.extension": "Software Update",
+    "com.apple.settings.Storage": "Storage", "com.apple.Date-Time-Settings.extension": "Date & Time",
+    "com.apple.Localization-Settings.extension": "Language & Region", "com.apple.Sharing-Settings.extension": "Sharing",
+    "com.apple.Time-Machine-Settings.extension": "Time Machine", "com.apple.LoginItems-Settings.extension": "Login Items",
+    "com.apple.Appearance-Settings.extension": "Appearance", "com.apple.Accessibility-Settings.extension": "Accessibility",
+    "com.apple.ControlCenter-Settings.extension": "Control Centre", "com.apple.Siri-Settings.extension": "Siri",
+    "com.apple.settings.PrivacySecurity.extension": "Privacy & Security",
+    "com.apple.Desktop-Settings.extension": "Desktop & Dock", "com.apple.Wallpaper-Settings.extension": "Wallpaper",
+    "com.apple.ScreenSaver-Settings.extension": "Screen Saver", "com.apple.Lock-Screen-Settings.extension": "Lock Screen",
+    "com.apple.Touch-ID-Settings.extension": "Touch ID & Password", "com.apple.Passwords-Settings.extension": "Passwords",
+    "com.apple.Users-Groups-Settings.extension": "Users & Groups",
+    "com.apple.Internet-Accounts-Settings.extension": "Internet Accounts",
+    "com.apple.Keyboard-Settings.extension": "Keyboard", "com.apple.Trackpad-Settings.extension": "Trackpad",
+    "com.apple.Mouse-Settings.extension": "Mouse", "com.apple.Print-Scan-Settings.extension": "Printers & Scanners",
+    _PRIVACY + "Microphone": "Microphone privacy", _PRIVACY + "Camera": "Camera privacy",
+    _PRIVACY + "ScreenCapture": "Screen Recording privacy", _PRIVACY + "LocationServices": "Location Services",
+    _PRIVACY + "AllFiles": "Full Disk Access", _PRIVACY + "FilesAndFolders": "Files and Folders",
+    _PRIVACY + "Automation": "Automation privacy", _PRIVACY + "Accessibility": "Accessibility privacy",
+}
+SETTINGS_URL = "x-apple.systempreferences:"
+
+
+def settings_page(spoken: str) -> str | None:
+    """The System Settings pane id for a spoken page name ("wifi", "the bluetooth settings")."""
+    s = to_latin(spoken.replace("&", " and "))
+    s = re.sub(r"^(?:the|my|mac|system)\s+", "", s.strip())
+    s = re.sub(r"\s+(?:settings?|preferences?|prefs|options|page|pane|panel|ki settings|ke settings|ka settings)$", "", s)
+    s = re.sub(r"\s+", " ", s.replace("-", " ")).strip()
+    return SETTINGS_PAGES.get(s) or SETTINGS_PAGES.get(s.rstrip("s"))
+
+
+class Clipboard:
+    """The general pasteboard, as text. Items a password manager marks as
+    concealed (org.nspasteboard.ConcealedType) are reported, never read out."""
+
+    CONCEALED = "org.nspasteboard.ConcealedType"
+
+    @staticmethod
+    def _pb():
+        from AppKit import NSPasteboard
+
+        return NSPasteboard.generalPasteboard()
+
+    def text(self) -> str | None:
+        from AppKit import NSPasteboardTypeString
+
+        return self._pb().stringForType_(NSPasteboardTypeString)
+
+    def concealed(self) -> bool:
+        return self.CONCEALED in (self._pb().types() or [])
+
+    def set_text(self, text: str) -> None:
+        from AppKit import NSPasteboardTypeString
+
+        pb = self._pb()
+        pb.clearContents()
+        pb.setString_forType_(text, NSPasteboardTypeString)
+
+
+class Brightness:
+    """The built-in display's brightness (0-1) through DisplayServices, which is
+    what the brightness keys use on Apple Silicon. External monitors usually
+    don't support it; both calls then return None / False."""
+
+    def __init__(self) -> None:
+        self._ds: Any = None  # None: not loaded yet, False: unavailable
+        self._cg: Any = None
+
+    def _load(self) -> bool:
+        if self._ds is None:
+            try:
+                self._ds = ctypes.CDLL("/System/Library/PrivateFrameworks/DisplayServices.framework/DisplayServices")
+                self._cg = ctypes.CDLL("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")
+                self._cg.CGMainDisplayID.restype = ctypes.c_uint32
+                self._ds.DisplayServicesGetBrightness.argtypes = [ctypes.c_uint32, ctypes.POINTER(ctypes.c_float)]
+                self._ds.DisplayServicesSetBrightness.argtypes = [ctypes.c_uint32, ctypes.c_float]
+            except (OSError, AttributeError):
+                log.info("DisplayServices isn't available; brightness can't be changed")
+                self._ds = False
+        return bool(self._ds)
+
+    def get(self) -> float | None:
+        if not self._load():
+            return None
+        value = ctypes.c_float()
+        err = self._ds.DisplayServicesGetBrightness(self._cg.CGMainDisplayID(), ctypes.byref(value))
+        return None if err else float(value.value)
+
+    def set(self, level: float) -> bool:
+        if not self._load():
+            return False
+        return self._ds.DisplayServicesSetBrightness(self._cg.CGMainDisplayID(), ctypes.c_float(level)) == 0
+
+
+def _screen_access() -> bool:
+    """Whether macOS lets this process record the screen; asks once when it doesn't."""
+    try:
+        cg = ctypes.CDLL("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")
+        cg.CGPreflightScreenCaptureAccess.restype = ctypes.c_bool
+        cg.CGRequestScreenCaptureAccess.restype = ctypes.c_bool
+        return bool(cg.CGPreflightScreenCaptureAccess() or cg.CGRequestScreenCaptureAccess())
+    except (OSError, AttributeError):
+        return True  # older macOS: no separate permission
+
+
 def clean_name(s: str) -> str:
     """Drop invisible marks some apps put in their names (WhatsApp has U+200E)."""
     return "".join(c for c in s if unicodedata.category(c) != "Cf").strip()
@@ -77,12 +248,19 @@ def clean_name(s: str) -> str:
 class MacControl:
     def __init__(self, runner: Callable[[list[str]], str] | None = None,
                  running: Callable[[], list] | None = None, extra_folders: Callable[[], list[Path]] = lambda: [],
-                 home: Path | None = None):
+                 home: Path | None = None, clipboard: Clipboard | None = None,
+                 front: Callable[[], str | None] | None = None, brightness: Brightness | None = None,
+                 screen_access: Callable[[], bool] | None = None):
         self.home = home or HOME
         self.folders = FOLDERS if home is None else known_folders(home)
         self._run = runner or self._subprocess
         self._running = running or self._running_apps
         self.extra_folders = extra_folders  # the owner's file-search folders
+        self.clipboard = clipboard or Clipboard()
+        self._front = front or self._front_app
+        self.brightness = brightness or Brightness()
+        self._screen_access = screen_access or _screen_access
+        self._sleep = time.sleep
 
     @staticmethod
     def _subprocess(argv: list[str]) -> str:
@@ -94,6 +272,13 @@ class MacControl:
 
         # regular apps only (a Dock icon), not background helpers
         return [a for a in NSWorkspace.sharedWorkspace().runningApplications() if a.activationPolicy() == 0]
+
+    @staticmethod
+    def _front_app() -> str | None:
+        from AppKit import NSWorkspace
+
+        app = NSWorkspace.sharedWorkspace().frontmostApplication()
+        return clean_name(app.localizedName() or "") if app is not None else None
 
     # -- apps -----------------------------------------------------------------------------
     def running(self) -> list[str]:
@@ -209,3 +394,83 @@ class MacControl:
     def lock(self) -> None:
         # display sleep locks the Mac when a password is required after sleep (the default)
         self._run(["pmset", "displaysleepnow"])
+
+    # -- screen & display ---------------------------------------------------------------------
+    def screenshot_folder(self) -> Path:
+        """Where macOS saves screenshots (the owner may have changed it), else the Desktop."""
+        try:
+            loc = self._run(["defaults", "read", "com.apple.screencapture", "location"]).strip()
+        except (subprocess.CalledProcessError, OSError, subprocess.TimeoutExpired):
+            loc = ""  # not set: the default
+        path = Path(loc).expanduser() if loc else None
+        return path if path is not None and path.is_dir() else self.home / "Desktop"
+
+    def screenshot(self, to_clipboard: bool = False) -> Path | None:
+        """Capture the whole screen silently. Returns the saved file (None when copied
+        to the clipboard). Raises PermissionError until Screen Recording is allowed."""
+        if not self._screen_access():
+            raise PermissionError("screen recording")
+        if to_clipboard:
+            self._run(["screencapture", "-x", "-c"])
+            return None
+        folder = self.screenshot_folder()
+        name = datetime.now().strftime("Screenshot %Y-%m-%d at %H.%M.%S")
+        path = folder / f"{name}.png"
+        n = 2
+        while path.exists():
+            path = folder / f"{name} ({n}).png"
+            n += 1
+        self._run(["screencapture", "-x", str(path)])
+        return path
+
+    def get_brightness(self) -> int | None:
+        b = self.brightness.get()
+        return None if b is None else round(b * 100)
+
+    def set_brightness(self, level: int) -> int | None:
+        level = max(0, min(100, int(level)))
+        return level if self.brightness.set(level / 100) else None
+
+    def dark_mode(self) -> bool:
+        try:
+            return self._run(["defaults", "read", "-g", "AppleInterfaceStyle"]).strip() == "Dark"
+        except (subprocess.CalledProcessError, OSError, subprocess.TimeoutExpired):
+            return False  # the key is missing in light mode
+
+    def set_dark_mode(self, on: bool) -> None:
+        # the first use makes macOS ask once to let the assistant control System Events
+        script = ('on run argv\ntell application "System Events" to tell appearance preferences '
+                  'to set dark mode to ((item 1 of argv) is "on")\nend run')
+        self._run(["osascript", "-e", script, "on" if on else "off"])
+
+    def open_settings(self, pane: str | None) -> None:
+        if pane is not None and pane not in SETTINGS_TITLES:
+            raise ValueError("unknown settings page")
+        self._run(["open", SETTINGS_URL + (pane or "")])
+
+    # -- clipboard & typing -------------------------------------------------------------------
+    def front_app(self) -> str | None:
+        return self._front()
+
+    def type_text(self, text: str) -> str:
+        """Paste ``text`` into the front app with ⌘V, then put the owner's clipboard
+        back. Returns the app typed into. Raises LookupError when the front app is
+        this assistant, PermissionError when macOS hasn't allowed keystrokes."""
+        front = self.front_app()
+        if not front or front.lower() in KEEP_RUNNING - {"finder"}:
+            raise LookupError(front or "")
+        clip = self.clipboard
+        old = None if clip.concealed() else clip.text()  # a copied password isn't put back in plain view
+        clip.set_text(text)
+        try:
+            self._run(["osascript", "-e", 'tell application "System Events" to keystroke "v" using command down'])
+        except subprocess.CalledProcessError as exc:
+            # 1002 / 1743: not allowed to send keystrokes (Accessibility) or control System Events
+            if re.search(r"\b(1002|1743)\b|not allowed", (exc.stderr or "") + (exc.stdout or "")):
+                raise PermissionError("accessibility") from exc
+            raise
+        finally:
+            if old:
+                self._sleep(0.4)  # let the app read the pasteboard first
+                clip.set_text(old)
+        return front

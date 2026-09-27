@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 
 from ..speech.text import to_latin
 from ..tools import calc
-from ..tools.mac import FOLDERS, SITES
+from ..tools.mac import FOLDERS, SITES, settings_page
 from .intents import Action, Intent, clock_phrase, day_phrase, describe
 
 NUM = {
@@ -240,6 +240,56 @@ def _one(t: str, now: datetime, is_app: Callable[[str], bool], hi: bool, orig: s
         return [Action("system.lock", {})], ""
     if re.fullmatch(rf"(?:what|which|any) (?:{ALARM}s?|{TIMER}s?)(?: (?:do i have|are set|are there|have i set))?|(?:show|list|tell me)(?: me)? (?:all )?(?:my |the )?(?:{ALARM}s?|{TIMER}s?)(?: and (?:{ALARM}s?|{TIMER}s?))?|how much time (?:is )?left(?: on (?:my |the )?{TIMER})?|(?:do i have|are there) any (?:{ALARM}s?|{TIMER}s?)(?: set)?|(?:kaunse|kitne) (?:{ALARM}|{TIMER}) (?:lage|set) hain", t):
         return [Action("alarm.list", {})], ""
+
+    # screen & display
+    SHOT = r"(?:a )?(?:screenshot|screen shot|screen grab|screengrab|screen capture)"
+    if re.fullmatch(rf"{POLITE}(?:take|grab|capture|copy|get)(?: me)? {SHOT}(?: of (?:the |my )?(?:screen|display))?(?: to (?:the |my )?clipboard)?{TAIL}"
+                    rf"|{SHOT}(?: to (?:the |my )?clipboard)?|{POLITE}capture (?:the |my )?(?:screen|display)"
+                    rf"|(?:screen ka )?(?:screenshot|screen shot) (?:lo|le lo|lelo|le do|ledo|kheecho|khicho|khich lo|lena)", t):
+        clip = "clipboard" in t or t.startswith("copy")
+        return [Action("screen.shot", {"to": "clipboard"} if clip else {})], ""
+    BRIGHT = r"(?:the )?(?:screen )?(?:brightness|brightnes|roshni)"
+    m = re.fullmatch(rf"{POLITE}(?:set (?:the )?(?:screen )?brightness (?:to|at)|brightness(?: to)?) {N}(?: ?%| percent)?{TAIL}", t)
+    if m and (n := _num(m.group(1))) is not None and 0 <= n <= 100:
+        return [Action("display.brightness", {"level": n})], ""
+    if re.fullmatch(rf"{POLITE}(?:full|max|maximum) brightness|{POLITE}(?:turn|crank) (?:the )?brightness (?:all the way )?up (?:all the way|to (?:the )?max)", t):
+        return [Action("display.brightness", {"level": 100})], ""
+    if re.fullmatch(rf"{POLITE}(?:turn (?:the )?brightness up(?: a bit| a little)?|(?:increase|raise) {BRIGHT}|{BRIGHT} (?:up|badhao|badha do|tez karo|zyada karo)"
+                    rf"|make (?:the |my )?(?:screen|display) brighter|brighter(?: screen)?|screen (?:ko )?bright karo)", t):
+        return [Action("display.brightness", {"change": 10})], ""
+    if re.fullmatch(rf"{POLITE}(?:turn (?:the )?brightness down(?: a bit| a little)?|(?:decrease|lower|reduce|dim) {BRIGHT}|{BRIGHT} (?:down|kam karo|kam kar do|ghatao)"
+                    rf"|dim (?:the |my )?(?:screen|display)(?: a bit| a little)?|make (?:the |my )?(?:screen|display) (?:dimmer|darker)|dimmer|screen (?:ko )?(?:dim|dark) karo)", t):
+        return [Action("display.brightness", {"change": -10})], ""
+    if re.fullmatch(rf"what(?:'?s| is) (?:the |my )?(?:screen )?brightness(?: level| at| now)?|{BRIGHT} kitni hai", t):
+        return [Action("display.brightness", {})], ""
+    DARK = r"(?:dark mode|dark theme|night mode|dark appearance)"
+    LIGHT = r"(?:light mode|light theme|light appearance)"
+    if re.fullmatch(rf"{POLITE}(?:turn on|enable|switch to|go to|use|activate|switch on) {DARK}|{DARK}(?: on)?|{DARK} (?:on|chalu) (?:karo|kar do)"
+                    rf"|{POLITE}(?:turn off|disable|switch off) {LIGHT}", t):
+        return [Action("display.dark_mode", {"on": True})], ""
+    if re.fullmatch(rf"{POLITE}(?:turn off|disable|switch off|deactivate) {DARK}|{DARK} off|{DARK} (?:band|off) (?:karo|kar do)"
+                    rf"|{POLITE}(?:turn on|enable|switch to|go to|use|activate) {LIGHT}|{LIGHT}(?: on)?|{LIGHT} (?:on|chalu) (?:karo|kar do)", t):
+        return [Action("display.dark_mode", {"on": False})], ""
+    if re.fullmatch(rf"{POLITE}(?:toggle|switch) (?:the )?(?:{DARK}|appearance|theme)", t):
+        return [Action("display.dark_mode", {})], ""
+    m = (re.fullmatch(rf"{POLITE}(?:open|show(?: me)?|go to|take me to) (?:the |my )?(.+?) (?:settings?|preferences|prefs)(?: page| pane)?{TAIL}", t)
+         or re.fullmatch(rf"{POLITE}(?:open|show(?: me)?|go to) (?:the )?(?:system )?settings (?:for|of) (?:the |my )?(.+?){TAIL}", t)
+         or re.fullmatch(rf"{POLITE}(?:the |my )?(.+?) (?:ki |ke |ka )?(?:settings?) (?:kholo|khol do|kholdo|open karo|open kar do|dikhao){TAIL}", t))
+    if m and settings_page(m.group(1)):
+        return [Action("settings.open", {"page": m.group(1)})], ""
+
+    # clipboard & typing
+    CLIP = r"(?:the |my )?(?:clipboard|clip board)"
+    if re.fullmatch(rf"{POLITE}(?:save|add|put|turn|make) {CLIP}(?: text)? (?:as|to|into|in) (?:a |my )?notes?|{POLITE}(?:make|take|save) a note (?:of|from) {CLIP}"
+                    rf"|{POLITE}save what i (?:just )?copied(?: as a note| to (?:my )?notes)|{CLIP} (?:ko )?note (?:mein |me )?(?:save karo|save kar do|bana do|daal do)", t):
+        return [Action("clipboard.note", {})], ""
+    if re.fullmatch(rf"what(?:'?s| is) (?:on|in) {CLIP}|{POLITE}(?:read|tell me|say)(?: me| out)? (?:what'?s (?:on|in) )?{CLIP}(?: out)?"
+                    rf"|what did i (?:just )?copy|{POLITE}read (?:me )?what i (?:just )?copied|{CLIP} (?:mein|me) kya hai|{CLIP} (?:padho|padh do|batao)", t):
+        return [Action("clipboard.read", {})], ""
+    m = (re.fullmatch(r"(?:please )?(?:type out|type|dictate)(?: this| the following)?:? (.+)", t)
+         or re.fullmatch(r"(.+?) (?:type karo|type kar do|type kardo|type kr do)", t))
+    if m and (text := _restore(orig, m.group(1))):
+        return [Action("text.type", {"text": text})], ""
 
     # notes
     m = re.fullmatch(rf"{POLITE}(?:take|add|make|write|save)(?: a| me a)? note(?: that| to| saying|:)? (.+)", t) \
