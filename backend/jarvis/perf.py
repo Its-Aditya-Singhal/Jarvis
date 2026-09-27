@@ -75,6 +75,7 @@ class PerfMonitor:
     def __init__(self, on_power_change: Callable[[bool], None], power: Callable[[], tuple[bool, int | None]] = read_power,
                  period_s: float = 5.0, ollama_host: str = "127.0.0.1:11434"):
         self.on_power_change = on_power_change
+        self.on_sample: Callable[[dict], None] = lambda stats: None
         self.ollama_host = ollama_host
         self.power = power
         self.period_s = period_s
@@ -99,6 +100,7 @@ class PerfMonitor:
             n += 1
             try:
                 self.stats = self.sample()
+                self.on_sample(self.stats)
                 if n % 4 == 0:  # the power source changes rarely: check every 20 s
                     on_batt, pct = self.power()
                     self.battery_pct = pct

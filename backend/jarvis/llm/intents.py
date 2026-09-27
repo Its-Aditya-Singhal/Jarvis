@@ -37,6 +37,14 @@ TOOLS: dict[str, tuple[str, str]] = {
     "notes.search": ("Find saved notes", "query"),
     "notes.delete": ("Delete one saved note", "query: words from the note"),
     "app.open": ("Open a Mac application", "name"),
+    "app.close": ("Quit (close) a running Mac application", "name"),
+    "folder.open": ("Open a folder in Finder (Documents, Downloads, Desktop, Pictures, Music, Movies, Home…)", "name"),
+    "web.open": ("Open a website or search the web in the browser", "target: site name, URL, or search words"),
+    "system.volume": ("Change or read the volume", "level: 0-100 | change: +/-number | mute: true/false; no args = read"),
+    "media.control": ("Control music playback", "action: play | pause | next | previous"),
+    "system.battery": ("Read the battery level", "none"),
+    "system.lock": ("Lock the screen", "none"),
+    "alarm.list": ("List alarms and timers that are set", "none"),
     "memory.remember": ("Remember something the user tells you to remember", "text: the fact, in the user's words"),
     "memory.forget": ("Forget one remembered fact", "query: words from the fact"),
     "history.search": ("Find what was said in past conversations", "query; date: optional ISO date"),
@@ -99,7 +107,8 @@ Rules:
 - Split requests joined by "and", "then", "aur", "phir" into separate actions, one per tool use.
 - Never say that you did, set, saved or opened anything.
 - Only use the listed tools. For anything else (messages, email, web, purchases, deleting files, running code) return no actions and say briefly that you can't do that.
-- For live information (weather, news, prices, scores) say you have no internet access.
+- For live information (weather, news, prices, scores) say you have no internet access (but web.open can open a website or search for the user).
+- The header's Now is the real current local date and time. Answer time, date and day questions from it directly; never tell the user to check a clock.
 - A line "[Remembered: ...]" before the user's words lists facts the user earlier asked you to remember, in their own words ("my", "I" = the user). Use them to answer questions; never call memory.remember for them again.
 - Only use memory.remember when the user explicitly asks you to remember something ("remember", "yaad rakhna", "don't forget").
 - Questions about the user's own life (family, preferences, plans, where things are): answer ONLY from the [Remembered: ...] line. If the answer isn't there, say you don't know yet and that they can ask you to remember it. Never guess personal details. Never say you remember something unless it is in [Remembered: ...].
@@ -126,6 +135,13 @@ FEWSHOT: list[tuple[str, str, dict]] = [
     ("en", "Remember that my passport number ends in 42 and find my passport scan",
      {"actions": [{"tool": "memory.remember", "args": {"text": "My passport number ends in 42"}},
                   {"tool": "files.search", "args": {"query": "passport"}}], "reply": ""}),
+    ("en", "Close Safari and open my downloads folder",
+     {"actions": [{"tool": "app.close", "args": {"name": "Safari"}},
+                  {"tool": "folder.open", "args": {"name": "Downloads"}}], "reply": ""}),
+    ("hinglish", "gaana roko aur volume thoda kam karo",
+     {"actions": [{"tool": "media.control", "args": {"action": "pause"}},
+                  {"tool": "system.volume", "args": {"change": -10}}], "reply": ""}),
+    ("en", "Could you tell me what time it is?", {"actions": [], "reply": "It's 8:00 PM."}),
     ("en", "Who wrote Hamlet?", {"actions": [], "reply": "Hamlet was written by William Shakespeare."}),
     ("hi", "आज मौसम कैसा है?", {"actions": [], "reply": "मेरे पास इंटरनेट नहीं है, इसलिए अभी के मौसम की जानकारी नहीं है।"}),
     ("en", "Send a WhatsApp message to Rahul", {"actions": [], "reply": "Sorry, I can't send messages."}),
@@ -242,6 +258,12 @@ def describe(a: Action, language: str, now: datetime) -> str:
         return "पिछली बातचीत में ढूँढना" if hi else "searching our past conversations"
     if a.tool == "app.open" and text("name"):
         return f"{text('name')} खोलना" if hi else f"opening {text('name')}"
+    if a.tool == "app.close" and text("name"):
+        return f"{text('name')} बंद करना" if hi else f"closing {text('name')}"
+    if a.tool == "folder.open" and text("name"):
+        return f"{text('name')} फ़ोल्डर खोलना" if hi else f"opening the {text('name')} folder"
+    if a.tool == "web.open" and text("target"):
+        return f"{text('target')} खोलना" if hi else f"opening {text('target')}"
     if a.tool == "files.search" and text("query"):
         return f"फ़ाइलों में “{text('query')}” ढूँढना" if hi else f"a file search for “{text('query')}”"
     generic = {"alarm.set": "अलार्म", "timer.set": "टाइमर", "calendar.create": "कैलेंडर इवेंट"}

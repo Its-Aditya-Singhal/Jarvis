@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 from typing import Callable
 
 from ..speech.text import to_latin
+from ..tools.mac import FOLDERS, SITES
 from .intents import Action, Intent, clock_phrase, day_phrase, describe
 
 NUM = {
@@ -169,11 +170,74 @@ def _one(t: str, now: datetime, is_app: Callable[[str], bool], hi: bool, orig: s
             or re.fullmatch(rf"(?:saare |sab |mera |mere )?(?:{ALARM}|{TIMER}) (?:cancel|band|hata) (?:kar do|karo|do)", t):
         return [Action("alarm.cancel", {})], ""
 
-    # apps
-    m = (re.fullmatch(rf"{POLITE}(?:open|launch|start|run) (?:the )?(.+?)(?: app| application)?{TAIL}", t)
-         or re.fullmatch(rf"{POLITE}(.+?) (?:kholo|khol do|kholdo|khol|open karo|open kar do|open kr do|chalu karo|start karo){TAIL}", t))
-    if m and is_app(m.group(1)):
-        return [Action("app.open", {"name": m.group(1)})], ""
+    # web addresses lose their dots in _clean, so look for them in the original words
+    if re.fullmatch(rf"{POLITE}(?:open|go to|visit|browse to) .+", t):
+        url = re.search(r"\b((?:https?://)?[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}(?:/[^\s]*)?)", orig.lower())
+        if url and url.group(1).replace(".", " ").replace("/", " ").split()[0] in t:
+            return [Action("web.open", {"target": url.group(1).rstrip(".,!?")})], ""
+
+    # apps, folders and websites ("open music" is the app, "open music folder" the folder)
+    m = (re.fullmatch(rf"{POLITE}(?:open|launch|start|run|show(?: me)?|go to) (?:the |my )?(.+?)(?: app| application)?{TAIL}", t)
+         or re.fullmatch(rf"{POLITE}(?:the |my |meri |mera )?(.+?) (?:kholo|khol do|kholdo|khol|open karo|open kar do|open kr do|chalu karo|start karo|dikhao){TAIL}", t))
+    if m:
+        name = m.group(1).strip()
+        base = re.sub(r"\s+(?:folder|directory)$", "", name)
+        if base != name and (base in FOLDERS or len(base.split()) <= 3):
+            return [Action("folder.open", {"name": base})], ""
+        if is_app(name):
+            return [Action("app.open", {"name": name})], ""
+        if name in FOLDERS:
+            return [Action("folder.open", {"name": name})], ""
+        if name in SITES or re.fullmatch(r"[\w-]+(\.[\w-]+)+(/\S*)?", name):
+            return [Action("web.open", {"target": name})], ""
+    m = (re.fullmatch(rf"{POLITE}(?:close|quit|exit|kill|shut down|shut) (?:the |my )?(.+?)(?: app| application)?{TAIL}", t)
+         or re.fullmatch(rf"{POLITE}(?:the |my )?(.+?)(?: app)? (?:ko )?(?:band karo|band kar do|band kardo|band kr do|band krdo|bandh karo|band){TAIL}", t))
+    if m and len(m.group(1).split()) <= 3 and is_app(m.group(1)) and not re.search(rf"\b(?:{ALARM}|{TIMER}|music|song|gaana|gana|volume|awaaz|sound)s?\b", m.group(1)):
+        return [Action("app.close", {"name": m.group(1)})], ""
+
+    # web search (explicit "google" / "web" / "online" only; "search for X" may mean files)
+    m = (re.fullmatch(r"(?:google|search google for|search the web for|search online for|look up|search on google for|google search) (.+?)(?: online| on google)?", t)
+         or re.fullmatch(r"(?:search|look up) (.+?) (?:on google|online|on the web|on the internet)", t)
+         or re.fullmatch(r"(.+?) (?:google karo|google pe search karo|search karo google pe)", t))
+    if m and (q := _restore(orig, m.group(1)) or m.group(1)):
+        return [Action("web.open", {"target": q})], ""
+
+    # volume
+    VOL = r"(?:the )?(?:volume|sound|awaaz|aawaz|awaz)"
+    if re.fullmatch(rf"{POLITE}(?:mute|mute (?:the )?(?:sound|volume|mac|audio))|{VOL} (?:mute|band) (?:karo|kar do)|chup(?: ho jao| raho)?", t):
+        return [Action("system.volume", {"mute": True})], ""
+    if re.fullmatch(rf"{POLITE}(?:unmute|unmute (?:the )?(?:sound|volume|mac|audio)|{VOL} (?:chalu|on) (?:karo|kar do)|turn (?:the )?(?:sound|volume) (?:back )?on)", t):
+        return [Action("system.volume", {"mute": False})], ""
+    m = re.fullmatch(rf"{POLITE}(?:set (?:the )?(?:volume|sound) (?:to|at)|volume|volume to) {N}(?: ?%| percent)?{TAIL}", t)
+    if m and (n := _num(m.group(1))) is not None and 0 <= n <= 100:
+        return [Action("system.volume", {"level": n})], ""
+    up = rf"(?:{POLITE}(?:turn|crank) (?:it|the volume|the sound|volume) up(?: a bit| a little)?|(?:increase|raise) {VOL}|{VOL} (?:up|badhao|badha do|tez karo|zyada karo)|louder|a bit louder)"
+    down = rf"(?:{POLITE}turn (?:it|the volume|the sound|volume) down(?: a bit| a little)?|(?:decrease|lower|reduce) {VOL}|{VOL} (?:down|kam karo|kam kar do|dheere karo|ghatao)|(?:be )?quieter|(?:a bit )?softer)"
+    if re.fullmatch(up, t):
+        return [Action("system.volume", {"change": 10})], ""
+    if re.fullmatch(down, t):
+        return [Action("system.volume", {"change": -10})], ""
+    if re.fullmatch(rf"what(?:'?s| is) (?:the )?(?:volume|sound level)(?: now| at)?|{VOL} kitni hai", t):
+        return [Action("system.volume", {})], ""
+
+    # music
+    SONG = r"(?:music|song|songs|the song|the music|track|gaana|gana|gaane|gane|spotify)"
+    if re.fullmatch(rf"{POLITE}(?:play|resume|start|continue)(?: (?:some |the |my )?{SONG})?|{SONG} (?:chalao|bajao|chala do|baja do|play karo|shuru karo)", t):
+        return [Action("media.control", {"action": "play"})], ""
+    if re.fullmatch(rf"{POLITE}(?:pause|stop)(?: (?:the )?{SONG})|pause|{SONG} (?:roko|rok do|band karo|band kar do|pause karo)", t):
+        return [Action("media.control", {"action": "pause"})], ""
+    if re.fullmatch(rf"{POLITE}(?:next|skip)(?: (?:this )?{SONG})?|(?:play )?(?:the )?next {SONG}|agla (?:gaana|gana)(?: chalao| lagao)?|skip karo|next karo", t):
+        return [Action("media.control", {"action": "next"})], ""
+    if re.fullmatch(rf"{POLITE}(?:previous|go back|last)(?: {SONG})?|(?:play )?(?:the )?previous {SONG}|pichla (?:gaana|gana)(?: chalao| lagao)?", t):
+        return [Action("media.control", {"action": "previous"})], ""
+
+    # battery, lock, alarm list
+    if re.fullmatch(r"(?:what(?:'?s| is) (?:my |the )?)?battery(?: level| percentage| status| left)?|how much battery(?: do i have| is left| left| do we have)?|(?:kitni )?battery(?: kitni)?(?: hai| bachi hai)?", t):
+        return [Action("system.battery", {})], ""
+    if re.fullmatch(rf"{POLITE}lock (?:the |my )?(?:screen|mac|computer|laptop|it)(?: now)?|(?:screen|mac|laptop) lock (?:karo|kar do)|lock", t):
+        return [Action("system.lock", {})], ""
+    if re.fullmatch(rf"(?:what|which|any) (?:{ALARM}s?|{TIMER}s?)(?: (?:do i have|are set|are there|have i set))?|(?:show|list|tell me)(?: me)? (?:all )?(?:my |the )?(?:{ALARM}s?|{TIMER}s?)(?: and (?:{ALARM}s?|{TIMER}s?))?|how much time (?:is )?left(?: on (?:my |the )?{TIMER})?|(?:do i have|are there) any (?:{ALARM}s?|{TIMER}s?)(?: set)?|(?:kaunse|kitne) (?:{ALARM}|{TIMER}) (?:lage|set) hain", t):
+        return [Action("alarm.list", {})], ""
 
     # notes
     m = re.fullmatch(rf"{POLITE}(?:take|add|make|write|save)(?: a| me a)? note(?: that| to| saying|:)? (.+)", t) \
@@ -203,9 +267,12 @@ def _one(t: str, now: datetime, is_app: Callable[[str], bool], hi: bool, orig: s
         return [Action("files.search", {"query": q.lower()})], ""
 
     # time and date questions
-    if re.fullmatch(r"(?:what(?:'?s| is) the time(?: now)?|what time is it(?: now)?|time kya (?:hua|ho gaya) hai|kitne baje hain|kitna baja hai|samay kya hua hai|time batao|time)", t):
+    if re.fullmatch(r"(?:(?:tell me|say|do you know|you know|show me) )?(?:what(?:'?s| is) )?(?:the )?(?:current |exact )?time(?: is it)?(?: (?:right )?now| please| abhi| currently)?"
+                    r"|what(?:'?s| is) the time(?: (?:right )?now)?|what time is it(?: (?:right )?now| currently)?|(?:tell me |say )?what time it is"
+                    r"|time kya (?:hua|ho gaya|hai)(?: hai)?|(?:abhi )?kitne baje(?: hain| hai)?|kitna baja hai|samay kya hua hai|time batao|time bolo|abhi (?:ka )?time(?: kya hai)?", t):
         return [], (f"अभी {clock_phrase(now, True)} हैं।" if hi else f"It's {clock_phrase(now, False)}.")
-    if re.fullmatch(r"(?:what(?:'?s| is) (?:the )?(?:date|day)(?: today)?|what day is (?:it|today)|what(?:'?s| is) today'?s date|aaj (?:kya )?(?:date|tareekh|tarikh|din) (?:kya )?hai|aaj kaun sa din hai)", t):
+    if re.fullmatch(r"(?:(?:tell me|say) )?(?:what(?:'?s| is) (?:the )?(?:date|day)(?: today)?|what day is (?:it|today)|which day is (?:it|today)|what(?:'?s| is) today'?s date|today'?s date|(?:the )?date(?: today)?"
+                    r"|what date is it(?: today)?|aaj (?:kya )?(?:date|tareekh|tarikh|din) (?:kya )?hai|aaj kaun sa din hai|aaj ki (?:date|tareekh|tarikh)(?: kya hai| batao)?)", t):
         if hi:
             return [], f"आज {now.strftime('%A, %d %B %Y')} है।"
         return [], f"Today is {now.strftime('%A, %B')} {now.day}, {now.year}."

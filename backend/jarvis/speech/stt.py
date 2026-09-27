@@ -167,6 +167,11 @@ class _MlxWhisper:
 
     def __init__(self, path: str):
         self.path = path
+        import mlx.core as mx
+
+        # MLX keeps freed GPU buffers for reuse; for short clips that cache grows to
+        # ~1 GB without making decoding any faster, so don't keep one
+        mx.set_cache_limit(0)
 
     def _run(self, audio, language, prompt):
         import mlx_whisper

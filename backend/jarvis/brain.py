@@ -68,6 +68,7 @@ class Brain:
         self.is_app: Callable[[str], bool] = lambda name: False  # set when tools are enabled
         self.recall: Callable[[str], list[str]] = lambda text: []  # set when memory is enabled
         self.override: str | None = None  # performance mode's model (Fast mode); None = the chosen one
+        self.last_used = time.monotonic()
 
     # -- model selection -------------------------------------------------------
     @property
@@ -100,7 +101,27 @@ class Brain:
             self.prime()
         except LLMUnavailable:
             return False
+        self.tidy()
         return True
+
+    def tidy(self) -> int:
+        """Unload every chat model except the active one (a mode or model switch, or a
+        previous run, may have left one resident: each costs gigabytes). Returns bytes freed."""
+        keep = {self.model, self.s.embed_model, f"{self.s.embed_model}:latest"}
+        freed = 0
+        for name, size in self.client.loaded().items():
+            if name not in keep and name.removesuffix(":latest") not in keep:
+                self.client.unload(name)
+                freed += size
+                log.info("unloaded idle model %s (%d MB)", name, size >> 20)
+        return freed
+
+    def free_memory(self) -> int:
+        """Unload everything (the Mac is short of memory); it reloads on the next question."""
+        loaded = self.client.loaded()
+        for name in loaded:
+            self.client.unload(name)
+        return sum(loaded.values())
 
     def prime(self) -> None:
         """Evaluate the constant prompt prefix once, so Ollama's cache makes the
@@ -182,6 +203,7 @@ class Brain:
             reply = compose_reply(fast, gender) or self._sorry(hindi, gender)
             return BrainResult(reply, lang, fast.actions, time.monotonic() - t0, True, fast.reply, fast=True)
         msgs = self._messages(text, lang, now)
+        self.last_used = time.monotonic()
         try:
             try:
                 data = self.client.chat_json(self.model, msgs, SCHEMA)

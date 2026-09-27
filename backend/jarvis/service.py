@@ -65,6 +65,10 @@ def notify(title: str, text: str) -> None:
 
 FACE = "face"
 MIN_OWNER_SAMPLES = 10  # before a personal retrain makes sense
+IDLE_FPS = 2.0  # nobody in view for a while: look less often (the owner is picked up within 0.5 s)
+NO_FACE_IDLE_S = 10.0
+LOW_MEMORY_PCT = 88.0  # system memory use at which idle models are unloaded
+IDLE_BEFORE_FREE_S = 120.0
 REENROLL_GRANT_S = 600.0  # after a confirmed face delete/redo, time to scan the new face
 RECOVERY_VOICE_S = 60.0  # face missing: a verified voice this recent may start a new scan
 
@@ -133,6 +137,7 @@ class AssistantService:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._last_state_push = 0.0
+        self._last_face_t = time.monotonic()
         self._lock = threading.Lock()
         self.brain: Brain | None = brain_factory(self) if brain_factory else None
         self._command_lock = threading.Lock()
@@ -181,6 +186,7 @@ class AssistantService:
         self.guard = guard or NetGuard()
         self.guard.offline = lambda: self.prefs.get("privacy.offline")
         self.perf = perf or PerfMonitor(self._power_changed, ollama_host=settings.ollama_host)
+        self.perf.on_sample = self._check_memory
         self._mode = "balanced"
         self._mode_note = ""  # why a mode couldn't fully apply (e.g. a model isn't downloaded)
         self._reenroll: tuple[str, float] | None = None  # (redo | deleted, grant expiry)
@@ -258,7 +264,19 @@ class AssistantService:
         if self.prefs.get("perf.mode") == "auto":
             self.apply_mode()
 
-    def apply_mode(self) -> None:
+    def _check_memory(self, stats: dict) -> None:
+        """Mac short of memory and the assistant idle: give back the models' memory."""
+        b = self.brain
+        if b is None or not hasattr(b, "free_memory") or stats.get("system_mem_pct", 0) < LOW_MEMORY_PCT:
+            return
+        if not stats.get("ollama_mb") or time.monotonic() - b.last_used < IDLE_BEFORE_FREE_S:
+            return
+        freed = b.free_memory()
+        if freed:
+            self.bus.log(f"Mac low on memory — unloaded the language model ({freed / 2**30:.1f} GB); "
+                         "it reloads on your next question", "warn")
+
+    def apply_mode(self, warm: bool = True) -> None:
         name = effective_mode(self.prefs.get("perf.mode"), self.perf.on_battery)
         mode = MODES[name]
         changed = name != self._mode
@@ -275,7 +293,8 @@ class AssistantService:
                 b.override = want
                 b.clear()
                 b._status = None
-                threading.Thread(target=b.start, name="llm-warm", daemon=True).start()
+                if warm:  # loads the new model and unloads the old one
+                    threading.Thread(target=b.start, name="llm-warm", daemon=True).start()
         if self.speech is not None and isinstance(self.speech.stt, SpeechToText) and self.speech.stt.size != mode.stt:
             threading.Thread(target=self._swap_stt, args=(mode.stt,), name="stt-swap", daemon=True).start()
         elif self.speech is not None and getattr(self.speech.stt, "size", mode.stt) != mode.stt:
@@ -466,9 +485,12 @@ class AssistantService:
             self.alarms.start()
             for a in self.alarms.missed:
                 self.bus.log(f"Missed {a.kind} at {a.due:%H:%M} (the app was closed)", "warn")
+        self.perf.start()
+        self.apply_mode(warm=False)  # decide the model first, so only that one is loaded
         if self.brain is not None:
             if self.brain.start():
                 self.bus.log(f"Local language model ready ({self.brain.model})")
+                self.apply_mode()  # Ollama may only now be running: re-check the fast model
             else:
                 self.bus.log(f"Language model unavailable: {self.brain.status()}", "error")
         if self.memory is not None:
@@ -478,8 +500,6 @@ class AssistantService:
             self.begin_verification()
         elif self.setup_complete and self.voice is not None and self.voice.enrolled:
             self.voice.begin_verification()  # face profile deleted: the voice can unlock a re-scan
-        self.perf.start()
-        self.apply_mode()
         self._thread = threading.Thread(target=self._loop, name="face-loop", daemon=True)
         self._thread.start()
         t = threading.Timer(12.0, self._announce_issues)
@@ -573,6 +593,8 @@ class AssistantService:
         while not self._stop.is_set():
             # blinks last ~150 ms: analyse faster while a challenge is running
             fps = self.s.challenge_fps if self.live.state == "challenge" else self.s.process_fps
+            if self.mode == "verifying" and self.live.state != "challenge" and time.monotonic() - self._last_face_t > NO_FACE_IDLE_S:
+                fps = min(fps, IDLE_FPS)
             period = 1.0 / max(fps, 1.0)
             t0 = time.monotonic()
             try:
@@ -596,6 +618,8 @@ class AssistantService:
                 self.bus.log("Camera feed frozen — not accepted as live", "alert")
             self._frozen = frozen
         faces = self.engine.analyze(frame)
+        if faces:
+            self._last_face_t = time.monotonic()
         if self.bus.has_subscribers:
             self._push_preview(frame, faces)
         if self.mode == "enrolling":

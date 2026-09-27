@@ -23,6 +23,7 @@ from ..llm.intents import Action, clock_phrase, day_phrase, parse_local
 from .apple import AppleBridge, AppleError
 from .apps import AppIndex
 from .files import FileSearch
+from .mac import SITES, MacControl
 from .store import Event, ToolStore
 
 log = logging.getLogger(__name__)
@@ -32,6 +33,8 @@ LEVELS = {
     "alarm.set": 2, "timer.set": 2, "alarm.cancel": 2, "calendar.create": 2, "notes.add": 2, "app.open": 2,
     "calendar.delete": 3, "notes.delete": 3,
     "history.search": 1, "memory.remember": 2, "memory.forget": 3,
+    "alarm.list": 1, "system.battery": 1, "system.lock": 1,  # locking only protects
+    "app.close": 2, "folder.open": 2, "web.open": 2, "system.volume": 2, "media.control": 2,
 }
 MATCH_MIN = 75  # fuzzy score needed to pick a note/event to delete
 MAX_TIMER_S = 24 * 3600
@@ -77,11 +80,13 @@ class ToolRunner:
         apple: AppleBridge,
         on_change: Callable[[], None] = lambda: None,
         clock: Callable[[], datetime] = datetime.now,
+        mac: MacControl | None = None,
     ):
         self.db = db
         self.store = store
         self.apps = apps
         self.files = files
+        self.mac = mac or MacControl(extra_folders=lambda: files.folders() if files else [])
         self.apple = apple
         self.on_change = on_change
         self.clock = clock
@@ -390,9 +395,101 @@ class ToolRunner:
         name = str(args.get("name") or "").strip()[:60]
         opened = self.apps.open(name) if name else None
         if opened is None:
+            # "open documents" / "open youtube": a folder or website, not an app
+            if name and self.mac.folder(name) is not None:
+                return self._folder_open({"name": name}, hi)
+            if name.lower() in SITES:
+                return self._web_open({"target": name}, hi)
             return ToolResult("app.open", False,
                               f"{_quote(name)} नाम का ऐप नहीं मिला।" if hi else f"I couldn't find an app called {_quote(name)}.")
         return ToolResult("app.open", True, f"{opened} खोल दिया है।" if hi else f"Opening {opened}.", {"app": opened})
+
+    def _app_close(self, args: dict, hi: bool) -> ToolResult:
+        name = str(args.get("name") or "").strip()[:60]
+        closed, running = self.mac.quit(name)
+        if closed is None:
+            return ToolResult("app.close", False, f"{_quote(name)} अभी खुला नहीं है।" if hi
+                              else f"{_quote(name)} isn't open.", {"running": running})
+        return ToolResult("app.close", True, f"{closed} बंद किया जा रहा है।" if hi else f"Closing {closed}.", {"app": closed})
+
+    def _folder_open(self, args: dict, hi: bool) -> ToolResult:
+        name = str(args.get("name") or "").strip()[:60]
+        path = self.mac.folder(name)
+        if path is None:
+            return ToolResult("folder.open", False, f"{_quote(name)} फ़ोल्डर नहीं मिला।" if hi
+                              else f"I don't know a folder called {_quote(name)}.")
+        self.mac.open_folder(path)
+        label = path.name or "Home"
+        return ToolResult("folder.open", True, f"{label} फ़ोल्डर खोल दिया है।" if hi else f"Opening your {label} folder.",
+                          {"path": str(path)})
+
+    def _web_open(self, args: dict, hi: bool) -> ToolResult:
+        target = " ".join(str(args.get("target") or args.get("url") or args.get("query") or "").split())[:200]
+        if not target:
+            return ToolResult("web.open", False, "क्या खोलूँ, समझ नहीं आया।" if hi else "I didn't catch what to open.")
+        url, what = self.mac.site_url(target)
+        self.mac.open_url(url)
+        return ToolResult("web.open", True, f"ब्राउज़र में {what} खोल दिया है।" if hi else f"Opening {what} in your browser.",
+                          {"url": url})
+
+    def _system_volume(self, args: dict, hi: bool) -> ToolResult:
+        cur, muted = self.mac.volume()
+        if "mute" in args:
+            on = bool(args["mute"])
+            self.mac.mute(on)
+            say = ("आवाज़ बंद कर दी है।" if on else "आवाज़ चालू कर दी है।") if hi else ("Muted." if on else "Sound is back on.")
+            return ToolResult("system.volume", True, say, {"muted": on})
+        if "level" in args and str(args["level"]).lstrip("-").isdigit():
+            level = int(args["level"])
+        elif "change" in args and str(args["change"]).lstrip("-").isdigit():
+            level = cur + int(args["change"])
+        else:
+            return ToolResult("system.volume", True, f"आवाज़ {cur}% पर है।" if hi else f"Volume is at {cur}%"
+                              + (", muted." if muted else "."), {"level": cur, "muted": muted})
+        level = self.mac.set_volume(level)
+        return ToolResult("system.volume", True, f"आवाज़ {level}% कर दी है।" if hi else f"Volume set to {level}%.",
+                          {"level": level})
+
+    def _media_control(self, args: dict, hi: bool) -> ToolResult:
+        action = str(args.get("action") or "toggle").lower()
+        if action not in ("play", "pause", "toggle", "next", "previous"):
+            action = "toggle"
+        player = self.mac.media(action)
+        if player is None:
+            return ToolResult("media.control", False, "कोई म्यूज़िक नहीं चल रहा।" if hi else "Nothing is playing.")
+        en = {"play": "Playing", "pause": "Paused", "toggle": "Done", "next": "Next track", "previous": "Previous track"}
+        hin = {"play": "चला दिया", "pause": "रोक दिया", "toggle": "कर दिया", "next": "अगला गाना", "previous": "पिछला गाना"}
+        return ToolResult("media.control", True, f"{player}: {hin[action]}।" if hi else f"{en[action]} on {player}.",
+                          {"player": player})
+
+    def _system_battery(self, args: dict, hi: bool) -> ToolResult:
+        pct, plugged = self.mac.battery()
+        if pct is None:
+            return ToolResult("system.battery", True, "यह Mac बिजली से चलता है।" if hi else "This Mac runs on mains power.")
+        state = ("चार्ज हो रही है" if hi else "plugged in") if plugged else ("बैटरी पर" if hi else "on battery")
+        return ToolResult("system.battery", True, f"बैटरी {pct}% है, {state}।" if hi else f"Battery is at {pct}%, {state}.",
+                          {"percent": pct, "plugged": plugged})
+
+    def _system_lock(self, args: dict, hi: bool) -> ToolResult:
+        self.mac.lock()
+        return ToolResult("system.lock", True, "स्क्रीन लॉक कर दी है।" if hi else "Locking the screen.")
+
+    def _alarm_list(self, args: dict, hi: bool) -> ToolResult:
+        now = self.clock()
+        items = sorted(self.store.alarms(("pending", "ringing")), key=lambda a: a.due)
+        if not items:
+            return ToolResult("alarm.list", True, "कोई अलार्म या टाइमर नहीं लगा है।" if hi else "You have no alarms or timers set.")
+        parts = []
+        for a in items[:4]:
+            if a.kind == "timer":
+                left = max(0, int((a.due - now).total_seconds()))
+                parts.append(f"{left // 60} मिनट बाकी वाला टाइमर" if hi else
+                             f"a timer with {left // 60} min {left % 60} s left" if left >= 60 else f"a timer with {left} s left")
+            else:
+                parts.append(f"{day_phrase(a.due.date(), now.date(), True)} {clock_phrase(a.due, True)} का अलार्म" if hi else
+                             f"an alarm at {clock_phrase(a.due, False)} {day_phrase(a.due.date(), now.date(), False)}")
+        what = _join(parts, hi)
+        return ToolResult("alarm.list", True, f"आपके पास {what} है।" if hi else f"You have {what}.", {"count": len(items)})
 
     def _files_search(self, args: dict, hi: bool) -> ToolResult:
         q = " ".join(str(args.get("query") or "").split())[:100]

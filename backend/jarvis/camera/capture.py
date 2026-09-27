@@ -75,6 +75,7 @@ class Camera:
             return None
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+        cap.set(cv2.CAP_PROP_FPS, 15)  # analysis runs at 4-12 fps; fewer frames = less CPU and power
         return cap
 
     def _run(self) -> None:

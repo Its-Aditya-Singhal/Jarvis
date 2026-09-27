@@ -63,6 +63,13 @@ model runs on your Mac.
   - **File search:** Spotlight search in Documents, Desktop and Downloads,
     plus folders you add in Settings.
   - A Tools view lists alarms, upcoming events and notes.
+  - **Everyday Mac control:**
+    - Quit apps ("close Safari", "WhatsApp band karo"). Apps quit politely, like ⌘Q, so they can still ask to save.
+    - Open folders ("open my documents", "open the capstone folder").
+    - Open websites or search in your browser ("open youtube", "google best laptops").
+    - Volume and mute, music (play, pause, next, previous on Spotify or Music), battery level.
+    - Lock the screen, and "what alarms do I have".
+    - Most of these, and any way of asking the time or date, are answered instantly without the model.
   - Cancel alarms, and delete notes or calendar events (only after you
     confirm, see below).
 - Auth levels, recomputed from live evidence for every action:
@@ -119,6 +126,11 @@ model runs on your Mac.
   - Security presets.
   - Performance modes, models, memory switches, file-search folders, Apple
     sync and the fusion model.
+- Memory and power:
+  - Only one chat model is kept in memory; switching modes or models unloads the old one.
+  - When the Mac is low on memory and the assistant has been idle for 2 minutes, its models are unloaded (they reload on the next question).
+  - Whisper keeps no GPU cache.
+  - The camera runs at 15 fps, and face checks drop to 2 per second when nobody is in view.
 - Performance modes, **Fast / Balanced / Quality**. Auto (the default) uses
   Balanced when plugged in and Fast on battery. The status bar shows the
   mode, and Settings shows CPU, memory and loaded-model use.
@@ -368,7 +380,7 @@ Requirements: macOS on Apple Silicon, Python 3.12, Node 20+, Rust (`brew install
 ```bash
 cd backend && python3.12 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 .venv/bin/python ../scripts/download_models.py   # ~1.8 GB, one time (add "medium" for Quality mode)
-.venv/bin/python -m pytest                        # 209 tests (LLM tests need the model)
+.venv/bin/python -m pytest                        # 242 tests (LLM tests need the model)
 brew install ollama && mkdir -p ~/Developer/ollama/models
 OLLAMA_MODELS=~/Developer/ollama/models ollama serve &   # JARVIS also starts it itself
 ollama pull qwen2.5:7b                            # ~4.7 GB

@@ -12,6 +12,10 @@ class LLMUnavailable(RuntimeError):
     pass
 
 
+CHAT_KEEP_ALIVE = "20m"
+EMBED_KEEP_ALIVE = "10m"
+
+
 class OllamaClient:
     def __init__(self, url: str, timeout_s: float = 90.0, transport: httpx.BaseTransport | None = None):
         self.url = url.rstrip("/")
@@ -31,7 +35,7 @@ class OllamaClient:
         messages: list[dict[str, str]],
         schema: dict[str, Any],
         temperature: float = 0.2,
-        keep_alive: str = "30m",
+        keep_alive: str = CHAT_KEEP_ALIVE,
         num_predict: int | None = None,
     ) -> dict[str, Any]:
         body = {
@@ -57,7 +61,7 @@ class OllamaClient:
         except json.JSONDecodeError as exc:
             raise ValueError(f"model returned invalid JSON: {content[:200]}") from exc
 
-    def embed(self, model: str, texts: list[str], keep_alive: str = "30m") -> list[list[float]]:
+    def embed(self, model: str, texts: list[str], keep_alive: str = EMBED_KEEP_ALIVE) -> list[list[float]]:
         """Sentence embeddings (e.g. bge-m3), one vector per text."""
         try:
             r = self._http.post(f"{self.url}/api/embed", json={"model": model, "input": texts, "keep_alive": keep_alive})
@@ -75,6 +79,22 @@ class OllamaClient:
     def warm(self, model: str) -> None:
         """Load the model into memory so the first command isn't slow."""
         try:
-            self._http.post(f"{self.url}/api/generate", json={"model": model, "prompt": "", "keep_alive": "30m"})
+            self._http.post(f"{self.url}/api/generate", json={"model": model, "prompt": "", "keep_alive": CHAT_KEEP_ALIVE})
         except httpx.HTTPError as exc:
             raise LLMUnavailable(str(exc)) from exc
+
+    def loaded(self) -> dict[str, int]:
+        """Models Ollama holds in memory -> bytes."""
+        try:
+            r = self._http.get(f"{self.url}/api/ps")
+            r.raise_for_status()
+        except httpx.HTTPError:
+            return {}
+        return {m["name"]: int(m.get("size") or 0) for m in r.json().get("models", [])}
+
+    def unload(self, model: str) -> None:
+        """Free a model's memory now (it reloads on next use)."""
+        try:
+            self._http.post(f"{self.url}/api/generate", json={"model": model, "keep_alive": 0}, timeout=10.0)
+        except httpx.HTTPError:
+            pass
