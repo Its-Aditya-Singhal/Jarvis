@@ -2,6 +2,7 @@ import { ReactNode, useEffect, useState } from "react";
 import AppleCard from "../components/AppleCard";
 import FilesCard from "../components/FilesCard";
 import FusionCard from "../components/FusionCard";
+import MicCard from "../components/MicCard";
 import VoiceEnroll from "../components/VoiceEnroll";
 import VoicePicker from "../components/VoicePicker";
 import { ApiError, PrefInfo, SettingsState, Status, VoiceGender, api, post } from "../lib/backend";
@@ -131,6 +132,8 @@ export default function SettingsPanel() {
             {status?.models.tts === "ready" ? "Kokoro-82M" : status?.models.tts} · all on this Mac.
           </p>
         </div>
+
+        <MicCard />
 
         <div className="card">
           <div className="panel-title">SECURITY</div>

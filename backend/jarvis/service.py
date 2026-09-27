@@ -39,6 +39,7 @@ from .camera.capture import Camera
 from .config import Settings
 from .database.db import Database
 from .events import EventBus
+from .host import responsible_app
 from .memory.manager import Memory
 from .netguard import NetGuard
 from .perf import MODES, PerfMonitor, effective_mode
@@ -553,9 +554,18 @@ class AssistantService:
             extra = f" and {len(errors) - 1} more" if len(errors) > 1 else ""
             self.bus.publish({"type": "say", "text": f"Heads up: {errors[0]['title']}{extra}. The fix is on screen."})
 
-    def issues(self) -> list[dict]:
-        st = {"camera": {"status": self.camera.status}, "models": self._models(),
-              "mic": {"status": self.voice.mic.status} if self.voice else {}, "files_denied": self._files_denied()}
+    def mic_info(self) -> dict:
+        if not self.voice:
+            return {"status": "off", "error": "voice pipeline disabled", "device": None}
+        m = self.voice.mic
+        if hasattr(m, "info"):
+            return m.info()
+        return {"status": m.status, "error": m.error, "device": m.device_name}
+
+    def issues(self, models: dict | None = None) -> list[dict]:
+        st = {"camera": {"status": self.camera.status}, "models": models or self._models(),
+              "mic": self.mic_info() if self.voice else {}, "files_denied": self._files_denied(),
+              "app": responsible_app()}
         return health.issues(st, self.s.data_dir, self.perf.stats)
 
     def _start_memory(self) -> None:
@@ -1333,16 +1343,9 @@ class AssistantService:
             "mode": self.mode,
             "voice_mode": self.voice.mode if self.voice else "unavailable",
             "camera": {"status": self.camera.status, "error": self.camera.error},
-            "mic": (
-                {"status": self.voice.mic.status, "error": self.voice.mic.error, "device": self.voice.mic.device_name}
-                if self.voice
-                else {"status": "off", "error": "voice pipeline disabled", "device": None}
-            ),
+            "mic": self.mic_info(),
             "models": (models := self._models()),
-            "issues": health.issues({"camera": {"status": self.camera.status},
-                                     "mic": {"status": self.voice.mic.status} if self.voice else {},
-                                     "models": models, "files_denied": self._files_denied()},
-                                    self.s.data_dir, self.perf.stats),
+            "issues": self.issues(models),
             "perf": {"mode": self._mode, "pref": self.prefs.get("perf.mode"), "on_battery": self.perf.on_battery,
                      "battery_pct": self.perf.battery_pct,
                      **{k: v for k, v in (self.perf.stats or {}).items() if k in ("cpu", "backend_mb", "ollama_mb")}},

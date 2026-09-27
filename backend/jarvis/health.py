@@ -21,18 +21,34 @@ def _model_issue(key: str, st: str, title: str) -> dict | None:
             "fix": DOWNLOAD if missing else "Restart the app; if it persists, re-download the models. " + DOWNLOAD}
 
 
+def mic_fix(cause: str | None, app: str) -> str:
+    settings = f"System Settings → Privacy & Security → Microphone → turn on {app}"
+    fixes = {
+        "permission": f"{settings}, then quit and reopen {app}. You can still type commands.",
+        "silent": "Pick your real microphone in Settings → Microphone and check its input level in System "
+                  f"Settings → Sound → Input. If that doesn't help: {settings} (if it's already on, turn it off "
+                  f"and on again), then quit and reopen {app}.",
+        "no_device": "Connect a microphone, or check System Settings → Sound → Input, then press Retry "
+                     "in Settings → Microphone.",
+        "device_missing": "Reconnect the chosen microphone or pick another one in Settings → Microphone.",
+    }
+    return fixes.get(cause or "", "Close other apps that may be using the microphone and press Retry in "
+                     f"Settings → Microphone. If it keeps failing: {settings}.")
+
+
 def issues(status: dict, data_dir: Path | None = None, perf: dict | None = None) -> list[dict]:
     out: list[dict] = []
+    app = status.get("app") or "JARVIS"
     cam = status.get("camera") or {}
     if cam.get("status") == "error":
         out.append({"id": "camera", "level": "error", "title": "Camera unavailable — I can't verify you",
-                    "fix": "Allow camera access in System Settings → Privacy & Security → Camera (for JARVIS, or "
-                           "Terminal while developing), close other apps using the camera, then restart."})
+                    "fix": f"Allow camera access for {app} in System Settings → Privacy & Security → Camera, "
+                           "close other apps using the camera, then restart."})
     mic = status.get("mic") or {}
     if mic.get("status") == "error":
-        out.append({"id": "mic", "level": "error", "title": "Microphone unavailable — voice commands are off",
-                    "fix": "Allow microphone access in System Settings → Privacy & Security → Microphone, then "
-                           "restart. You can still type commands."})
+        out.append({"id": "mic", "level": "error",
+                    "title": f"{mic.get('error') or 'Microphone unavailable'} — voice commands are off",
+                    "fix": mic_fix(mic.get("cause"), app)})
     models = status.get("models") or {}
     for key, title in (("face", "Face recognition"), ("voice", "Speaker recognition"),
                        ("stt", "Speech recognition"), ("tts", "Voice synthesis")):
@@ -59,7 +75,7 @@ def issues(status: dict, data_dir: Path | None = None, perf: dict | None = None)
         out.append({"id": "files", "level": "warn",
                     "title": f"No access to {', '.join(denied)} — file search can't look there",
                     "fix": "System Settings → Privacy & Security → Files and Folders → turn on "
-                           f"{', '.join(denied)} for JARVIS (while developing: for Terminal), then restart the app."})
+                           f"{', '.join(denied)} for {app}, then restart the app."})
     if data_dir is not None:
         try:
             free = shutil.disk_usage(data_dir if data_dir.exists() else data_dir.parent).free

@@ -18,6 +18,8 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query, WebSocket, W
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
 
+from .. import health
+from ..audio import mic as mic_mod
 from ..audio.mic import Microphone
 from ..auth.face.engine import FaceEngine
 from ..auth.levels import REASONS
@@ -27,6 +29,7 @@ from ..camera.capture import Camera
 from ..config import Settings, get_settings
 from ..database.db import Database
 from ..events import EventBus
+from ..host import responsible_app
 from ..llm.client import OllamaClient
 from ..llm.server import OllamaServer
 from ..memory.manager import RETENTION_CHOICES, Memory
@@ -123,6 +126,10 @@ class FoldersIn(BaseModel):
     folders: list[str] = Field(max_length=30)
 
 
+class MicIn(BaseModel):
+    device: str | None = Field(default=None, max_length=200)  # None: the system default
+
+
 class PathIn(BaseModel):
     path: str = Field(min_length=1, max_length=1024)
 
@@ -213,7 +220,7 @@ def create_app(
             store,
             bus,
             speaker_engine or SpeakerEngine(s.models_dir),
-            mic or Microphone(s.mic_device),
+            mic or Microphone(db.get("audio.mic_device") or s.mic_device),
             owner_verified=svc.owner_verified,
             names=lambda: (svc.assistant_name, svc.owner_name),
             speech=svc.speech,
@@ -499,6 +506,37 @@ def create_app(
     @app.get("/api/settings/files", dependencies=auth + [Depends(require_owner)])
     def get_folders():
         return {"folders": [str(p) for p in files.folders()], "status": files.status()}
+
+    @app.get("/api/mic", dependencies=auth)
+    def get_mic():
+        info = svc.mic_info()
+        return {**info, "devices": mic_mod.input_devices(), "permission": mic_mod.permission(),
+                "app": responsible_app(),
+                "fix": health.mic_fix(info.get("cause"), responsible_app()) if info["status"] == "error" else None}
+
+    @app.post("/api/mic/retry", dependencies=auth)
+    def retry_mic():
+        if svc.voice is None:
+            raise HTTPException(503, "voice pipeline disabled")
+        if hasattr(svc.voice.mic, "retry"):
+            svc.voice.mic.retry()
+        return {"ok": True}
+
+    # a different input (e.g. a virtual audio device) could feed recordings to
+    # voice verification, so choosing one is a security change
+    @app.put("/api/mic", dependencies=auth + [Depends(require_level2)])
+    def set_mic(body: MicIn):
+        if svc.voice is None:
+            raise HTTPException(503, "voice pipeline disabled")
+        name = (body.device or "").strip() or None
+        if name is not None and name not in {d["name"] for d in mic_mod.input_devices()}:
+            raise HTTPException(400, f"no microphone called {name!r} is connected")
+        db.set("audio.mic_device", name or "")
+        db.add_security_event("settings_changed", f"microphone set to {name or 'system default'}")
+        if hasattr(svc.voice.mic, "use"):
+            svc.voice.mic.use(name)
+        bus.log(f"Microphone: {name or 'system default'}")
+        return {"ok": True}
 
     @app.put("/api/settings/files", dependencies=auth + [Depends(require_level2)])
     def set_folders(body: FoldersIn):

@@ -24,7 +24,7 @@ the website gets its own design, related to the app but not a copy.
 - [x] Performance: startup time, per-command latency, idle CPU
 
 ### 3. Fixes and new commands
-- [ ] Microphone: report the real cause (permission denied / no input device / busy / device vanished), mic picker + retry in Settings, cause-specific fix text, Info.plist usage strings checked
+- [x] Microphone: report the real cause (permission denied / no input device / busy / device vanished), mic picker + retry in Settings, cause-specific fix text, Info.plist usage strings checked
 - [ ] Math & conversions: arithmetic, percentages, units, currency-free date math ("days till …") — instant, no model
 - [ ] Screen & display: screenshot, brightness, dark mode, open a System Settings page
 - [ ] Clipboard & text: read clipboard, save clipboard as a note, type/paste dictated text into the front app
@@ -34,7 +34,7 @@ the website gets its own design, related to the app but not a copy.
 ### 4. Phase 10
 - [ ] App polish: spacing/type/motion consistency, empty/loading/error states, ⌘K command palette, keyboard shortcuts, About page, accessibility pass
 - [ ] First-run model download screen: progress, resume, checksums, disk-space check, Ollama detection + install guidance
-- [ ] Packaging: PyInstaller backend sidecar (arm64), Tauri sidecar config, entitlements (camera, mic, Apple Events), ad-hoc signing, `scripts/build_dmg.sh`
+- [ ] Packaging: PyInstaller backend sidecar (arm64), Tauri sidecar config, entitlements (camera, `com.apple.security.device.audio-input`, Apple Events), ad-hoc signing, `scripts/build_dmg.sh`
 - [ ] Website (own design): animated landing page (scroll-driven motion, transitions, hover effects), features, how the security works, download, docs, privacy
 - [ ] Docs: README, ARCHITECTURE, SECURITY (threat model + limits), ML (face/voice/liveness/fusion with measured numbers), USER GUIDE, CHANGELOG, version 1.0.0
 - [ ] Mac test checklist for section B

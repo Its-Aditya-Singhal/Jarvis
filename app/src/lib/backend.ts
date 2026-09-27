@@ -170,6 +170,22 @@ export interface VoicePublic {
 
 export type VoiceGender = "female" | "male";
 
+export type MicStatus = "off" | "starting" | "active" | "error";
+
+export interface MicState {
+  status: MicStatus;
+  cause: "permission" | "silent" | "no_device" | "device_missing" | "open_failed" | null;
+  error: string | null;
+  detail: string | null;
+  fix: string | null;
+  device: string | null;
+  chosen: string | null; // null: the system default
+  fallback: boolean; // the chosen mic is unplugged; the default is used meanwhile
+  devices: { name: string; default: boolean }[];
+  permission: "granted" | "denied" | "restricted" | "not_asked" | "unknown";
+  app: string; // the app macOS asks about (JARVIS, or Terminal etc. while developing)
+}
+
 export interface Status {
   setup_complete: boolean;
   owner_name: string;
@@ -179,7 +195,7 @@ export interface Status {
   mode: "idle" | "enrolling" | "verifying";
   voice_mode: "idle" | "enrolling" | "verifying" | "unavailable";
   camera: { status: "off" | "starting" | "active" | "error"; error: string | null };
-  mic: { status: "off" | "starting" | "active" | "error"; error: string | null; device: string | null };
+  mic: { status: MicStatus; error: string | null; device: string | null };
   models: Record<string, string>;
   auth: AuthPublic;
   voice_gender: VoiceGender;

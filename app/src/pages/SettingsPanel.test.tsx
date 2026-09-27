@@ -1,7 +1,7 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { PrefInfo, SettingsState } from "../lib/backend";
+import type { MicState, PrefInfo, SettingsState } from "../lib/backend";
 import { freshApp } from "../test/app";
 import { approvedAuth, makeStatus, withFakeBackend, type FakeBackend } from "../test/fakeBackend";
 
@@ -38,7 +38,14 @@ beforeEach(async () => {
   fake.route("GET /api/fusion", () => ({ enabled: true, source: "default", features: [], device_samples: { owner: 0, other: 0 }, min_owner_samples: 10, trained: null, training_samples: null, test: null }));
   fake.route("GET /api/settings/files", () => ({ folders: [], status: [] }));
   fake.route("GET /api/settings/apple", () => ({ calendar_sync: false, calendar: "", notes_sync: false, notes_folder: "JARVIS" }));
+  fake.route("GET /api/mic", () => MIC);
 });
+
+const MIC: MicState = {
+  status: "active", cause: null, error: null, detail: null, fix: null, device: "MacBook Pro Microphone", chosen: null,
+  fallback: false, permission: "granted", app: "Terminal",
+  devices: [{ name: "MacBook Pro Microphone", default: true }, { name: "Microsoft Teams Audio", default: false }],
+};
 
 const card = (title: string) => screen.getByText(title).closest(".card") as HTMLElement;
 
@@ -95,5 +102,29 @@ describe("Settings", () => {
     await userEvent.type(assistant, "Edith");
     await userEvent.click(within(identity).getByRole("button", { name: "SAVE NAMES" }));
     expect(fake.called("PUT", "/api/settings/profile")[0].body).toEqual({ owner_name: "Aditya", assistant_name: "Edith" });
+  });
+
+  it("says why the microphone doesn't work and how to fix it", async () => {
+    fake.route("GET /api/mic", () => ({
+      ...MIC, status: "error", cause: "permission", error: "macOS hasn't allowed microphone access", permission: "denied",
+      fix: "System Settings → Privacy & Security → Microphone → turn on Terminal, then quit and reopen Terminal.",
+    }));
+    render(<SettingsPanel />);
+    fake.setStatus(makeStatus({ setup_complete: true, auth: approvedAuth() }));
+    const mic = await screen.findByText("NOT WORKING").then(() => card("MICROPHONE"));
+    expect(within(mic).getByText("macOS hasn't allowed microphone access")).toBeInTheDocument();
+    expect(within(mic).getByText(/turn on Terminal/)).toBeInTheDocument();
+    expect(within(mic).getByText("blocked")).toBeInTheDocument();
+    await userEvent.click(within(mic).getByRole("button", { name: "RETRY MICROPHONE" }));
+    expect(fake.called("POST", "/api/mic/retry")).toHaveLength(1);
+  });
+
+  it("switches to another microphone", async () => {
+    fake.route("PUT /api/mic", () => ({ ok: true }));
+    render(<SettingsPanel />);
+    fake.setStatus(makeStatus({ setup_complete: true, auth: approvedAuth() }));
+    await screen.findByText("LISTENING");
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Microphone" }), "Microsoft Teams Audio");
+    expect(fake.called("PUT", "/api/mic")[0].body).toEqual({ device: "Microsoft Teams Audio" });
   });
 });
