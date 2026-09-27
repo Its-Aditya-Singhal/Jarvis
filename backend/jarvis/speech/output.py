@@ -14,8 +14,8 @@ import queue
 import threading
 import time
 from collections import OrderedDict
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from typing import Callable
 
 import numpy as np
 
@@ -115,7 +115,7 @@ class SpeechOutput:
         self._stop_current.set()
         self._q.put(("", None))
 
-    def say(self, text: str, gender: str | None = None) -> None:  # noqa: D401
+    def say(self, text: str, gender: str | None = None) -> None:
         text = " ".join(text.split())
         if not text or not self.tts.ready:
             return
@@ -179,7 +179,6 @@ class SpeechOutput:
                 break
             self._stop_current.clear()
             self._speaking = True
-            sound = text in (CHIME, PING)
             announced = False
             try:
                 if text == CHIME:

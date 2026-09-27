@@ -14,8 +14,8 @@ import logging
 import re
 import subprocess
 import unicodedata
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 from urllib.parse import quote_plus, urlparse
 
 from rapidfuzz import fuzz, process

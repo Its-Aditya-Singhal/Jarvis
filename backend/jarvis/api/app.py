@@ -22,13 +22,11 @@ from ..audio.mic import Microphone
 from ..auth.face.engine import FaceEngine
 from ..auth.levels import REASONS
 from ..auth.voice.engine import SpeakerEngine
+from ..brain import Brain
 from ..camera.capture import Camera
 from ..config import Settings, get_settings
 from ..database.db import Database
 from ..events import EventBus
-from ..security.crypto import KeychainKeyProvider, KeyProvider
-from ..security.template_store import TemplateStore
-from ..brain import Brain
 from ..llm.client import OllamaClient
 from ..llm.server import OllamaServer
 from ..memory.manager import RETENTION_CHOICES, Memory
@@ -36,7 +34,14 @@ from ..memory.store import MemoryStore
 from ..netguard import NetGuard
 from ..perf import PerfMonitor
 from ..prefs import PREFS, coerce
-from ..privacy import ACTIONS as PRIVACY_ACTIONS, inventory
+from ..privacy import ACTIONS as PRIVACY_ACTIONS
+from ..privacy import inventory
+from ..security.crypto import KeychainKeyProvider, KeyProvider
+from ..security.template_store import TemplateStore
+from ..service import AssistantService
+from ..speech.stt import SpeechToText
+from ..speech.tts import TextToSpeech
+from ..speech_service import SpeechService
 from ..tools.apple import AppleBridge, AppleError
 from ..tools.apps import AppIndex
 from ..tools.files import FileSearch, FolderError
@@ -44,10 +49,6 @@ from ..tools.mac import MacControl
 from ..tools.runner import ToolRunner
 from ..tools.scheduler import AlarmScheduler
 from ..tools.store import ToolStore
-from ..service import AssistantService
-from ..speech.stt import SpeechToText
-from ..speech.tts import TextToSpeech
-from ..speech_service import SpeechService
 from ..voice_service import VoiceService
 
 log = logging.getLogger(__name__)

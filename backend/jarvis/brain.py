@@ -11,9 +11,9 @@ import json
 import logging
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Callable
 
 from .config import Settings
 from .database.db import Database

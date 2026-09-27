@@ -11,8 +11,8 @@ returns None and goes to the LLM as before. Compound requests joined by
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from datetime import datetime, timedelta
-from typing import Callable
 
 from ..speech.text import to_latin
 from ..tools.mac import FOLDERS, SITES

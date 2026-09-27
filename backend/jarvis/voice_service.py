@@ -5,14 +5,14 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from typing import Callable
+from collections.abc import Callable
 
 import numpy as np
 
 from .audio.mic import BLOCK, Microphone
 from .auth.matching import TemplateMatcher, confidence
-from .auth.voice.enrollment import MIN_QUALITY, MIN_SPEECH_S, VoiceEnrollmentSession, phrases
 from .auth.voice.engine import SpeakerEngine
+from .auth.voice.enrollment import MIN_QUALITY, MIN_SPEECH_S, VoiceEnrollmentSession, phrases
 from .auth.voice.quality import audio_quality
 from .auth.voice.vad import Segmenter, SileroVAD, Utterance
 from .auth.voice.verification import VoiceAuth

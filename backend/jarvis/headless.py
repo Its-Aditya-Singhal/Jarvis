@@ -29,8 +29,21 @@ from pydantic import BaseModel, Field
 from .api.app import create_app
 from .config import Settings
 from .fakes import (
-    FakeApp, FakeCamera, FakeFaceEngine, FakeMac, FakeMicrophone, FakeOllama, FakeOllamaServer, FakePlayer,
-    FakeSpeakerEngine, FakeSTT, FakeTTS, Scene, fake_apps_dir, fake_osascript, fake_vad,
+    FakeApp,
+    FakeCamera,
+    FakeFaceEngine,
+    FakeMac,
+    FakeMicrophone,
+    FakeOllama,
+    FakeOllamaServer,
+    FakePlayer,
+    FakeSpeakerEngine,
+    FakeSTT,
+    FakeTTS,
+    Scene,
+    fake_apps_dir,
+    fake_osascript,
+    fake_vad,
 )
 from .netguard import NetGuard
 from .perf import PerfMonitor

@@ -22,7 +22,7 @@ from collections import deque
 from dataclasses import dataclass
 
 from .blink import BlinkDetector
-from .challenges import ChallengeSession, LiveObs, PROMPTS, random_steps
+from .challenges import PROMPTS, ChallengeSession, LiveObs, random_steps
 
 
 @dataclass

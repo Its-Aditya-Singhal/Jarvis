@@ -140,7 +140,7 @@ def test_trust_levels_follow_the_scene(settings):
 
 def test_fusion_veto_shows_as_scanning(settings):
     svc, engine, db = make_service(settings)
-    t = do_challenge(svc, engine, drive(svc, engine, 0.0, [face()] * 6))
+    do_challenge(svc, engine, drive(svc, engine, 0.0, [face()] * 6))
     svc.fusion.prob = lambda x: 0.2  # the combined evidence looks wrong
     pub = svc.auth_public()
     assert pub["state"] == "scanning" and pub["level"] == 0 and not svc.owner_verified()

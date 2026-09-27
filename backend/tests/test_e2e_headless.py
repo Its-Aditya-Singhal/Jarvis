@@ -70,7 +70,7 @@ class Harness:
         for phrase in list(v.enrollment.items):
             before = v.enrollment.index
             self.scene.say(phrase.text, duration_s=2.4)
-            self.wait_for(lambda: (e := v.enrollment) is None or e.index > before)
+            self.wait_for(lambda before=before: (e := v.enrollment) is None or e.index > before)
         self.wait_for(lambda: self.svc.voice_enrolled)  # saved by the voice thread
         r = self.post("/api/setup/complete")
         assert r.status_code == 200 and r.json()["setup_complete"] is True

@@ -10,8 +10,8 @@ import wave
 
 import numpy as np
 import pytest
-
 from conftest import MODELS
+
 from jarvis.auth.matching import TemplateMatcher
 from jarvis.auth.voice.engine import SpeakerEngine
 from jarvis.auth.voice.vad import FRAME, Segmenter, SileroVAD

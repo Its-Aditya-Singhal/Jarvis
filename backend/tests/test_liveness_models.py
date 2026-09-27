@@ -3,7 +3,6 @@
 import cv2
 import numpy as np
 import pytest
-
 from conftest import SAMPLES
 
 pytestmark = pytest.mark.models

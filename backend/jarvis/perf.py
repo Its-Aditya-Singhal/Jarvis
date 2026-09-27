@@ -13,8 +13,8 @@ import re
 import subprocess
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 from .netguard import observe_connections
 

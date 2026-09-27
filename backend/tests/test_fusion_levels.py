@@ -10,7 +10,7 @@ from jarvis.auth.fusion.features import FEATURES, Evidence, vector
 from jarvis.auth.fusion.model import DEFAULT_PATH, FusionModel, expand, load_model
 from jarvis.auth.fusion.samples import SampleStore
 from jarvis.auth.fusion.synth import SCENARIOS, generate
-from jarvis.auth.fusion.train import evaluate, fit_logreg, roc_auc, train
+from jarvis.auth.fusion.train import fit_logreg, roc_auc, train
 from jarvis.auth.levels import LevelConfig, assess
 from jarvis.auth.liveness.gate import LivenessConfig, LivenessGate
 from jarvis.auth.voice.verification import VoiceAuth

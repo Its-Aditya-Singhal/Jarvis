@@ -132,7 +132,7 @@ def test_unlock_requires_challenge_then_passes():
     g = make_gate()
     events = g.update("approved", obs(), 0.0)
     assert g.state == "challenge" and events[0][0] == "liveness_challenge"
-    t = pass_challenge(g, DT)
+    pass_challenge(g, DT)
     assert g.state == "passed"
 
 

@@ -60,7 +60,7 @@ class FusionModel:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> "FusionModel":
+    def from_dict(cls, d: dict) -> FusionModel:
         if d.get("type") != "logistic_regression_poly2" or d.get("features") != FEATURES:
             raise ValueError("incompatible fusion model")
         meta = {k: v for k, v in d.items() if k not in ("type", "features", "mean", "scale", "coef", "intercept")}
@@ -73,7 +73,7 @@ class FusionModel:
         os.replace(tmp, path)
 
     @classmethod
-    def load(cls, path: Path) -> "FusionModel":
+    def load(cls, path: Path) -> FusionModel:
         return cls.from_dict(json.loads(path.read_text()))
 
 

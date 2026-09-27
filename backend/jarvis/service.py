@@ -14,12 +14,13 @@ import logging
 import secrets
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 import cv2
 import numpy as np
 
+from . import health, privacy
 from .auth.face.continuous import ContinuousFaceAuth, FrameResult
 from .auth.face.engine import FaceEngine
 from .auth.face.enrollment import EnrollmentSession
@@ -29,25 +30,24 @@ from .auth.fusion.model import FusionModel, load_model
 from .auth.fusion.samples import SampleStore
 from .auth.fusion.train import train as train_fusion
 from .auth.levels import LEVEL_NAMES, REASONS, LevelConfig, Trust, assess
-from .auth.liveness.gate import LiveObs, LivenessConfig, LivenessGate
+from .auth.liveness.gate import LivenessConfig, LivenessGate, LiveObs
 from .auth.liveness.replay import FrozenFeedDetector
 from .auth.matching import TemplateMatcher, confidence
+from .brain import Brain
 from .camera.capture import Camera
 from .config import Settings
 from .database.db import Database
 from .events import EventBus
-from .security.template_store import TemplateStore
-from .brain import Brain
-from .tools.runner import LEVELS, Plan, ToolResult, ToolRunner
-from .tools.scheduler import AlarmScheduler
-from .tools.store import Alarm
 from .memory.manager import Memory
 from .netguard import NetGuard
 from .perf import MODES, PerfMonitor, effective_mode
 from .prefs import FACE_PRESETS, LIVENESS_PRESETS, PREFS, VOICE_PRESETS, Prefs
-from . import health, privacy
+from .security.template_store import TemplateStore
 from .speech.stt import SpeechToText
 from .speech_service import SpeechService
+from .tools.runner import LEVELS, Plan, ToolResult, ToolRunner
+from .tools.scheduler import AlarmScheduler
+from .tools.store import Alarm
 from .voice_service import VoiceService
 
 log = logging.getLogger(__name__)
@@ -109,11 +109,11 @@ class AssistantService:
         bus: EventBus,
         engine: FaceEngine,
         camera: Camera,
-        voice_factory: "Callable[[AssistantService], VoiceService] | None" = None,
-        speech_factory: "Callable[[AssistantService], SpeechService] | None" = None,
-        brain_factory: "Callable[[AssistantService], Brain] | None" = None,
-        tools_factory: "Callable[[AssistantService], tuple[ToolRunner, AlarmScheduler]] | None" = None,
-        memory_factory: "Callable[[AssistantService], Memory] | None" = None,
+        voice_factory: Callable[[AssistantService], VoiceService] | None = None,
+        speech_factory: Callable[[AssistantService], SpeechService] | None = None,
+        brain_factory: Callable[[AssistantService], Brain] | None = None,
+        tools_factory: Callable[[AssistantService], tuple[ToolRunner, AlarmScheduler]] | None = None,
+        memory_factory: Callable[[AssistantService], Memory] | None = None,
         guard: NetGuard | None = None,
         perf: PerfMonitor | None = None,
     ):
@@ -355,7 +355,7 @@ class AssistantService:
             ev.voice_rejected_since = v.auth.rejected_since_verified
         return ev
 
-    def _assess(self, now: float | None = None) -> tuple[Trust, "np.ndarray"]:
+    def _assess(self, now: float | None = None) -> tuple[Trust, np.ndarray]:
         ev = self.evidence(now)
         x = vector(ev, self.levels.voice_window_s)
         if self.fusion is None:

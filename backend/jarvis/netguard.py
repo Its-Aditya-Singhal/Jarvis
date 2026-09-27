@@ -17,7 +17,7 @@ import socket
 import threading
 import time
 from collections import deque
-from typing import Callable
+from collections.abc import Callable
 
 log = logging.getLogger(__name__)
 

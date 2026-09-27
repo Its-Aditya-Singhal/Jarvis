@@ -6,13 +6,13 @@ import stat
 
 import numpy as np
 import pytest
+from test_command_service import make
 
 from jarvis.health import issues
 from jarvis.netguard import NetGuard, is_local
 from jarvis.perf import MODES, PerfMonitor, effective_mode
 from jarvis.prefs import PREFS, Prefs, coerce
-from jarvis.privacy import export_data, validate_export_path, write_export
-from test_command_service import make
+from jarvis.privacy import export_data, validate_export_path
 
 
 # -- preferences ----------------------------------------------------------------------

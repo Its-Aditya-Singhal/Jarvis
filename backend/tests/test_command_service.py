@@ -2,8 +2,6 @@
 
 from datetime import datetime, timedelta
 
-import numpy as np
-
 from jarvis.auth.levels import Trust
 from jarvis.brain import BrainResult
 from jarvis.database.db import Database

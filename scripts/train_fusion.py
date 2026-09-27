@@ -16,12 +16,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
-import numpy as np  # noqa: E402
+import numpy as np
 
-from jarvis.auth.fusion.features import FEATURES, without_voice  # noqa: E402
-from jarvis.auth.fusion.model import DEFAULT_PATH  # noqa: E402
-from jarvis.auth.fusion.synth import generate  # noqa: E402
-from jarvis.auth.fusion.train import THRESHOLDS, evaluate, fit_logreg, train  # noqa: E402
+from jarvis.auth.fusion.features import FEATURES, without_voice
+from jarvis.auth.fusion.model import DEFAULT_PATH
+from jarvis.auth.fusion.synth import generate
+from jarvis.auth.fusion.train import THRESHOLDS, evaluate, fit_logreg, train
 
 
 def row(name: str, r: dict) -> str:

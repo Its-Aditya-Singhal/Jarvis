@@ -51,7 +51,7 @@ def _span(db, table: str, col: str) -> tuple[float | None, float | None]:
     return r["a"], r["b"]
 
 
-def inventory(svc: "AssistantService") -> dict:
+def inventory(svc: AssistantService) -> dict:
     db, store = svc.db, svc.store
     tables = set(db.tables())
     items = []
@@ -107,7 +107,7 @@ def inventory(svc: "AssistantService") -> dict:
     }
 
 
-def export_data(svc: "AssistantService") -> dict:
+def export_data(svc: AssistantService) -> dict:
     db = svc.db
     out: dict = {
         "exported": datetime.now().isoformat(timespec="seconds"),
@@ -154,7 +154,7 @@ def validate_export_path(path: str, data_dir: Path) -> Path:
     return p
 
 
-def write_export(svc: "AssistantService", path: Path) -> int:
+def write_export(svc: AssistantService, path: Path) -> int:
     data = json.dumps(export_data(svc), ensure_ascii=False, indent=2).encode()
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)  # readable by this user only
     with os.fdopen(fd, "wb") as f:

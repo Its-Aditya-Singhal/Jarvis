@@ -221,7 +221,7 @@ def clock_phrase(t: datetime, hindi: bool) -> str:
 def describe(a: Action, language: str, now: datetime) -> str:
     hi = language != "en"
     g = a.args
-    text = lambda k: str(g.get(k) or "").strip()  # noqa: E731
+    text = lambda k: str(g.get(k) or "").strip()
     if a.tool == "alarm.set" and (t := parse_local(g.get("time"))):
         return (f"{day_phrase(t.date(), now.date(), True)} {clock_phrase(t, True)} का अलार्म" if hi
                 else f"an alarm for {clock_phrase(t, False)} {day_phrase(t.date(), now.date(), False)}")

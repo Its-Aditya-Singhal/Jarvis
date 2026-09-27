@@ -39,7 +39,6 @@ def test_segmenter_caps_length():
 
 
 def test_audio_quality_prefers_clear_speech():
-    rng = np.random.default_rng(0)
     speech = 0.05 * np.sin(np.linspace(0, 2000, 32000)).astype(np.float32)
     good = audio_quality(speech, 2.0, noise_rms=0.002)["score"]
     noisy = audio_quality(speech, 2.0, noise_rms=0.03)["score"]

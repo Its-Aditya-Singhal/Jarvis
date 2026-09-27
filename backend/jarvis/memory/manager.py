@@ -21,9 +21,9 @@ import re
 import secrets
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Callable
 
 import numpy as np
 from rapidfuzz import fuzz
@@ -82,7 +82,7 @@ def annotate_dates(text: str, now: datetime) -> str:
     from datetime import timedelta
 
     today = now.date()
-    fmt = lambda d: d.strftime("%A %-d %B %Y")  # noqa: E731
+    fmt = lambda d: d.strftime("%A %-d %B %Y")
     fixed = {"day after tomorrow": 2, "parso": 2, "parson": 2, "परसों": 2,
              "tomorrow": 1, "kal": 1, "कल": 1, "today": 0, "tonight": 0, "aaj": 0, "आज": 0}
     days = {n: i for i, n in enumerate(_WEEKDAYS)} | _HI_WEEKDAYS

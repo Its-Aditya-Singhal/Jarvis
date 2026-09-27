@@ -2,9 +2,9 @@
 
 import numpy as np
 import pytest
+from conftest import MODELS
 from scipy.signal import resample_poly
 
-from conftest import MODELS
 from jarvis.speech.stt import SpeechToText
 from jarvis.speech.text import phrase_match
 from jarvis.speech.tts import SAMPLE_RATE, TextToSpeech
