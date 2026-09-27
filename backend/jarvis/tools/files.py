@@ -107,7 +107,8 @@ class FileSearch:
         return [line for line in out.stdout.splitlines() if line]
 
     def search(self, query: str) -> list[Path]:
-        query = " ".join(query.split())[:100]
+        # a leading "-" would make the query an mdfind option (-live never returns)
+        query = " ".join(query.split())[:100].lstrip("-").strip()
         if not query:
             return []
         hits = self._search(query)

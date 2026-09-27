@@ -213,3 +213,20 @@ def test_folder_blocked_by_macos_is_reported_not_silently_empty(tmp_path, monkey
     assert "lease.pdf" in res.say and "hasn't let me look in Downloads" in res.say
     assert res.data["denied"] == ["Downloads"]
     assert issues({"files_denied": ["Downloads"]})[0]["id"] == "files"
+
+
+def test_file_search_query_is_never_an_mdfind_option(tmp_path):
+    """"-live" would keep mdfind running until the timeout, "-onlyin /" widen the search."""
+    from jarvis.database.db import Database
+    from jarvis.tools.files import FileSearch
+
+    docs = tmp_path / "Docs"
+    docs.mkdir()
+    seen = []
+    fs = FileSearch(Database(":memory:"), runner=lambda folder, q: seen.append(q) or [])
+    fs.db.set("file_search_folders", f'["{docs}"]')
+    fs.search("-live")
+    fs.search("--onlyin / passwords")
+    assert seen and not any(q.startswith("-") for q in seen)
+    assert "onlyin / passwords" in seen
+    assert fs.search("---") == []
