@@ -74,3 +74,50 @@ def test_security_log_keeps_the_newest_events_only():
         d.add_security_event("unknown_face", f"event {i}")
     assert d.count("security_events") == dbmod.MAX_SECURITY_EVENTS
     assert d.security_events(1)[0]["detail"] == f"event {dbmod.MAX_SECURITY_EVENTS + 24}"
+
+
+class _FakeKeyring:
+    def __init__(self, deny=False):
+        self.deny, self.store, self.reads = deny, {}, 0
+
+    def get_password(self, service, account):
+        from keyring.errors import KeyringLocked
+
+        self.reads += 1
+        if self.deny:
+            raise KeyringLocked("denied")
+        return self.store.get((service, account))
+
+    def set_password(self, service, account, value):
+        self.store[(service, account)] = value
+
+
+def test_keychain_key_is_read_once_per_launch(monkeypatch):
+    import keyring
+
+    from jarvis.security.crypto import KeychainKeyProvider
+
+    fake = _FakeKeyring()
+    monkeypatch.setattr(keyring, "get_password", fake.get_password)
+    monkeypatch.setattr(keyring, "set_password", fake.set_password)
+    keys = KeychainKeyProvider("svc")
+    first = keys.get_key()
+    assert keys.get_key() == first
+    assert fake.reads == 1
+
+
+def test_keychain_denial_is_not_asked_again(monkeypatch):
+    import keyring
+    from keyring.errors import KeyringLocked
+
+    from jarvis.security.crypto import KeychainKeyProvider
+
+    fake = _FakeKeyring(deny=True)
+    monkeypatch.setattr(keyring, "get_password", fake.get_password)
+    monkeypatch.setattr(keyring, "set_password", fake.set_password)
+    keys = KeychainKeyProvider("svc")
+    for _ in range(3):
+        with pytest.raises(KeyringLocked):
+            keys.get_key()
+    assert fake.reads == 1
+    assert fake.store == {}  # a denial never creates a replacement key

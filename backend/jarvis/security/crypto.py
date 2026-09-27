@@ -23,31 +23,52 @@ class KeyProvider(Protocol):
 
 
 class KeychainKeyProvider:
-    """Stores the data-encryption key in the OS keychain."""
+    """Stores the data-encryption key in the OS keychain.
+
+    The key is read once per launch and kept in memory. If the user denies the
+    Keychain prompt, the denial is remembered until the next launch, so macOS
+    doesn't ask again on every template or row that needs the key.
+    """
 
     def __init__(self, service: str, account: str = "template-key"):
         self.service = service
         self.account = account
+        self._key: bytes | None = None
+        self._denied = False
 
     def get_key(self) -> bytes:
         import keyring
+        from keyring.errors import KeyringLocked
 
-        stored = keyring.get_password(self.service, self.account)
+        if self._key is not None:
+            return self._key
+        if self._denied:
+            raise KeyringLocked("Keychain access was denied for this launch")
+        try:
+            stored = keyring.get_password(self.service, self.account)
+        except KeyringLocked:
+            self._denied = True
+            raise
         if stored:
-            return base64.b64decode(stored)
+            self._key = base64.b64decode(stored)
+            return self._key
         key = AESGCM.generate_key(bit_length=256)
         keyring.set_password(self.service, self.account, base64.b64encode(key).decode())
+        self._key = key
         return key
 
     def has_key(self) -> bool:
         import keyring
 
+        if self._key is not None or self._denied:
+            return True
         return keyring.get_password(self.service, self.account) is not None
 
     def delete_key(self) -> None:
         import keyring
         from keyring.errors import PasswordDeleteError
 
+        self._key = None
         try:
             keyring.delete_password(self.service, self.account)
         except PasswordDeleteError:
