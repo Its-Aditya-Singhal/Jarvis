@@ -1,5 +1,9 @@
 //! Desktop shell: starts the local Python backend on a random loopback port
 //! with a per-launch API token, and hands both to the UI.
+//!
+//! The packaged app carries the backend as a PyInstaller folder in
+//! `Contents/Resources/backend/` (see scripts/build_dmg.sh); a development
+//! checkout runs `backend/.venv/bin/python -m jarvis` instead.
 
 use std::net::TcpListener;
 use std::path::PathBuf;
@@ -13,16 +17,18 @@ use tauri::{Manager, RunEvent};
 struct BackendInfo {
     port: u16,
     token: String,
+    /// why the backend couldn't be started (shown on the boot screen)
+    error: Option<String>,
 }
 
 struct Backend {
-    info: BackendInfo,
+    info: Mutex<BackendInfo>,
     child: Mutex<Option<Child>>,
 }
 
 #[tauri::command]
 fn backend_info(state: tauri::State<Backend>) -> BackendInfo {
-    state.info.clone()
+    state.info.lock().unwrap().clone()
 }
 
 fn free_port() -> u16 {
@@ -32,18 +38,37 @@ fn free_port() -> u16 {
         .expect("no free loopback port")
 }
 
+/// The packaged backend, if this is the packaged app.
+fn bundled_backend(resources: Option<PathBuf>) -> Option<PathBuf> {
+    let bin = resources?.join("backend").join("jarvis-backend");
+    bin.is_file().then_some(bin)
+}
+
 /// Development layout: <repo>/app/src-tauri -> <repo>/backend.
-/// The packaged sidecar arrives in the packaging phase.
-fn backend_dir() -> PathBuf {
+fn dev_backend_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../backend")
 }
 
-fn spawn_backend(info: &BackendInfo) -> std::io::Result<Child> {
-    let dir = backend_dir();
-    Command::new(dir.join(".venv/bin/python"))
-        .args(["-m", "jarvis"])
-        .current_dir(&dir)
-        .env("JARVIS_PORT", info.port.to_string())
+fn backend_command(resources: Option<PathBuf>, data_dir: Option<PathBuf>) -> Command {
+    match bundled_backend(resources) {
+        Some(bin) => {
+            let mut cmd = Command::new(bin);
+            if let Some(dir) = data_dir.filter(|d| std::fs::create_dir_all(d).is_ok()) {
+                cmd.current_dir(dir);
+            }
+            cmd
+        }
+        None => {
+            let dir = dev_backend_dir();
+            let mut cmd = Command::new(dir.join(".venv/bin/python"));
+            cmd.args(["-m", "jarvis"]).current_dir(&dir);
+            cmd
+        }
+    }
+}
+
+fn spawn_backend(mut cmd: Command, info: &BackendInfo) -> std::io::Result<Child> {
+    cmd.env("JARVIS_PORT", info.port.to_string())
         .env("JARVIS_API_TOKEN", &info.token)
         .env("JARVIS_WATCH_PARENT", "1")
         .spawn()
@@ -54,20 +79,31 @@ pub fn run() {
     let info = BackendInfo {
         port: free_port(),
         token: uuid::Uuid::new_v4().simple().to_string(),
-    };
-    let child = match spawn_backend(&info) {
-        Ok(c) => Some(c),
-        Err(e) => {
-            eprintln!("failed to start backend: {e}");
-            None
-        }
+        error: None,
     };
 
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .manage(Backend {
-            info,
-            child: Mutex::new(child),
+            info: Mutex::new(info),
+            child: Mutex::new(None),
+        })
+        .setup(|app| {
+            let state = app.state::<Backend>();
+            let cmd = backend_command(
+                app.path().resource_dir().ok(),
+                app.path().app_data_dir().ok(),
+            );
+            let mut info = state.info.lock().unwrap();
+            match spawn_backend(cmd, &info) {
+                Ok(c) => *state.child.lock().unwrap() = Some(c),
+                Err(e) => {
+                    eprintln!("failed to start backend: {e}");
+                    info.error = Some(format!("The assistant's engine could not start: {e}"));
+                }
+            }
+            Ok(())
         })
         .invoke_handler(tauri::generate_handler![backend_info])
         .build(tauri::generate_context!())

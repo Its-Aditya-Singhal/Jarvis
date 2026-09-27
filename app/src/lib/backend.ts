@@ -8,6 +8,8 @@ import { invoke } from "@tauri-apps/api/core";
 export interface BackendInfo {
   port: number;
   token: string;
+  /** set when the shell couldn't start the backend */
+  error?: string | null;
 }
 
 const inTauri = "__TAURI_INTERNALS__" in window;

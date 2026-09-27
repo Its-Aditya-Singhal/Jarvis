@@ -16,3 +16,8 @@ app/dist/
 app/src-tauri/target/
 app/src-tauri/gen/
 .DS_Store
+
+# packaging output
+/dist/
+backend/build/
+backend/dist/
