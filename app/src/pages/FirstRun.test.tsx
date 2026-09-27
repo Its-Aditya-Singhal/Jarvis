@@ -15,12 +15,13 @@ const GB = 1e9;
 function models(patch: Partial<ModelsState["files"]> = {}, ollama: Partial<ModelsState["ollama"]> = {}): ModelsState {
   return {
     files: {
-      state: "idle", error: null, file: null, done_bytes: 0, total_bytes: 0, speed_bps: 0, queued: [],
+      state: "idle", error: null, file: null, done_bytes: 0, total_bytes: 0, speed_bps: 0, queued: [], current: null,
       packs: [
-        { id: "face", title: "Face recognition", detail: "ArcFace", required: true, installed: false, size: 0.29 * GB, remaining: 0.63 * GB, partial: false },
+        { id: "face", title: "Face recognition", detail: "ArcFace", required: true, installed: false, size: 0.29 * GB, remaining: 0.29 * GB, partial: false },
+        { id: "tts", title: "Voice", detail: "Kokoro", required: true, installed: false, size: 0.34 * GB, remaining: 0.34 * GB, partial: false },
         { id: "stt_medium", title: "Whisper medium", detail: "Quality mode", required: false, installed: false, size: 1.5 * GB, remaining: 1.5 * GB, partial: false },
       ],
-      needed: ["face"], needed_bytes: 0.63 * GB, free_bytes: 50 * GB,
+      needed: ["face", "tts"], download_bytes: 0.63 * GB, needed_bytes: 0.93 * GB, free_bytes: 50 * GB,
       ...patch,
     },
     ollama: {
@@ -45,7 +46,7 @@ describe("First-run model download", () => {
     let state = models();
     fake.route("GET /api/models", () => state);
     fake.route("POST /api/models/download", () => {
-      state = models({ state: "downloading", done_bytes: 0.2 * GB, total_bytes: 0.63 * GB, speed_bps: 20e6, queued: ["face"], file: "models/buffalo_l.zip" });
+      state = models({ state: "downloading", done_bytes: 0.2 * GB, total_bytes: 0.63 * GB, speed_bps: 20e6, queued: ["face", "tts"], current: "face", file: "models/buffalo_l.zip" });
       return { started: true };
     });
     render(<App />);
@@ -58,6 +59,9 @@ describe("First-run model download", () => {
     expect(await screen.findByText("DOWNLOADING")).toBeInTheDocument();
     expect(screen.getByRole("progressbar", { name: "Model download" })).toHaveAttribute("aria-valuenow", "32");
     expect(screen.getByText("buffalo_l.zip")).toBeInTheDocument();
+    expect(screen.getByText("IN PROGRESS")).toBeInTheDocument(); // only the pack downloading now
+    expect(screen.getByText("QUEUED")).toBeInTheDocument();
+    expect(screen.queryByText(/to download ·/)).not.toBeInTheDocument(); // the progress line has the numbers
     expect(screen.getByRole("button", { name: "PAUSE" })).toBeInTheDocument();
   });
 

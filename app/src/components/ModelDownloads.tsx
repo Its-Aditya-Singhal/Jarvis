@@ -29,9 +29,9 @@ function eta(left: number, bps: number): string {
   return m < 60 ? `about ${m} min left` : `about ${Math.floor(m / 60)} h ${m % 60} min left`;
 }
 
-function PackRow({ p, active, onGet, busy }: { p: ModelPack; active: boolean; onGet?: () => void; busy: boolean }) {
-  const state = p.installed ? "READY" : active ? "IN PROGRESS" : p.partial ? "PAUSED" : p.required ? "NEEDED" : "OPTIONAL";
-  const tone = p.installed ? "tone-ok" : active ? "tone-accent" : p.required ? "tone-warn" : "muted";
+function PackRow({ p, active, queued, onGet, busy }: { p: ModelPack; active: boolean; queued: boolean; onGet?: () => void; busy: boolean }) {
+  const state = p.installed ? "READY" : active ? "IN PROGRESS" : queued ? "QUEUED" : p.partial ? "PAUSED" : p.required ? "NEEDED" : "OPTIONAL";
+  const tone = p.installed ? "tone-ok" : active ? "tone-accent" : queued ? "muted" : p.required ? "tone-warn" : "muted";
   return (
     <li className="dl-pack">
       <div>
@@ -39,7 +39,7 @@ function PackRow({ p, active, onGet, busy }: { p: ModelPack; active: boolean; on
         <span className="muted small">{p.detail}</span>
       </div>
       <span className="muted small mono">{gb(p.installed ? p.size : p.remaining || p.size)}</span>
-      {onGet && !p.installed && !active ? (
+      {onGet && !p.installed && !active && !queued ? (
         <button className="btn ghost small-btn" disabled={busy} onClick={onGet}>
           {p.partial ? "RESUME" : "DOWNLOAD"}
         </button>
@@ -117,9 +117,9 @@ export default function ModelDownloads({ firstRun = false }: { firstRun?: boolea
 
   return (
     <div className="dl">
-      {needed && (
+      {needed && !running && (
         <p className={`small ${tooFull ? "tone-alert" : "muted"}`}>
-          {gb(f.needed_bytes)} to download · {gb(f.free_bytes)} free on this Mac
+          {gb(f.download_bytes)} to download · {gb(f.free_bytes)} free on this Mac
           {tooFull ? " — free some space first." : "."}
         </p>
       )}
@@ -129,7 +129,8 @@ export default function ModelDownloads({ firstRun = false }: { firstRun?: boolea
             key={p.id}
             p={p}
             busy={busy || running}
-            active={running && f.queued.includes(p.id) && !p.installed}
+            active={running && f.current === p.id && !p.installed}
+            queued={running && f.queued.includes(p.id) && f.current !== p.id && !p.installed}
             onGet={firstRun ? undefined : () => act(() => post("/api/models/download", { packs: [p.id] }))}
           />
         ))}
@@ -160,7 +161,7 @@ export default function ModelDownloads({ firstRun = false }: { firstRun?: boolea
         ) : (
           needed && (
             <button className="btn primary" disabled={busy || tooFull} onClick={() => act(() => post("/api/models/download"))}>
-              {anyPartial || f.state === "error" || f.state === "cancelled" ? "RESUME DOWNLOAD" : `DOWNLOAD ${gb(f.needed_bytes)}`}
+              {anyPartial || f.state === "error" || f.state === "cancelled" ? "RESUME DOWNLOAD" : `DOWNLOAD ${gb(f.download_bytes)}`}
             </button>
           )
         )}

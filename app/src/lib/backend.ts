@@ -395,9 +395,11 @@ export interface ModelFiles {
   total_bytes: number;
   speed_bps: number;
   queued: string[];
+  current: string | null; // the pack whose file is downloading now
   packs: ModelPack[];
   needed: string[];
-  needed_bytes: number;
+  download_bytes: number; // what's left to download
+  needed_bytes: number; // disk space it needs, unpacking included
   free_bytes: number;
 }
 
