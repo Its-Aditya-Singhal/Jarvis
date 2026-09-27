@@ -64,3 +64,13 @@ def test_data_folder_and_database_are_owner_only(tmp_path):
     os.chmod(folder / "jarvis.sqlite3", 0o644)  # created by an earlier version
     Database(folder / "jarvis.sqlite3").close()
     assert stat.S_IMODE(os.stat(folder / "jarvis.sqlite3").st_mode) == 0o600
+
+
+def test_security_log_keeps_the_newest_events_only():
+    from jarvis.database import db as dbmod
+
+    d = dbmod.Database(":memory:")
+    for i in range(dbmod.MAX_SECURITY_EVENTS + 25):
+        d.add_security_event("unknown_face", f"event {i}")
+    assert d.count("security_events") == dbmod.MAX_SECURITY_EVENTS
+    assert d.security_events(1)[0]["detail"] == f"event {dbmod.MAX_SECURITY_EVENTS + 24}"

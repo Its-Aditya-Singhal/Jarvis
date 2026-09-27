@@ -29,6 +29,8 @@ CREATE TABLE IF NOT EXISTS security_events (
 );
 """
 
+MAX_SECURITY_EVENTS = 5000
+
 
 class Database:
     def __init__(self, path: Path | str):
@@ -104,6 +106,11 @@ class Database:
                 "INSERT INTO security_events(ts, kind, detail, face_conf, voice_conf, blocked) "
                 "VALUES(?,?,?,?,?,?)",
                 (time.time(), kind, detail, face_conf, voice_conf, int(blocked)),
+            )
+            # a stranger walking past every day adds up: keep the newest events only
+            self._conn.execute(
+                "DELETE FROM security_events WHERE id <= (SELECT id FROM security_events ORDER BY id DESC LIMIT 1 OFFSET ?)",
+                (MAX_SECURITY_EVENTS,),
             )
             self._conn.commit()
             return int(cur.lastrowid or 0)
