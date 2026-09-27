@@ -1,5 +1,7 @@
 import logging
+import logging.handlers
 import os
+import sys
 import threading
 import time
 
@@ -36,6 +38,13 @@ def _on_parent_exit(app_holder: list) -> None:
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     s = get_settings()
+    if getattr(sys, "frozen", False):
+        # the packaged app has no terminal: keep a small log for troubleshooting (no biometric values are logged)
+        logs = s.data_dir / "logs"
+        logs.mkdir(parents=True, exist_ok=True)
+        fh = logging.handlers.RotatingFileHandler(logs / "backend.log", maxBytes=2 << 20, backupCount=2)
+        fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+        logging.getLogger().addHandler(fh)
     if s.host not in ("127.0.0.1", "localhost", "::1"):
         raise SystemExit("Refusing to bind to a non-loopback address")
     app_holder: list = []
