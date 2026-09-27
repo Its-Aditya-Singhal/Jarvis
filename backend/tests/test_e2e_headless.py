@@ -22,7 +22,7 @@ class Harness:
         self.svc._loop = lambda: None  # the test drives the face loop, on its own clock
         self.skew = 0.0
         self.svc.clock = self.clock
-        self.client = TestClient(self.app)
+        self.client = TestClient(self.app, base_url="http://127.0.0.1")
 
     def clock(self) -> float:
         return time.monotonic() + self.skew
@@ -205,7 +205,7 @@ def test_a_stranger_cannot_confirm_a_pending_deletion(settings):
 def test_dev_routes_drive_the_scene(settings):
     app, rig = build(settings)
     add_dev_routes(app, "test-token")
-    with TestClient(app) as c:
+    with TestClient(app, base_url="http://127.0.0.1") as c:
         Harness.wait_for(SimpleNamespace(svc=app.state.svc, clock=time.monotonic),
                          lambda: app.state.svc.speech.stt.ready)  # let startup finish
         assert c.put("/api/dev/scene", json={"person": "nobody"}).status_code == 401

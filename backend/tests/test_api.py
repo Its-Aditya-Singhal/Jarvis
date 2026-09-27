@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 from fastapi.testclient import TestClient
 
 from jarvis.api.app import create_app
@@ -47,7 +48,7 @@ def _client(settings, mic=None):
         settings, keys=StaticKeyProvider(), engine=FakeEngine(), camera=FakeCamera(),
         speaker_engine=FakeSpeaker(), mic=mic or FakeMic(), vad_factory=lambda: (lambda frame: 0.0), speech=False, llm=False, tools=False, memory=False,
     )
-    return TestClient(app), app.state.svc
+    return TestClient(app, base_url="http://127.0.0.1"), app.state.svc
 
 
 def test_token_required(settings):
@@ -85,12 +86,12 @@ def test_security_log_requires_verified_owner(settings):
 def test_websocket_rejects_bad_token(settings):
     client, _ = _client(settings)
     with client:
-        with client.websocket_connect("/ws?token=test-token") as ws:
+        with client.websocket_connect("ws://127.0.0.1/ws?token=test-token") as ws:
             assert ws.receive_json()["type"] == "status"
         import pytest
         from starlette.websockets import WebSocketDisconnect
         with pytest.raises(WebSocketDisconnect):
-            with client.websocket_connect("/ws?token=bad") as ws:
+            with client.websocket_connect("ws://127.0.0.1/ws?token=bad") as ws:
                 ws.receive_json()
 
 
@@ -202,3 +203,41 @@ def test_settings_and_privacy_endpoints(settings, tmp_path):
         assert client.post("/api/privacy/clear_tools", headers=H).status_code == 409  # one at a time
         assert client.put("/api/settings/profile", headers=H,
                           json={"owner_name": " Aditya ", "assistant_name": "Friday"}).json()["assistant_name"] == "Friday"
+
+
+def test_every_route_needs_the_launch_token(settings):
+    """No REST route (except none) answers without the per-launch token."""
+    from fastapi.routing import APIRoute
+
+    client, _ = _client(settings)
+    with client:
+        routes = [r for r in client.app.routes if isinstance(r, APIRoute)]
+        assert len(routes) > 40
+        for r in routes:
+            path = r.path.replace("{alarm_id}", "1").replace("{fact_id}", "1").replace("{pid}", "x") \
+                .replace("{sid}", "x").replace("{action}", "export")
+            for method in r.methods:
+                res = client.request(method, path, json={})
+                assert res.status_code == 401, f"{method} {r.path} answered {res.status_code} without the token"
+
+
+def test_websocket_refuses_other_origins(settings):
+    """A web page can open a WebSocket to 127.0.0.1 (no CORS for WebSockets): only the app's origins may."""
+    from starlette.websockets import WebSocketDisconnect
+
+    client, _ = _client(settings)
+    with client:
+        with client.websocket_connect("ws://127.0.0.1/ws?token=test-token", headers={"origin": "tauri://localhost"}) as ws:
+            assert ws.receive_json()["type"] == "status"
+        with pytest.raises(WebSocketDisconnect):
+            with client.websocket_connect("ws://127.0.0.1/ws?token=test-token", headers={"origin": "https://evil.example"}) as ws:
+                ws.receive_json()
+
+
+def test_foreign_host_names_are_refused(settings):
+    """DNS rebinding: a page on evil.example re-pointed at 127.0.0.1 sends Host: evil.example."""
+    client, _ = _client(settings)
+    with client:
+        assert client.get("/api/status", headers={**H, "host": "evil.example:8765"}).status_code == 400
+        assert client.get("/api/status", headers={**H, "host": "127.0.0.1:8765"}).status_code == 200
+        assert client.get("/api/status", headers={**H, "host": "localhost:8765"}).status_code == 200

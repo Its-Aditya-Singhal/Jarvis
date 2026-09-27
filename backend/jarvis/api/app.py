@@ -53,6 +53,42 @@ from ..voice_service import VoiceService
 
 log = logging.getLogger(__name__)
 
+# the desktop shell's web view, and the Vite dev server
+APP_ORIGINS = ["http://localhost:1420", "tauri://localhost", "http://tauri.localhost"]
+# the backend only ever serves this machine: any other Host header is a DNS-rebinding attempt
+LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
+
+def _host_name(host: str) -> str:
+    host = host.strip().lower()
+    if host.startswith("["):  # [::1]:8765
+        return host[1:].split("]", 1)[0]
+    return host.rsplit(":", 1)[0] if host.count(":") == 1 else host
+
+
+class LocalOnly:
+    """Refuse requests whose Host isn't this machine, and WebSockets opened by other web pages
+    (browsers send Origin on WebSockets, and CORS doesn't apply to them)."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] in ("http", "websocket"):
+            headers = {k.decode("latin-1"): v.decode("latin-1") for k, v in scope.get("headers", [])}
+            host_ok = _host_name(headers.get("host", "")) in LOCAL_HOSTS
+            origin = headers.get("origin")
+            origin_ok = scope["type"] == "http" or origin is None or origin in APP_ORIGINS
+            if not (host_ok and origin_ok):
+                if scope["type"] == "websocket":
+                    await send({"type": "websocket.close", "code": 4403})
+                else:
+                    await send({"type": "http.response.start", "status": 400,
+                                "headers": [(b"content-type", b"text/plain")]})
+                    await send({"type": "http.response.body", "body": b"not a local request"})
+                return
+        await self.app(scope, receive, send)
+
 
 Gender = Literal["female", "male"]
 
@@ -246,10 +282,12 @@ def create_app(
     app.state.svc = svc
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:1420", "tauri://localhost", "http://tauri.localhost"],
+        allow_origins=APP_ORIGINS,
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    app.add_middleware(LocalOnly)
 
     def token_ok(token: str | None) -> bool:
         if not s.api_token:
