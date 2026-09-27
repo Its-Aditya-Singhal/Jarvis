@@ -189,3 +189,13 @@ def test_low_memory_unloads_models_only_when_idle(settings):
     assert freed == []  # plenty of memory
     svc._check_memory({"system_mem_pct": 95, "ollama_mb": 4000})
     assert freed == [1]
+
+
+def test_quitting_unloads_only_jarvis_models(settings):
+    from jarvis.brain import Brain
+
+    b = Brain(settings, Database(":memory:"), names=lambda: ("Friday", "A"), voice_gender=lambda: "female")
+    b.client = FakeClient({"qwen2.5:7b": 4 << 30, "bge-m3:latest": 1 << 29, "llama3:8b": 5 << 30})
+    b.server = SimpleNamespace(stop=lambda: None)
+    b.stop()
+    assert sorted(b.client.unloaded) == ["bge-m3:latest", "qwen2.5:7b"]  # someone else's model stays

@@ -76,6 +76,18 @@ pub fn run() {
     app.run(|handle, event| {
         if let RunEvent::Exit = event {
             if let Some(mut c) = handle.state::<Backend>().child.lock().unwrap().take() {
+                // ask politely first: the backend then releases the camera and mic and
+                // unloads its AI models (gigabytes Ollama would otherwise keep for a while)
+                let _ = std::process::Command::new("kill")
+                    .args(["-TERM", &c.id().to_string()])
+                    .status();
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(4);
+                while std::time::Instant::now() < deadline {
+                    if let Ok(Some(_)) = c.try_wait() {
+                        return;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
                 let _ = c.kill();
                 let _ = c.wait();
             }

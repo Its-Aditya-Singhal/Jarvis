@@ -116,9 +116,15 @@ class Brain:
                 log.info("unloaded idle model %s (%d MB)", name, size >> 20)
         return freed
 
+    def our_models(self) -> set[str]:
+        names = {self.model, self.db.get("llm_model") or self.s.llm_model,
+                 self.db.get("llm_fast_model") or "qwen2.5:3b", self.s.embed_model}
+        return names | {n + ":latest" for n in names if ":" not in n}
+
     def free_memory(self) -> int:
-        """Unload everything (the Mac is short of memory); it reloads on the next question."""
-        loaded = self.client.loaded()
+        """Unload JARVIS's models (low memory, or quitting); they reload on the next question."""
+        ours = self.our_models()
+        loaded = {n: size for n, size in self.client.loaded().items() if n in ours}
         for name in loaded:
             self.client.unload(name)
         return sum(loaded.values())
@@ -141,6 +147,14 @@ class Brain:
         return [str(f) for f in (data.get("facts") or []) if isinstance(f, str)]
 
     def stop(self) -> None:
+        """App closing: give the models' memory back right away (Ollama would otherwise
+        keep them for the keep-alive time), then stop the server if we started it."""
+        try:
+            freed = self.free_memory()
+            if freed:
+                log.info("unloaded models on exit (%d MB)", freed >> 20)
+        except Exception:
+            log.exception("could not unload models on exit")
         self.server.stop()
 
     def status(self) -> str:

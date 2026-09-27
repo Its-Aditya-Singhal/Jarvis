@@ -31,7 +31,8 @@ def brain(tmp_path_factory):
               server=OllamaServer(s.ollama_host, None, s.data_dir), client=client,
               clock=lambda: datetime(2026, 9, 27, 21, 30))
     b.client.warm(b.model)
-    return b
+    yield b
+    b.client.unload(b.model)  # don't leave gigabytes resident after the tests
 
 
 def tools(r):

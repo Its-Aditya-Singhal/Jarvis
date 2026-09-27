@@ -13,13 +13,17 @@ from .database.db import Database
 from .netguard import NetGuard
 
 
-def _exit_with_parent() -> None:
-    """If the desktop shell dies without cleaning up, don't linger holding the camera."""
+def _exit_with_parent(on_exit=lambda: None) -> None:
+    """If the desktop shell dies without cleaning up, don't linger holding the camera
+    (or leave the AI models loaded)."""
     parent = os.getppid()
     while True:
         time.sleep(2)
         if os.getppid() != parent:
-            os._exit(0)
+            try:
+                on_exit()
+            finally:
+                os._exit(0)
 
 
 def main() -> None:
@@ -27,8 +31,14 @@ def main() -> None:
     s = get_settings()
     if s.host not in ("127.0.0.1", "localhost", "::1"):
         raise SystemExit("Refusing to bind to a non-loopback address")
+    app_holder: list = []
     if os.environ.get("JARVIS_WATCH_PARENT") == "1":
-        threading.Thread(target=_exit_with_parent, daemon=True).start()
+        def unload() -> None:
+            brain = app_holder[0].state.svc.brain if app_holder else None
+            if brain is not None:
+                brain.free_memory()
+
+        threading.Thread(target=_exit_with_parent, args=(unload,), daemon=True).start()
     # every model is on disk: libraries must not try to download or phone home
     os.environ.setdefault("HF_HUB_OFFLINE", "1")
     os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
@@ -46,7 +56,9 @@ def main() -> None:
 
     for folder in FileSearch(prefs_db).folders():
         FileSearch.access(folder)
-    uvicorn.run(create_app(s, guard=guard), host=s.host, port=s.port, log_level="warning")
+    app = create_app(s, guard=guard)
+    app_holder.append(app)
+    uvicorn.run(app, host=s.host, port=s.port, log_level="warning")
 
 
 if __name__ == "__main__":
