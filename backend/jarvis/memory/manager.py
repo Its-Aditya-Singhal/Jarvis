@@ -37,6 +37,7 @@ log = logging.getLogger(__name__)
 
 RETENTION_CHOICES = {"off": 0, "7d": 7, "30d": 30, "forever": None}
 DEFAULT_RETENTION = "30d"
+PURGE_EVERY_S = 3600.0
 RECALL_MIN_SIM = 0.45  # bge-m3 cosine; unrelated facts sit well below
 RECALL_K = 4
 FUZZY_MIN = 70
@@ -126,6 +127,7 @@ class Memory:
         self.clock = clock
         self.embed_error: str | None = "not checked yet"
         self._lock = threading.Lock()
+        self._last_purge = time.monotonic()
         self._facts: list[Fact] | None = None  # decrypted cache
         self._suggestions: list[Suggestion] = []
 
@@ -254,7 +256,18 @@ class Memory:
         self.db.set("history_retention", value)
         self.purge()
 
+    def _cutoff(self) -> float | None:
+        """Oldest time history may be from under the owner's retention setting (None: forever)."""
+        days = RETENTION_CHOICES[self.retention]
+        return None if days is None else time.time() - days * 86400
+
+    def _maybe_purge(self) -> None:
+        # the app may run for weeks: expired history is deleted hourly, not only at startup
+        if time.monotonic() - self._last_purge >= PURGE_EVERY_S:
+            self.purge()
+
     def purge(self) -> int:
+        self._last_purge = time.monotonic()
         days = RETENTION_CHOICES[self.retention]
         if days is None:
             return 0
@@ -267,6 +280,7 @@ class Memory:
         """Keep one exchange (text only). Called after the reply is sent."""
         if self.retention == "off" or not you.strip():
             return
+        self._maybe_purge()
         vec = self.embed([you])
         self.store.add_turn("you", you, lang, vec[0] if vec else None)
         if reply.strip():
@@ -274,15 +288,18 @@ class Memory:
         self.on_change()
 
     def history(self, days: int = 30, limit: int = 400) -> list[Turn]:
-        return self.store.turns(since=time.time() - days * 86400, limit=limit)
+        since = time.time() - days * 86400
+        cutoff = self._cutoff()
+        return self.store.turns(since=since if cutoff is None else max(since, cutoff), limit=limit)
 
     def search_history(self, query: str, day: datetime | None = None, k: int = 3) -> list[tuple[Turn, Turn | None]]:
         """Past exchanges matching ``query`` (optionally on one day): (your turn, the reply)."""
+        cutoff = self._cutoff() or 0.0
         if day is not None:
             d0 = datetime.combine(day.date(), datetime.min.time()).timestamp()
-            turns = self.store.turns(since=d0, until=d0 + 86400)
+            turns = self.store.turns(since=max(d0, cutoff), until=d0 + 86400)
         else:
-            turns = self.store.turns(limit=2000)
+            turns = self.store.turns(since=cutoff, limit=2000)
         mine = [t for t in turns if t.role == "you"]
         scored: list[tuple[float, Turn]] = []
         vec = self.embed([query]) if query.strip() else None

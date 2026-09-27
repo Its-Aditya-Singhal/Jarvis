@@ -103,6 +103,19 @@ def test_history_is_logged_searchable_and_expires(mem):
     assert m.purge() == 4 and m.history() == []
 
 
+def test_expired_history_disappears_without_a_restart(mem):
+    """The app may run for weeks: history past the retention window must not be shown,
+    searched or kept just because nothing restarted the purge."""
+    m, _, db = mem
+    m.set_retention("7d")
+    m.log_turn("what's the bank's phone number", "I don't know that one.", "en")
+    db.run("UPDATE history SET ts = ?", (time.time() - 10 * 86400,))  # ten days pass
+    assert m.history(days=3650) == []
+    assert m.search_history("bank phone") == []
+    m._last_purge -= 3700  # an hour later, the next exchange also deletes the old rows
+    m.log_turn("hello", "Hi!", "en")
+    assert db.run("SELECT COUNT(*) AS n FROM history")[0]["n"] == 2
+
 def test_retention_off_keeps_nothing(mem):
     m, _, _ = mem
     m.log_turn("hello", "hi", "en")
