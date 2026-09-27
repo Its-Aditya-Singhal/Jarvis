@@ -213,3 +213,32 @@ def test_dev_routes_drive_the_scene(settings):
         assert r.json()["person"] == "stranger" and rig.scene.bystanders == 1
         assert c.post("/api/dev/say", headers=H, json={"text": "hello"}).json()["ok"]
         assert c.get("/api/dev/scene", headers=H).json()["bystanders"] == 1
+
+
+def test_quitting_while_models_load_leaves_nothing_running(settings):
+    """The app can close while startup is still loading models: stop() must not fail, and
+    startup must not switch the camera, microphone or worker threads back on afterwards."""
+    import threading
+
+    app, rig = build(settings)
+    svc = app.state.svc
+    loading, release = threading.Event(), threading.Event()
+    real_load = rig.stt.load
+
+    def slow_load():
+        loading.set()
+        release.wait(5)
+        return real_load()
+
+    rig.stt.load = slow_load
+    starter = threading.Thread(target=svc.start, name="startup")
+    starter.start()
+    assert loading.wait(5)
+    svc.stop()  # must not raise (e.g. joining a thread that was never started)
+    release.set()
+    starter.join(5)
+    time.sleep(0.2)
+    workers = {"face-loop", "speech-in", "speech-out", "voice-loop", "mic", "camera", "alarms", "perf"}
+    alive = {t.name for t in threading.enumerate() if t.name in workers}
+    assert not alive, f"still running after stop: {alive}"
+    assert rig.camera.status == "off" and rig.mic.status == "off"

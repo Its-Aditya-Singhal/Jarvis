@@ -136,6 +136,7 @@ class AssistantService:
         self._frozen = False
         self._unlocked = False  # greeted in this presence session
         self._stop = threading.Event()
+        self._life = threading.Lock()  # start() vs stop(): nothing is switched on once stopping
         self._thread: threading.Thread | None = None
         self._last_state_push = 0.0
         self._last_face_t = time.monotonic()
@@ -472,41 +473,60 @@ class AssistantService:
         return self.voice is not None and self.voice.enrolled
 
     # -- lifecycle ---------------------------------------------------------
+    def _unless_stopping(self, fn: Callable[[], object]) -> bool:
+        """Run ``fn`` (switching something on) unless the app is already shutting down.
+        Startup loads models for many seconds; the app may be closed meanwhile."""
+        with self._life:
+            if self._stop.is_set():
+                return False
+            fn()
+            return True
+
     def start(self) -> None:
         self.bus.log("Core systems online")
         if self.engine.load():
             self.bus.log("Face recognition model loaded")
         else:
             self.bus.log(self.engine.error or "Face model unavailable", "error")
-        self.camera.start()
+        if not self._unless_stopping(self.camera.start):
+            return
         if self.speech is not None:
-            self.speech.start()
+            self.speech.start()  # loads models, then refuses to start if stopped meanwhile
         if self.voice is not None:
             self.voice.start()
+        if self.alarms is not None and not self._unless_stopping(self.alarms.start):
+            return
         if self.alarms is not None:
-            self.alarms.start()
             for a in self.alarms.missed:
                 self.bus.log(f"Missed {a.kind} at {a.due:%H:%M} (the app was closed)", "warn")
-        self.perf.start()
+        if not self._unless_stopping(self.perf.start):
+            return
         self.apply_mode(warm=False)  # decide the model first, so only that one is loaded
-        if self.brain is not None:
+        if self.brain is not None and not self._stop.is_set():
             if self.brain.start():
+                if self._stop.is_set():
+                    self.brain.stop()  # closed while the model loaded: unload it (and our Ollama) again
+                    return
                 self.bus.log(f"Local language model ready ({self.brain.model})")
                 self.apply_mode()  # Ollama may only now be running: re-check the fast model
             else:
                 self.bus.log(f"Language model unavailable: {self.brain.status()}", "error")
-        if self.memory is not None:
-            # purges expired history and indexes anything saved without embeddings
-            threading.Thread(target=self._start_memory, name="memory-start", daemon=True).start()
         if self.setup_complete and self.face_enrolled:
             self.begin_verification()
         elif self.setup_complete and self.voice is not None and self.voice.enrolled:
             self.voice.begin_verification()  # face profile deleted: the voice can unlock a re-scan
-        self._thread = threading.Thread(target=self._loop, name="face-loop", daemon=True)
-        self._thread.start()
-        t = threading.Timer(12.0, self._announce_issues)
-        t.daemon = True
-        t.start()
+
+        def launch() -> None:
+            if self.memory is not None:
+                # purges expired history and indexes anything saved without embeddings
+                threading.Thread(target=self._start_memory, name="memory-start", daemon=True).start()
+            self._thread = threading.Thread(target=self._loop, name="face-loop", daemon=True)
+            self._thread.start()
+            t = threading.Timer(12.0, self._announce_issues)
+            t.daemon = True
+            t.start()
+
+        self._unless_stopping(launch)
 
     def _announce_issues(self) -> None:
         """Say once, after startup, if something important is broken."""
@@ -537,7 +557,8 @@ class AssistantService:
             log.exception("memory start failed")
 
     def stop(self) -> None:
-        self._stop.set()
+        with self._life:
+            self._stop.set()
         self.perf.stop()
         if self._thread:
             self._thread.join(timeout=2)

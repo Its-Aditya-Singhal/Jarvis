@@ -124,6 +124,7 @@ class SpeechService:
         self.out = SpeechOutput(tts, bus, self.voice_gender, player=player)
         self._q: queue.Queue[tuple[np.ndarray, str | None]] = queue.Queue(maxsize=3)
         self._stop = threading.Event()
+        self._life = threading.Lock()  # start() vs stop()
         self._thread: threading.Thread | None = None
         self._listen_until = 0.0
         self._last_unauthorized = 0.0
@@ -150,15 +151,20 @@ class SpeechService:
             self.bus.log("Voice synthesis loaded (Kokoro)")
         else:
             self.bus.log(self.tts.error or "Voice synthesis unavailable", "error")
-        self.out.start()
-        if self.tts.ready:
-            assistant, owner = self.names()
-            threading.Thread(target=self.out.prewarm, args=(common_phrases(owner),), name="tts-prewarm", daemon=True).start()
-        self._thread = threading.Thread(target=self._loop, name="speech-in", daemon=True)
-        self._thread.start()
+        with self._life:
+            if self._stop.is_set():  # the app closed while the models loaded
+                return
+            self.out.start()
+            if self.tts.ready:
+                assistant, owner = self.names()
+                threading.Thread(target=self.out.prewarm, args=(common_phrases(owner),), name="tts-prewarm",
+                                 daemon=True).start()
+            self._thread = threading.Thread(target=self._loop, name="speech-in", daemon=True)
+            self._thread.start()
 
     def stop(self) -> None:
-        self._stop.set()
+        with self._life:
+            self._stop.set()
         self.out.close()
         try:
             self._q.put_nowait((np.zeros(0, np.float32), None))

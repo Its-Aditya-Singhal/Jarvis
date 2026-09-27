@@ -68,6 +68,7 @@ class VoiceService:
         self.error: str | None = None
         self._lock = threading.Lock()
         self._stop = threading.Event()
+        self._life = threading.Lock()  # start() vs stop()
         self._thread: threading.Thread | None = None
         self._last_level_t = 0.0
         self._speaking = False
@@ -114,12 +115,16 @@ class VoiceService:
             self.bus.log("Speaker recognition model loaded")
         else:
             self.bus.log(self.engine.error or "Voice model unavailable", "error")
-        self.mic.start()
-        self._thread = threading.Thread(target=self._loop, name="voice-loop", daemon=True)
-        self._thread.start()
+        with self._life:
+            if self._stop.is_set():  # the app closed while the models loaded
+                return
+            self.mic.start()
+            self._thread = threading.Thread(target=self._loop, name="voice-loop", daemon=True)
+            self._thread.start()
 
     def stop(self) -> None:
-        self._stop.set()
+        with self._life:
+            self._stop.set()
         if self._thread:
             self._thread.join(timeout=2)
         self.mic.stop()
