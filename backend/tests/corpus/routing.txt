@@ -324,6 +324,17 @@ fast | text.type(text=Kal milte hain) | kal milte hain type karo
 llm  | clipboard.note | paste what I copied into my notes
 llm  | text.type | write "on my way" in this chat
 
+# -- asking Claude / ChatGPT ------------------------------------------------------------------
+fast | ai.ask(service=claude, prompt=Build a website for my bakery) | open claude and ask it to build a website for my bakery
+fast | ai.ask(service=claude, prompt=Write a haiku about rain) | ask claude to write a haiku about rain
+fast | ai.ask(service=claude, prompt=Explain recursion) | ask cloud to explain recursion
+fast | ai.ask(service=claude, prompt=Summarise my resume) | use claude to summarise my resume
+fast | ai.ask(service=chatgpt, prompt=Plan a 3 day trip to Goa) | open chatgpt and ask it to plan a 3 day trip to Goa
+fast | ai.ask(service=chatgpt, prompt=Write an email to my landlord about the leak) | tell chat gpt to write an email to my landlord about the leak
+fast | ai.ask(service=claude, prompt=Python mein list kaise sort karte hain) | claude se pucho ki python mein list kaise sort karte hain
+llm  | ai.ask | see what Claude thinks about my startup idea for a tiffin service
+llm  | ai.ask | chatgpt pe ek essay likhwao global warming par
+
 # -- notes -----------------------------------------------------------------------------------
 fast | notes.add(text=Call Dr. Mehta) | take a note to call Dr. Mehta
 fast | notes.add(text=Buy milk) | add a note to buy milk

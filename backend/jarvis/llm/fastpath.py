@@ -331,11 +331,42 @@ def _one(t: str, now: datetime, is_app: Callable[[str], bool], hi: bool, orig: s
     return None
 
 
+# "ask Claude to …" / "open ChatGPT and ask it …": the rest is the prompt, "and" included
+_AI = r"(claude|claud|cloud|chat ?gpt|chat ?gbt)"
+_ASK = [
+    rf"(?:please )?(?:open|launch|go to|use) {_AI}(?: app)?,? (?:and |then )?(?:ask|tell)(?: it| him| her)?(?: to| for| about| that| ki)?:? (.+)",
+    rf"(?:please )?(?:ask|tell) {_AI}(?: to| for| about| that| ki)?:? (.+)",
+    rf"(?:please )?use {_AI} to (.+)",
+    rf"{_AI} (?:se|ko) (?:pucho|poocho|puchho|poochho|bolo|kaho)(?: ki)? (.+)",
+]
+_ASK_TAIL = rf"(.+?),? (?:ye |yeh )?{_AI} (?:se|ko) (?:pucho|poocho|puchho|poochho|bolo|kaho)"
+
+
+def _ask_ai(t: str, orig: str) -> Action | None:
+    for pat in _ASK:
+        if m := re.fullmatch(pat, t):
+            who, what = m.group(1), m.group(2)
+            break
+    else:
+        if not (m := re.fullmatch(_ASK_TAIL, t)):
+            return None
+        who, what = m.group(2), m.group(1)
+    prompt = _restore(orig, what)
+    if not prompt or len(what.split()) < 2:
+        return None
+    return Action("ai.ask", {"service": "chatgpt" if "g" in who.replace("cloud", "") else "claude", "prompt": prompt})
+
+
 def parse_fast(text: str, language: str, now: datetime, is_app: Callable[[str], bool] = lambda n: False) -> Intent | None:
     t = _clean(text)
-    if not t or len(t) > 160:
+    if not t:
         return None
     hi = language != "en"
+    if len(t) <= 800 and (ask := _ask_ai(t, text)) is not None:
+        ask.summary = describe(ask, language, now)
+        return Intent(language, [ask], "")
+    if len(t) > 160:
+        return None
     # sums, conversions and date math are checked on the whole request ("add 5 and 3" is one question)
     if (said := calc.answer(text, now, hi)) is not None:
         return Intent(language, [], said)

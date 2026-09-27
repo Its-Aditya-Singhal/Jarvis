@@ -38,7 +38,13 @@ LEVELS = {
     "alarm.list": 1, "system.battery": 1, "system.lock": 1,  # locking only protects
     "app.close": 2, "folder.open": 2, "web.open": 2, "system.volume": 2, "media.control": 2,
     "screen.shot": 2, "display.brightness": 2, "display.dark_mode": 2, "settings.open": 2,
-    "clipboard.read": 1, "clipboard.note": 2, "text.type": 2,
+    "clipboard.read": 1, "clipboard.note": 2, "text.type": 2, "ai.ask": 2,
+}
+# the chat apps "ai.ask" can fill in: app name, website that pre-fills a prompt (None: it would send it), home page
+AI_SERVICES = {
+    "claude": ("Claude", "https://claude.ai/new?q={}", "https://claude.ai/new"),
+    # chatgpt.com/?q= sends the prompt straight away, so the website gets it through the clipboard
+    "chatgpt": ("ChatGPT", None, "https://chatgpt.com/"),
 }
 MATCH_MIN = 75  # fuzzy score needed to pick a note/event to delete
 MAX_TIMER_S = 24 * 3600
@@ -589,6 +595,27 @@ class ToolRunner:
                               "Accessibility, then ask again.", {"permission": "accessibility"})
         return ToolResult("text.type", True, f"{app} में टाइप कर दिया है।" if hi else f"Typed it into {app}.",
                           {"app": app, "chars": len(text)})
+
+    # -- Claude / ChatGPT --------------------------------------------------------------------
+    def _ai_ask(self, args: dict, hi: bool) -> ToolResult:
+        spoken = re.sub(r"[^a-z]", "", str(args.get("service") or "claude").lower())
+        service = "chatgpt" if spoken in ("chatgpt", "gpt", "openai", "chatgbt") else "claude"
+        prompt = " ".join(str(args.get("prompt") or "").split())[:4000]
+        name, web, home = AI_SERVICES[service]
+        if not prompt:
+            return ToolResult("ai.ask", False, f"{name} से क्या पूछूँ, समझ नहीं आया।" if hi else f"I didn't catch what to ask {name}.")
+        found = self.apps.resolve(name) if self.apps is not None else None
+        app = found[1] if found is not None and found[0] == name else None
+        how = self.mac.ask_ai(name, app, prompt, web, home)
+        q = _quote(prompt, 120)
+        if how == "clipboard":
+            say = (f"{name} खोल दिया है। आपका सवाल {q} क्लिपबोर्ड पर है: Command-V से पेस्ट करके Return दबाइए।" if hi else
+                   f"Opening {name}. Your prompt {q} is on the clipboard: paste it with Command-V, then press Return to send.")
+        else:
+            where = "" if how == "app" else (" ब्राउज़र में" if hi else " in your browser")
+            say = (f"{name}{where} खोल दिया है, सवाल लिखा हुआ है: {q}। भेजने के लिए Return दबाइए।" if hi else
+                   f"{name} is open{where} with your prompt {q}. Press Return to send it.")
+        return ToolResult("ai.ask", True, say, {"service": service, "via": how, "prompt": prompt})
 
     def _alarm_list(self, args: dict, hi: bool) -> ToolResult:
         now = self.clock()

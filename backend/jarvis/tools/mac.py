@@ -22,7 +22,7 @@ from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote_plus, urlparse
+from urllib.parse import quote, quote_plus, urlparse
 
 from rapidfuzz import fuzz, process
 
@@ -463,14 +463,52 @@ class MacControl:
         old = None if clip.concealed() else clip.text()  # a copied password isn't put back in plain view
         clip.set_text(text)
         try:
-            self._run(["osascript", "-e", 'tell application "System Events" to keystroke "v" using command down'])
-        except subprocess.CalledProcessError as exc:
-            # 1002 / 1743: not allowed to send keystrokes (Accessibility) or control System Events
-            if re.search(r"\b(1002|1743)\b|not allowed", (exc.stderr or "") + (exc.stdout or "")):
-                raise PermissionError("accessibility") from exc
-            raise
+            self._command_key("v")
         finally:
             if old:
                 self._sleep(0.4)  # let the app read the pasteboard first
                 clip.set_text(old)
         return front
+
+    def _command_key(self, key: str) -> None:
+        """⌘ + ``key`` (a fixed letter) in the front app. PermissionError when macOS hasn't allowed it."""
+        if key not in ("n", "v"):
+            raise ValueError(key)
+        try:
+            self._run(["osascript", "-e", f'tell application "System Events" to keystroke "{key}" using command down'])
+        except subprocess.CalledProcessError as exc:
+            # 1002 / 1743: not allowed to send keystrokes (Accessibility) or control System Events
+            if re.search(r"\b(1002|1743)\b|not allowed", (exc.stderr or "") + (exc.stdout or "")):
+                raise PermissionError("accessibility") from exc
+            raise
+
+    # -- asking Claude / ChatGPT --------------------------------------------------------------
+    def ask_ai(self, name: str, app: Path | None, prompt: str, web: str | None, home_url: str) -> str:
+        """Put ``prompt`` into a new chat in Claude or ChatGPT without sending it.
+        With the app: open it, ⌘N, paste. Else the website: ``web`` pre-fills the
+        box; without one the prompt goes on the clipboard for the owner to paste.
+        Returns "app", "web" or "clipboard"."""
+        if app is not None and app.suffix == ".app" and app.is_dir():
+            was_running = name in self.running()
+            self._run(["open", str(app)])
+            for _ in range(40 if not was_running else 12):  # up to ~10 s for a cold start
+                if self.front_app() == name:
+                    break
+                self._sleep(0.25)
+            else:
+                self.clipboard.set_text(prompt)  # never paste into whatever else is in front
+                return "clipboard"
+            try:
+                self._sleep(0.3 if was_running else 1.5)  # let the window finish loading
+                self._command_key("n")
+                self._sleep(0.5)
+                self.type_text(prompt)
+                return "app"
+            except (PermissionError, LookupError):
+                pass  # no Accessibility permission: fall back to the website below
+        if web is not None:
+            self.open_url(web.format(quote(prompt)))
+            return "web"
+        self.clipboard.set_text(prompt)
+        self.open_url(home_url)
+        return "clipboard"
