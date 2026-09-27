@@ -118,7 +118,9 @@ class SpeechOutput:
 
     def say(self, text: str, gender: str | None = None) -> None:
         text = " ".join(text.split())
-        if not text or not self.tts.ready:
+        # while the voice model is still loading, keep it (the face may unlock first);
+        # once loading has failed there's nothing to say it with
+        if not text or (not self.tts.ready and self.tts.error):
             return
         while self._q.qsize() >= MAX_QUEUE:  # don't build up a backlog of stale speech
             try:

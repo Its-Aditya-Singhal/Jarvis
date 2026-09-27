@@ -145,3 +145,33 @@ def test_speech_output_mutes_while_speaking():
     time.sleep(0.45)
     assert not out.muted()
     out.close()
+
+
+def test_replies_before_the_voice_model_loads_are_spoken_once_it_has():
+    """Face verification starts before speech synthesis has loaded: the greeting must wait, not vanish."""
+    import time
+
+    from jarvis.events import EventBus
+    from jarvis.fakes import FakePlayer, FakeTTS, Scene
+    from jarvis.speech.output import SpeechOutput
+
+    tts = FakeTTS(Scene())
+    bus = EventBus()
+    spoken = []
+    bus.on("tts", lambda e: spoken.append(e["text"]) if e.get("active") else None)
+    out = SpeechOutput(tts, bus, lambda: "female", player=FakePlayer())
+    out.say("Authentication approved. Hi Aditya.")  # still loading
+    tts.load()
+    out.start()
+    end = time.monotonic() + 3
+    while not spoken and time.monotonic() < end:
+        time.sleep(0.02)
+    out.close()
+    assert spoken == ["Authentication approved. Hi Aditya."]
+
+    failed = FakeTTS(Scene())
+    failed.error = "voice synthesis model missing"
+    out = SpeechOutput(failed, bus, lambda: "female", player=FakePlayer())
+    out.say("Hello")  # a voice that can't load: nothing is kept
+    assert out._q.empty()
+    out.close()
