@@ -489,8 +489,28 @@ class AssistantService:
             self.bus.log("Face recognition model loaded")
         else:
             self.bus.log(self.engine.error or "Face model unavailable", "error")
-        if not self._unless_stopping(self.camera.start):
+
+        def begin_seeing() -> None:
+            # unlocking needs only the face model and the camera: start verifying now,
+            # while speech, voice and the language model (seconds each) load
+            self.camera.start()
+            if self.setup_complete and self.face_enrolled:
+                self.begin_verification()
+            elif self.setup_complete and self.voice is not None and self.voice.enrolled:
+                self.voice.begin_verification()  # face profile deleted: the voice can unlock a re-scan
+            self._thread = threading.Thread(target=self._loop, name="face-loop", daemon=True)
+            self._thread.start()
+
+        if not self._unless_stopping(begin_seeing):
             return
+        if not self._unless_stopping(self.perf.start):
+            return
+        self.apply_mode(warm=False)  # decide the model first, so only that one is loaded
+        brain = self.brain
+        if brain is not None:
+            # Ollama loads the model in its own process: meanwhile, load speech and voice here
+            self._unless_stopping(lambda: threading.Thread(target=self._start_brain, args=(brain,),
+                                                           name="llm-start", daemon=True).start())
         if self.speech is not None:
             self.speech.start()  # loads models, then refuses to start if stopped meanwhile
         if self.voice is not None:
@@ -500,34 +520,26 @@ class AssistantService:
         if self.alarms is not None:
             for a in self.alarms.missed:
                 self.bus.log(f"Missed {a.kind} at {a.due:%H:%M} (the app was closed)", "warn")
-        if not self._unless_stopping(self.perf.start):
-            return
-        self.apply_mode(warm=False)  # decide the model first, so only that one is loaded
-        if self.brain is not None and not self._stop.is_set():
-            if self.brain.start():
-                if self._stop.is_set():
-                    self.brain.stop()  # closed while the model loaded: unload it (and our Ollama) again
-                    return
-                self.bus.log(f"Local language model ready ({self.brain.model})")
-                self.apply_mode()  # Ollama may only now be running: re-check the fast model
-            else:
-                self.bus.log(f"Language model unavailable: {self.brain.status()}", "error")
-        if self.setup_complete and self.face_enrolled:
-            self.begin_verification()
-        elif self.setup_complete and self.voice is not None and self.voice.enrolled:
-            self.voice.begin_verification()  # face profile deleted: the voice can unlock a re-scan
 
         def launch() -> None:
             if self.memory is not None:
                 # purges expired history and indexes anything saved without embeddings
                 threading.Thread(target=self._start_memory, name="memory-start", daemon=True).start()
-            self._thread = threading.Thread(target=self._loop, name="face-loop", daemon=True)
-            self._thread.start()
             self._announce = threading.Timer(12.0, self._announce_issues)
             self._announce.daemon = True
             self._announce.start()
 
         self._unless_stopping(launch)
+
+    def _start_brain(self, brain: Brain) -> None:
+        if brain.start():
+            if self._stop.is_set():
+                brain.stop()  # closed while the model loaded: unload it (and our Ollama) again
+                return
+            self.bus.log(f"Local language model ready ({brain.model})")
+            self.apply_mode()  # Ollama may only now be running: re-check the fast model
+        else:
+            self.bus.log(f"Language model unavailable: {brain.status()}", "error")
 
     def _announce_issues(self) -> None:
         """Say once, after startup, if something important is broken."""

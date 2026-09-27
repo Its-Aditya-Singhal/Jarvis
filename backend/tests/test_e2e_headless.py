@@ -303,3 +303,31 @@ def test_a_cancelled_face_enrollment_is_never_saved(h):
     h.tick_until(lambda: session.done)
     h.tick(3)
     assert not h.svc.face_enrolled
+
+
+def test_face_verification_starts_before_the_slow_models_finish_loading(settings):
+    """Unlocking needs only the face model and the camera: it must not wait for speech,
+    voice or the language model (Ollama can take many seconds to load a model)."""
+    import threading
+
+    import numpy as np
+
+    from jarvis.fakes import FACES
+
+    app, rig = build(settings)
+    svc = app.state.svc
+    svc.store.save("face", np.stack([FACES["owner"]] * 8))
+    svc.db.set("owner_name", "Aditya")
+    svc.db.set("setup_complete", "1")
+    warming, release = threading.Event(), threading.Event()
+    rig.ollama.warm = lambda model: (warming.set(), release.wait(10))
+    starter = threading.Thread(target=svc.start, name="startup")
+    starter.start()
+    try:
+        assert warming.wait(5)
+        assert svc.mode == "verifying"
+        assert svc._thread is not None and svc._thread.is_alive(), "face loop not running yet"
+    finally:
+        release.set()
+        starter.join(10)
+        svc.stop()
