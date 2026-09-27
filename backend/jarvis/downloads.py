@@ -130,12 +130,13 @@ class ModelDownloader:
         """Required packs that aren't fully on disk."""
         return [p.id for p in self.packs if p.required and self.missing(p)]
 
-    def _remaining(self, files: list[ModelFile]) -> int:
-        """Bytes still to fetch and unpack (partial downloads count as done)."""
+    def _remaining(self, files: list[ModelFile], unpacked: bool = True) -> int:
+        """Bytes still to fetch, plus what unpacking will write when `unpacked` (the disk
+        space it needs). Partial downloads count as done."""
         n = 0
         for f in files:
             part = self._part(f)
-            n += max(0, f.size - (part.stat().st_size if part.is_file() else 0)) + f.unpacked
+            n += max(0, f.size - (part.stat().st_size if part.is_file() else 0)) + (f.unpacked if unpacked else 0)
         return n
 
     def _part(self, f: ModelFile) -> Path:
@@ -152,16 +153,21 @@ class ModelDownloader:
             run = {"state": self._state, "error": self._error, "file": self._file,
                    "done_bytes": self._done_bytes + self._file_bytes, "total_bytes": self._total,
                    "speed_bps": round(self._speed), "queued": list(self._queued)}
-        packs = []
+        run["current"] = next((p.id for p in self.packs if any(f.path == run["file"] for f in p.files)), None)
+        packs, disk = [], 0
         for p in self.packs:
             miss = self.missing(p)
             packs.append({"id": p.id, "title": p.title, "detail": p.detail, "required": p.required,
                           "installed": not miss, "size": sum(f.size for f in p.files),
-                          "remaining": self._remaining(miss),
+                          "remaining": self._remaining(miss, unpacked=False),  # what's left to download
                           "partial": any(self._part(f).is_file() for f in miss)})
+            if p.required and miss:
+                disk += self._remaining(miss)
         need = [p for p in packs if p["required"] and not p["installed"]]
+        # download_bytes is what the progress bar counts; needed_bytes adds unpacking, for the space check
         return {**run, "packs": packs, "needed": [p["id"] for p in need],
-                "needed_bytes": sum(p["remaining"] for p in need), "free_bytes": self.free_bytes()}
+                "download_bytes": sum(p["remaining"] for p in need), "needed_bytes": disk,
+                "free_bytes": self.free_bytes()}
 
     # -- running -----------------------------------------------------------------------
     @property

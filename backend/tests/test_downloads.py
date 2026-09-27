@@ -156,6 +156,8 @@ def test_zip_packs_unpack_only_the_listed_files(server, tmp_path):
     Files.blobs["/b.bin"] = data
     packs = one(server, data, extract="models/pack", members=["det.onnx", "rec.onnx"], unpacked=200)
     d = ModelDownloader(tmp_path, packs, disk_free=lambda p: 10**12)
+    st = d.status()  # the download is the archive; the space check also counts what unpacking writes
+    assert st["download_bytes"] == len(data) and st["needed_bytes"] == len(data) + 200
     assert run(d)["state"] == "done"
     assert sorted(p.name for p in (tmp_path / "models/pack").iterdir()) == ["det.onnx", "rec.onnx"]
     assert not (tmp_path / "a/b.bin").exists() and not list(tmp_path.rglob("evil.sh"))
