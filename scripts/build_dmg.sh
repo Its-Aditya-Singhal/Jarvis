@@ -35,7 +35,7 @@ backend/.venv/bin/python scripts/pin_models.py --check
 
 echo "==> Backend sidecar (PyInstaller)"
 rm -rf backend/build backend/dist
-(cd backend && .venv/bin/pyinstaller --noconfirm --clean --distpath dist --workpath build packaging/jarvis-backend.spec)
+(cd backend && .venv/bin/pyinstaller --noconfirm --clean --distpath dist --workpath build sidecar/jarvis-backend.spec)
 SIDECAR="backend/dist/jarvis-backend"
 [[ -x "$SIDECAR/jarvis-backend" ]] || { echo "PyInstaller produced no backend" >&2; exit 1; }
 

@@ -36,7 +36,7 @@ scripts/build_dmg.sh
 - [ ] `dist/JARVIS-1.0.0-arm64.dmg` opens and shows JARVIS + Applications
 - [ ] If PyInstaller misses a module at runtime, the backend log
       (`~/Library/Application Support/JarvisAssistant/logs/backend.log`) names it:
-      add it to `PACKAGES` in `backend/packaging/jarvis-backend.spec`
+      add it to `PACKAGES` in `backend/sidecar/jarvis-backend.spec`
 - [ ] If built on macOS 15, check the app still opens on macOS 14 (MLX wheels
       can require the build machine's version); otherwise raise
       `minimumSystemVersion` in `tauri.conf.json`

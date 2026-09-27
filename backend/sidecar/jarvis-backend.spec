@@ -2,7 +2,7 @@
 # gigabytes on every launch) that scripts/build_dmg.sh copies into
 # JARVIS.app/Contents/Resources/backend/.
 #
-#   cd backend && .venv/bin/pyinstaller --noconfirm --distpath dist --workpath build packaging/jarvis-backend.spec
+#   cd backend && .venv/bin/pyinstaller --noconfirm --distpath dist --workpath build sidecar/jarvis-backend.spec
 import os
 import sys
 

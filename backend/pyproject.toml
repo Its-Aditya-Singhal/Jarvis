@@ -63,3 +63,9 @@ ignore_missing_imports = true
 warn_unused_ignores = true
 warn_redundant_casts = true
 files = ["jarvis"]
+
+[tool.setuptools.packages.find]
+include = ["jarvis*"]  # sidecar/ holds the PyInstaller build files, not a package
+
+[tool.setuptools.package-data]
+jarvis = ["model_manifest.json", "auth/fusion/default_model.json"]

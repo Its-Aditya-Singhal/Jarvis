@@ -106,7 +106,7 @@ receives values as `argv`, never as script text.
   check first), and `llm/setup.py` detects Ollama and pulls its models. Then
   the backend restarts itself in place (same port and token) to load them.
 - `scripts/build_dmg.sh` pins the model checksums, builds the backend with
-  PyInstaller (`backend/packaging/jarvis-backend.spec`, a folder rather than one
+  PyInstaller (`backend/sidecar/jarvis-backend.spec`, a folder rather than one
   file so launches don't unpack gigabytes), builds the Tauri app, copies the
   backend into `Contents/Resources/backend`, signs everything ad hoc with the
   hardened runtime and `app/src-tauri/Entitlements.plist` (camera, microphone,
