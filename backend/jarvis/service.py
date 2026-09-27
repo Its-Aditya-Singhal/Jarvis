@@ -918,8 +918,11 @@ class AssistantService:
         plan = self.tools.plan(action, lang)
         if isinstance(plan, ToolResult):
             return plan
-        say = f"{plan.what} हटा दूँ? “हाँ, कर दो” बोलिए या Confirm दबाइए।" if hi else (
-            f"Delete {plan.what}? Say “yes, go ahead” or click Confirm.")
+        if plan.tool == "files.trash":
+            ask = f"{plan.what} ट्रैश में डाल दूँ?" if hi else f"Move {plan.what} to the Trash?"
+        else:
+            ask = f"{plan.what} हटा दूँ?" if hi else f"Delete {plan.what}?"
+        say = f"{ask} “हाँ, कर दो” बोलिए या Confirm दबाइए।" if hi else f"{ask} Say “yes, go ahead” or click Confirm."
         return self._open_pending(plan, lang, say, trust)
 
     def request_sensitive(self, tool: str, what: str, question: str, run: Callable[[], ToolResult],

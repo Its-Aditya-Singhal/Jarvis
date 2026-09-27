@@ -16,6 +16,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 from rapidfuzz import fuzz
@@ -24,7 +25,7 @@ from ..database.db import Database
 from ..llm.intents import Action, clock_phrase, day_phrase, parse_local
 from .apple import AppleBridge, AppleError
 from .apps import AppIndex
-from .files import FileSearch
+from .files import FileSearch, FolderError, Found
 from .mac import SETTINGS_TITLES, SITES, MacControl, settings_page
 from .store import Event, ToolStore
 
@@ -39,6 +40,7 @@ LEVELS = {
     "app.close": 2, "folder.open": 2, "web.open": 2, "system.volume": 2, "media.control": 2,
     "screen.shot": 2, "display.brightness": 2, "display.dark_mode": 2, "settings.open": 2,
     "clipboard.read": 1, "clipboard.note": 2, "text.type": 2, "ai.ask": 2,
+    "files.recent": 1, "files.reveal": 2, "files.trash": 3,  # the Trash is recoverable, but still a deletion
 }
 # the chat apps "ai.ask" can fill in: app name, website that pre-fills a prompt (None: it would send it), home page
 AI_SERVICES = {
@@ -67,6 +69,7 @@ class Plan:
     item_id: int
     what: str  # e.g. the note's text or the event's title and time
     hi: bool
+    path: str = ""  # files.trash: the exact file shown in the confirmation
 
 
 def _quote(s: str, n: int = 60) -> str:
@@ -101,6 +104,7 @@ class ToolRunner:
         self.on_change = on_change
         self.clock = clock
         self.memory: Any = None  # jarvis.memory.manager.Memory, set when memory is enabled
+        self.last_files: list[Path] = []  # the latest search results: "show it in Finder", "trash it"
 
     # -- Apple sync settings --------------------------------------------------------
     @property
@@ -137,6 +141,8 @@ class ToolRunner:
 
     def execute(self, plan: Plan) -> ToolResult:
         hi = plan.hi
+        if plan.tool == "files.trash":
+            return self._files_trash(plan)
         if plan.tool == "notes.delete":
             done = self.store.delete_note(plan.item_id)
         elif plan.tool == "memory.forget" and self.memory is not None:
@@ -654,7 +660,155 @@ class ToolRunner:
                     "Files and Folders में अनुमति दीजिए।" if hi else
                     f" macOS hasn't let me look in {which} — allow it in System Settings, Privacy & Security, "
                     "Files and Folders.")
+        self.last_files = list(hits)
         return ToolResult("files.search", True, say, {"files": [str(h) for h in hits], "denied": blocked})
+
+    # -- recent files, Finder and the Trash ------------------------------------------------
+    def _file_window(self, when: str) -> tuple[datetime | None, datetime | None, str, str] | None:
+        """'yesterday' -> (start, end, ' from yesterday', ' कल की'); '' -> no limit; None if not understood."""
+        now = self.clock()
+        today = datetime.combine(now.date(), datetime.min.time())
+        w = " ".join(when.lower().replace("_", " ").split())
+        if w in ("", "any", "recent", "recently", "latest", "last", "newest"):
+            return None, None, "", ""
+        if w in ("today", "aaj"):
+            return today, None, " from today", " आज की"
+        if w in ("yesterday", "kal"):
+            return today - timedelta(days=1), today, " from yesterday", " कल की"
+        if w in ("this week", "is hafte"):
+            return today - timedelta(days=now.weekday()), None, " from this week", " इस हफ़्ते की"
+        if w in ("last week", "pichle hafte"):
+            start = today - timedelta(days=now.weekday() + 7)
+            return start, start + timedelta(days=7), " from last week", " पिछले हफ़्ते की"
+        if w in ("this month", "is mahine"):
+            return today.replace(day=1), None, " from this month", " इस महीने की"
+        if m := re.fullmatch(r"(?:last|past) (\d{1,3}) days?", w):
+            return today - timedelta(days=int(m.group(1)) - 1), None, f" from the last {m.group(1)} days", f" पिछले {m.group(1)} दिनों की"
+        d = parse_local(f"{w}T00:00") if re.fullmatch(r"\d{4}-\d{2}-\d{2}", w) else None
+        if d is not None and d <= now:
+            return d, d + timedelta(days=1), f" from {d.strftime('%B')} {d.day}", f" {d.day}/{d.month} की"
+        return None
+
+    _KIND_EN = {"pdf": "PDF", "image": "image", "screenshot": "screenshot", "document": "document",
+                "spreadsheet": "spreadsheet", "presentation": "presentation", "video": "video",
+                "audio": "audio file", "archive": "archive", "any": "file"}
+    _KIND_ALIASES = {"pdfs": "pdf", "photo": "image", "photos": "image", "picture": "image", "pictures": "image",
+                     "images": "image", "screenshots": "screenshot", "doc": "document", "docs": "document",
+                     "documents": "document", "sheet": "spreadsheet", "excel": "spreadsheet", "spreadsheets": "spreadsheet",
+                     "slides": "presentation", "deck": "presentation", "presentations": "presentation",
+                     "videos": "video", "movie": "video", "song": "audio", "music": "audio", "zip": "archive",
+                     "file": "any", "files": "any", "": "any"}
+
+    def _find_files(self, tool: str, args: dict, hi: bool) -> tuple[list[Found], str] | ToolResult:
+        """Resolve kind / when / folder / query to matching files, newest first, and a
+        phrase describing the request ('PDF from yesterday in Downloads')."""
+        from .files import KINDS
+
+        kind = str(args.get("kind") or "any").strip().lower()
+        kind = self._KIND_ALIASES.get(kind, kind)
+        if kind not in KINDS:
+            kind = "any"
+        window = self._file_window(str(args.get("when") or ""))
+        if window is None:
+            return ToolResult(tool, False, "कब की फ़ाइल, समझ नहीं आया।" if hi else "I didn't understand which day you meant.")
+        since, until, when_en, when_hi = window
+        within = None
+        where_en = where_hi = ""
+        folder = " ".join(str(args.get("folder") or "").lower().split())
+        if folder:
+            within = self.mac.folders.get(folder) or self.mac.folders.get(folder.rstrip("s"))
+            if within is None or not any(f.is_relative_to(within.resolve()) or within.resolve().is_relative_to(f)
+                                         for f in self.files.folders()):
+                return ToolResult(tool, False, f"मैं {folder} में नहीं देख सकती।" if hi else
+                                  f"{folder.title()} isn't one of the folders I'm allowed to look in (Settings → Files).")
+            within = within.resolve()
+            where_en, where_hi = f" in {within.name}", f" {within.name} में"
+        query = " ".join(str(args.get("query") or "").split())[:60]
+        hits = self.files.recent(kind, since, until, within, query)
+        noun = self._KIND_EN[kind]
+        if hi:
+            return hits, f"{when_hi}{where_hi} {noun if kind != 'any' else ''}".strip()
+        return hits, f"{noun}s{when_en}{where_en}"  # "PDFs from yesterday in Downloads"
+
+    def _when_said(self, f: Found, hi: bool) -> str:
+        now = self.clock()
+        return (f"{day_phrase(f.when.date(), now.date(), True)} {clock_phrase(f.when, True)}" if hi
+                else f"{day_phrase(f.when.date(), now.date(), False)} at {clock_phrase(f.when, False)}")
+
+    def _files_recent(self, args: dict, hi: bool) -> ToolResult:
+        r = self._find_files("files.recent", args, hi)
+        if isinstance(r, ToolResult):
+            return r
+        hits, what = r
+        blocked = [f.name for f in self.files.denied()]
+        if not hits:
+            say = f"{what} कोई फ़ाइल नहीं मिली।" if hi else f"I didn't find any {what}."
+        else:
+            self.last_files = [h.path for h in hits]
+            newest = hits[0]
+            count = f"{len(hits)}{'+' if len(hits) >= 10 else ''}"
+            if hi:
+                say = f"{count} फ़ाइलें मिलीं। सबसे नई {_quote(newest.path.name)} है, {self._when_said(newest, True)} की।"
+            elif len(hits) == 1:
+                say = f"Found one: {_quote(newest.path.name)}, {self._when_said(newest, False)}."
+            else:
+                say = f"I found {count}. The newest is {_quote(newest.path.name)}, {self._when_said(newest, False)}."
+        if blocked:
+            which = _join(blocked, hi)
+            say += (f" macOS ने मुझे {which} देखने की अनुमति नहीं दी है।" if hi else
+                    f" macOS hasn't let me look in {which} — allow it in System Settings, Privacy & Security, Files and Folders.")
+        return ToolResult("files.recent", True, say, {"files": [str(h.path) for h in hits], "denied": blocked})
+
+    def _one_file(self, tool: str, args: dict, hi: bool) -> Path | ToolResult:
+        """The file a reveal / trash request means: the newest match, or the file just found."""
+        if not any(args.get(k) for k in ("kind", "when", "folder", "query")):
+            if not self.last_files:
+                return ToolResult(tool, False, "कौन सी फ़ाइल? पहले मुझसे ढूँढने को कहिए।" if hi
+                                  else "Which file? Ask me to find it first.")
+            return self.last_files[0]
+        r = self._find_files(tool, args, hi)
+        if isinstance(r, ToolResult):
+            return r
+        hits, what = r
+        if not hits:
+            return ToolResult(tool, False, f"{what} कोई फ़ाइल नहीं मिली।" if hi else f"I didn't find any {what}.")
+        self.last_files = [h.path for h in hits]
+        return hits[0].path
+
+    def _files_reveal(self, args: dict, hi: bool) -> ToolResult:
+        p = self._one_file("files.reveal", args, hi)
+        if isinstance(p, ToolResult):
+            return p
+        try:
+            self.files.reveal(str(p))
+        except FolderError as exc:
+            return ToolResult("files.reveal", False, f"{_quote(p.name)} नहीं दिखा पाई: {exc}।" if hi
+                              else f"I couldn't show {_quote(p.name)}: {exc}.")
+        return ToolResult("files.reveal", True, f"Finder में {_quote(p.name)} दिखा रही हूँ।" if hi
+                          else f"Showing {_quote(p.name)} in Finder.", {"files": [str(p)]})
+
+    def _plan_files_trash(self, args: dict, hi: bool) -> Plan | ToolResult:
+        p = self._one_file("files.trash", args, hi)
+        if isinstance(p, ToolResult):
+            return p
+        try:
+            p = self.files.trashable(p)
+        except FolderError as exc:
+            return ToolResult("files.trash", False, f"{_quote(p.name)} ट्रैश में नहीं डाल सकती: {exc}।" if hi
+                              else f"I can't move {_quote(p.name)} to the Trash: {exc}.")
+        what = f"{p.parent.name} की फ़ाइल {_quote(p.name)}" if hi else f"{_quote(p.name)} from {p.parent.name}"
+        return Plan("files.trash", 0, what, hi, path=str(p))
+
+    def _files_trash(self, plan: Plan) -> ToolResult:
+        hi = plan.hi
+        try:
+            p = self.files.trash(plan.path)
+        except FolderError as exc:
+            return ToolResult("files.trash", False, f"ट्रैश में नहीं डाल पाई: {exc}।" if hi else f"I couldn't move it to the Trash: {exc}.")
+        self.last_files = [f for f in self.last_files if f != p]
+        say = (f"{plan.what} ट्रैश में डाल दी है। Finder के ट्रैश से वापस ला सकते हैं।" if hi
+               else f"Moved {plan.what} to the Trash. You can put it back from the Trash in Finder.")
+        return ToolResult("files.trash", True, say, {"path": str(p)})
 
     # -- manual sync ----------------------------------------------------------------------
     def sync_now(self) -> dict:

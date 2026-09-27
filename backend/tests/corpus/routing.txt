@@ -393,7 +393,21 @@ fast | files.search(query=resume) | search for documents called resume
 fast | files.search(query=capstone report) | look for files on capstone report
 gap  | files.search(query=resume) | where is my resume
 llm  | none | search for my passport
-llm  | files.search | find the PDF I downloaded yesterday
+fast | files.recent(kind=pdf, when=yesterday, folder=downloads) | find the PDF I downloaded yesterday
+fast | files.recent(kind=pdf, when=yesterday, folder=downloads) | where is the pdf i downloaded yesterday
+fast | files.recent(kind=any, when=today, folder=downloads) | what did I download today
+fast | files.recent(kind=any, folder=downloads) | show me my recent downloads
+fast | files.recent(kind=screenshot) | find my latest screenshot
+fast | files.recent(kind=image, when=this week) | show me the photos from this week
+fast | files.recent(kind=pdf, when=yesterday, folder=downloads) | kal download ki hui pdf dikhao
+fast | files.reveal() | show it in Finder
+fast | files.reveal(kind=pdf, when=yesterday, folder=downloads) | show the pdf I downloaded yesterday in finder
+fast | files.trash() | move it to the trash
+fast | files.trash() | ise trash mein daal do
+fast | files.trash(kind=archive, when=today, folder=downloads) | delete the zip I downloaded today
+fast | files.recent(kind=pdf, when=yesterday, folder=downloads) + files.reveal() | find the pdf I downloaded yesterday and show it in finder
+llm  | none | delete it
+llm  | files.recent | find the spreadsheet I was working on this morning
 llm  | files.search | find the presentation about marketing
 
 # -- time and date ----------------------------------------------------------------------------

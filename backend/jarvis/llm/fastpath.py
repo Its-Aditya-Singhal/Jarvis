@@ -131,6 +131,75 @@ def _clock(t: str, now: datetime, wake: bool) -> datetime | None:
     return future[0] if future else None
 
 
+# -- files: "the PDF I downloaded yesterday" ---------------------------------------------
+_FILE_KIND = {
+    "pdf": "pdf", "pdfs": "pdf", "screenshot": "screenshot", "screenshots": "screenshot", "screen shot": "screenshot",
+    "image": "image", "images": "image", "photo": "image", "photos": "image", "picture": "image", "pictures": "image",
+    "document": "document", "documents": "document", "doc": "document", "docs": "document",
+    "spreadsheet": "spreadsheet", "spreadsheets": "spreadsheet", "excel file": "spreadsheet", "excel sheet": "spreadsheet",
+    "presentation": "presentation", "presentations": "presentation", "slides": "presentation", "deck": "presentation",
+    "video": "video", "videos": "video", "zip": "archive", "zips": "archive", "zip file": "archive", "dmg": "archive",
+    "file": "any", "files": "any", "download": "any", "downloads": "any", "thing": "any",
+}
+_KIND_RE = "(" + "|".join(sorted(_FILE_KIND, key=len, reverse=True)) + ")"
+_WHEN_RE = r"(today|yesterday|this week|last week|this month|this morning|last night|aaj|kal)"
+_WHEN_ARG = {"aaj": "today", "kal": "yesterday", "this morning": "today", "last night": "yesterday"}
+_PLACE_RE = r"(downloads|desktop|documents)"
+
+
+def _file_ref(t: str) -> dict | None:
+    """'the latest pdf i downloaded yesterday' -> {kind: pdf, when: yesterday, folder: downloads}.
+    Needs a sign it means a particular recent file (latest, a day, "I downloaded"), so plain
+    "my documents" stays the folder."""
+    m = re.fullmatch(
+        rf"(?:the |my |that |a )?(?:(latest|last|newest|most recent|recent|new) )?{_KIND_RE}"
+        rf"(?: (?:that |which )?i (downloaded|saved|took|made|created|got|received|captured))?"
+        rf"(?: (?:from |on )?{_WHEN_RE})?(?: (?:in|from|on) (?:my |the )?{_PLACE_RE})?(?: (?:from |on )?{_WHEN_RE})?", t)
+    if not m:
+        m2 = re.fullmatch(rf"(?:{_WHEN_RE} )(?:download|save)(?: ki| kiya| kari| kii)?(?: hui| hua| huyi| gayi| gaya)? {_KIND_RE}", t)
+        if not m2:
+            return None
+        return {"kind": _FILE_KIND[m2.group(2)], "when": _WHEN_ARG.get(m2.group(1), m2.group(1)), "folder": "downloads"}
+    latest, noun, verb, when1, place, when2 = m.groups()
+    when = when1 or when2
+    if not (latest or verb or when or place and noun not in ("download", "downloads")):
+        return None
+    args: dict = {"kind": _FILE_KIND[noun]}
+    if when:
+        args["when"] = _WHEN_ARG.get(when, when)
+    if noun in ("download", "downloads") or verb == "downloaded":
+        args["folder"] = "downloads"
+    if place:
+        args["folder"] = place
+    return args
+
+
+def _files(t: str) -> Parsed | None:
+    IT = r"(?:it|that|this|that file|this file|the file|ise|isse|use|usko|ye file|yeh file|woh file|wo file)"
+    if re.fullmatch(rf"{POLITE}(?:show|reveal|open|find)(?: me)? {IT} in (?:the )?finder|reveal {IT}|{IT} finder (?:mein|me) (?:dikhao|kholo)", t):
+        return [Action("files.reveal", {})], ""
+    if re.fullmatch(rf"{POLITE}(?:(?:move|put|send|throw) {IT} (?:to|in|into) (?:the )?(?:trash|bin|recycle bin)|trash {IT}|bin {IT})"
+                    rf"|{IT} (?:ko )?(?:trash|bin) (?:mein|me) (?:daal do|dalo|daalo|daal|bhej do|dal do)", t):
+        return [Action("files.trash", {})], ""
+    m = re.fullmatch(rf"{POLITE}(?:show|reveal|find|open)(?: me)? (.+?) in (?:the )?finder", t)
+    if m and (ref := _file_ref(m.group(1))):
+        return [Action("files.reveal", ref)], ""
+    m = re.fullmatch(rf"{POLITE}(?:(?:move|put|send|throw) (.+?) (?:to|in|into) (?:the )?(?:trash|bin)|(?:trash|delete) (.+))", t)
+    if m and (ref := _file_ref(m.group(1) or m.group(2))):
+        return [Action("files.trash", ref)], ""
+    m = re.fullmatch(rf"what did i (download|save)(?: (?:from )?{_WHEN_RE})?", t)
+    if m:
+        args = {"kind": "any", "folder": "downloads"} if m.group(1) == "download" else {"kind": "any"}
+        if m.group(2):
+            args["when"] = _WHEN_ARG.get(m.group(2), m.group(2))
+        return [Action("files.recent", args)], ""
+    m = (re.fullmatch(rf"{POLITE}(?:find|show(?: me)?|list|get|where(?:'s| is| are)|what(?:'s| is| are)|search for|look for|pull up)(?: me)? (.+?)", t)
+         or re.fullmatch(r"(.+?)(?: (?:dikhao|dhundo|dhoondo|dikha do|batao|kahan hai|kaha hai))", t))
+    if m and (ref := _file_ref(m.group(1))):
+        return [Action("files.recent", ref)], ""
+    return None
+
+
 # -- single commands -------------------------------------------------------------------
 Parsed = tuple[list[Action], str]  # actions, direct reply (for questions)
 
@@ -147,6 +216,8 @@ def _restore(orig: str, cap: str) -> str | None:
 
 
 def _one(t: str, now: datetime, is_app: Callable[[str], bool], hi: bool, orig: str = "") -> Parsed | None:
+    if (r := _files(t)) is not None:
+        return r
     # timers
     m = (re.fullmatch(rf"{POLITE}(?:set|start|put)(?: me)?(?: a| an)? {TIMER} (?:for |of )?(.+?){TAIL}", t)
          or re.fullmatch(rf"{POLITE}{TIMER} (?:for |of )?(.+?){TAIL}", t)

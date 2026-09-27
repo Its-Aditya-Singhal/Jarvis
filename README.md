@@ -244,6 +244,9 @@ Measured on an M1 Pro, from the moment you stop speaking:
 | notes.add / search | encrypted local notes (fuzzy search); with sync on, also in Apple Notes folder "JARVIS" | 2 / 1 |
 | app.open | any `.app` in the standard Applications folders, fuzzy and Devanagari-aware name match, opened with `open <bundle>` (no shell, no arguments) | 2 |
 | files.search | `mdfind -onlyin` per allowed folder; file names only; system, library and hidden folders refused | 1 |
+| files.recent | newest files in the allowed folders by kind, day and folder ("the PDF I downloaded yesterday"); names and dates only, hidden folders and app bundles skipped | 1 |
+| files.reveal | shows the newest match, or the file just found, in Finder (`open -R`) | 2 |
+| files.trash | one plain file in an allowed folder (no folders, apps, symlinks or hidden files), named in the confirmation, re-checked after it, then moved to the Trash the way Finder does (Put Back works) | 3 |
 | notes.delete / calendar.delete | resolved to one exact item first (fuzzy match), shown in the confirmation, deleted only after it; copies in Apple's apps are left alone | 3 |
 
 \*See "How auth levels and fusion work". Level-3 tools cannot be run

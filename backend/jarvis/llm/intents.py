@@ -56,7 +56,11 @@ TOOLS: dict[str, tuple[str, str]] = {
     "memory.remember": ("Remember something the user tells you to remember", "text: the fact, in the user's words"),
     "memory.forget": ("Forget one remembered fact", "query: words from the fact"),
     "history.search": ("Find what was said in past conversations", "query; date: optional ISO date"),
-    "files.search": ("Search the user's files", "query"),
+    "files.search": ("Search the user's files by name or content", "query"),
+    "files.recent": ("List recent files, newest first (\"the PDF I downloaded yesterday\": kind pdf, when yesterday, folder downloads)",
+                     "kind: pdf|image|screenshot|document|spreadsheet|presentation|video|audio|archive|any; when: optional today|yesterday|this week|last week|this month|last N days|ISO date; folder: optional downloads|desktop|documents; query: optional words from the file name"),
+    "files.reveal": ("Show a file in Finder", "same args as files.recent (the newest match); no args = the file just found"),
+    "files.trash": ("Move one file to the Trash", "same args as files.recent (the newest match); no args = the file just found"),
 }
 
 SCHEMA: dict[str, Any] = {
@@ -114,7 +118,7 @@ Rules:
 - Only include actions requested in the LATEST message. Earlier messages are context only (for follow-ups like "another one at 7:30"); never repeat their actions.
 - Split requests joined by "and", "then", "aur", "phir" into separate actions, one per tool use.
 - Never say that you did, set, saved or opened anything.
-- Only use the listed tools. For anything else (messages, email, web, purchases, deleting files, running code) return no actions and say briefly that you can't do that.
+- Only use the listed tools. For anything else (messages, email, web, purchases, deleting several files or folders, running code) return no actions and say briefly that you can't do that. files.trash moves exactly one file to the Trash after the user confirms.
 - For live information (weather, news, prices, scores) say you have no internet access (but web.open can open a website or search for the user).
 - The header's Now is the real current local date and time. Answer time, date and day questions from it directly; never tell the user to check a clock.
 - A line "[Remembered: ...]" before the user's words lists facts the user earlier asked you to remember, in their own words ("my", "I" = the user). Use them to answer questions; never call memory.remember for them again.
@@ -143,6 +147,9 @@ FEWSHOT: list[tuple[str, str, dict]] = [
     ("en", "Remember that my passport number ends in 42 and find my passport scan",
      {"actions": [{"tool": "memory.remember", "args": {"text": "My passport number ends in 42"}},
                   {"tool": "files.search", "args": {"query": "passport"}}], "reply": ""}),
+    ("en", "Find the PDF I downloaded yesterday and show it in Finder",
+     {"actions": [{"tool": "files.recent", "args": {"kind": "pdf", "when": "yesterday", "folder": "downloads"}},
+                  {"tool": "files.reveal", "args": {}}], "reply": ""}),
     ("en", "Close Safari and open my downloads folder",
      {"actions": [{"tool": "app.close", "args": {"name": "Safari"}},
                   {"tool": "folder.open", "args": {"name": "Downloads"}}], "reply": ""}),
@@ -279,6 +286,13 @@ def describe(a: Action, language: str, now: datetime) -> str:
     if a.tool == "ai.ask" and text("prompt"):
         who = "ChatGPT" if "gpt" in text("service").lower() else "Claude"
         return f"{who} से पूछना: “{text('prompt')}”" if hi else f"asking {who}: “{text('prompt')}”"
+    if a.tool in ("files.recent", "files.reveal", "files.trash"):
+        kind = text("kind") if text("kind") not in ("", "any") else ("फ़ाइल" if hi else "file")
+        verb = {"files.recent": ("ढूँढना", "finding your latest"), "files.reveal": ("Finder में दिखाना", "showing your latest"),
+                "files.trash": ("ट्रैश में डालना", "trashing your latest")}[a.tool]
+        if not any(text(k) for k in ("kind", "when", "folder", "query")) and a.tool != "files.recent":
+            return ("वह फ़ाइल " + verb[0]) if hi else verb[1].replace("your latest", "that file")
+        return f"{kind} {verb[0]}" if hi else f"{verb[1]} {kind}"
     if a.tool == "files.search" and text("query"):
         return f"फ़ाइलों में “{text('query')}” ढूँढना" if hi else f"a file search for “{text('query')}”"
     generic = {"alarm.set": "अलार्म", "timer.set": "टाइमर", "calendar.create": "कैलेंडर इवेंट"}
