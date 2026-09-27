@@ -46,6 +46,9 @@ scripts/build_dmg.sh
 - [ ] Gatekeeper: first open is blocked; System Settings → Privacy & Security →
       Open Anyway works
 - [ ] Camera and microphone prompts name **JARVIS** and show the usage text
+- [ ] A Keychain prompt ("jarvis-backend wants to access key jarvis-assistant")
+      appears only if an earlier build made the key; after Always Allow it
+      doesn't come back until the next rebuild or update
 - [ ] The first screen is the model download: sizes and free space look right
 - [ ] Download runs with progress, speed and time left; the MLX pack appears
 - [ ] Pause, then Resume: continues from where it stopped (not from zero)

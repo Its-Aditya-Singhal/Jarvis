@@ -131,6 +131,7 @@ folders and optional Apple Calendar / Notes sync.
 | Problem | Fix |
 |---|---|
 | "JARVIS can't be opened" | System Settings → Privacy & Security → Open Anyway (see Install) |
+| "jarvis-backend wants to access key jarvis-assistant in your keychain" | Type your Mac login password and press **Always Allow**. JARVIS keeps its encryption key in the Keychain, and because the app is signed ad hoc, macOS asks once after each install or update |
 | Camera unavailable | System Settings → Privacy & Security → Camera → turn on JARVIS; quit other apps using the camera; reopen JARVIS |
 | Voice commands are off | Settings → Microphone says why and how to fix it (permission, no device, the wrong device, busy) |
 | "Local AI offline" | Settings → On-device models → Start Ollama, or install it from ollama.com |
