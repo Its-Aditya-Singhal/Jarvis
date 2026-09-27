@@ -20,3 +20,6 @@ window.matchMedia ??= ((query: string) => ({
   matches: false, media: query, onchange: null,
   addListener: noop, removeListener: noop, addEventListener: noop, removeEventListener: noop, dispatchEvent: () => false,
 })) as unknown as typeof window.matchMedia;
+
+// jsdom has no layout: scrolling is a no-op
+Element.prototype.scrollIntoView ??= function () {};

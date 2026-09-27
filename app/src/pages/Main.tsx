@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import ActivityFeed from "../components/ActivityFeed";
 import CameraPreview from "../components/CameraPreview";
 import Orb, { OrbMode } from "../components/Orb";
-import SideNav, { View } from "../components/SideNav";
+import SideNav, { ITEMS, View, shortcut } from "../components/SideNav";
+import CommandPalette, { PaletteItem } from "../components/CommandPalette";
+import AboutPanel from "./AboutPanel";
 import VoiceEnroll from "../components/VoiceEnroll";
 import ConfirmCard from "../components/ConfirmCard";
 import HealthCard from "../components/HealthCard";
@@ -230,10 +232,12 @@ function CommandBox({ disabled }: { disabled: boolean }) {
   return (
     <form className="command-box" onSubmit={send}>
       <input
+        id="command-input"
         className="field"
         value={text}
         maxLength={500}
-        placeholder="Type a command… (English, हिंदी or Hinglish)"
+        aria-label="Command"
+        placeholder="Type a command… (English, हिंदी or Hinglish) — press / to focus"
         onChange={(e) => setText(e.target.value)}
         disabled={disabled}
       />
@@ -485,8 +489,65 @@ function SecurityPanel() {
   );
 }
 
+const focusCommand = () => {
+  const el = document.getElementById("command-input") as HTMLInputElement | null;
+  el?.focus();
+  return !!el;
+};
+
+const typing = (t: EventTarget | null) =>
+  t instanceof HTMLElement && (t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName));
+
 export default function Main() {
   const [view, setView] = useState<View>("system");
+  const [palette, setPalette] = useState(false);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPalette((p) => !p);
+      } else if (mod && /^[1-7]$/.test(e.key)) {
+        e.preventDefault();
+        setView(ITEMS[Number(e.key) - 1].id);
+        setPalette(false);
+      } else if (mod && e.key === ",") {
+        e.preventDefault();
+        setView("settings");
+      } else if (mod && e.key.toLowerCase() === "i") {
+        e.preventDefault();
+        setView("about");
+      } else if (e.key === "/" && !mod && !typing(e.target)) {
+        e.preventDefault();
+        setView("system");
+        window.setTimeout(focusCommand, 0); // after the core view (and its command bar) renders
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const items = useMemo<PaletteItem[]>(
+    () => [
+      ...ITEMS.map((it) => ({ id: `view-${it.id}`, label: it.label, hint: "view", keys: shortcut(it.id), run: () => setView(it.id) })),
+      {
+        id: "type",
+        label: "Type a command",
+        hint: "action",
+        keys: "/",
+        run: () => {
+          setView("system");
+          window.setTimeout(focusCommand, 0);
+        },
+      },
+      { id: "models", label: "Download models", hint: "settings", run: () => setView("settings") },
+      { id: "security-log", label: "Security log", hint: "view", run: () => setView("security") },
+      { id: "export", label: "Export or delete my data", hint: "privacy", run: () => setView("privacy") },
+    ],
+    [],
+  );
+
   return (
     <div className="main-grid">
       <div className="left-col">
@@ -504,6 +565,7 @@ export default function Main() {
         {view === "tools" && <ToolsPanel />}
         {view === "memory" && <MemoryPanel />}
         {view === "privacy" && <PrivacyPanel />}
+        {view === "about" && <AboutPanel />}
         {/* the core view shows it inline; elsewhere it floats so a confirmation is never missed */}
         {view !== "system" && (
           <div className="confirm-float">
@@ -512,6 +574,7 @@ export default function Main() {
         )}
       </main>
       <ActivityFeed />
+      {palette && <CommandPalette items={items} onClose={() => setPalette(false)} />}
     </div>
   );
 }

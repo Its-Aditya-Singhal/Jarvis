@@ -192,6 +192,7 @@ export interface Status {
   setup_complete: boolean;
   /** required models aren't on disk yet: the download screen comes first */
   models_needed?: boolean;
+  version?: string;
   owner_name: string;
   assistant_name: string;
   face_enrolled: boolean;

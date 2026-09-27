@@ -21,7 +21,7 @@ from typing import Any
 import cv2
 import numpy as np
 
-from . import health, privacy
+from . import __version__, health, privacy
 from .auth.face.continuous import ContinuousFaceAuth, FrameResult
 from .auth.face.engine import FaceEngine
 from .auth.face.enrollment import EnrollmentSession
@@ -1340,6 +1340,7 @@ class AssistantService:
         allowed, why = self.face_enroll_allowed() if self.setup_complete else (True, "")
         return {
             "setup_complete": self.setup_complete,
+            "version": __version__,
             # required models not on disk: the UI shows the download screen first
             "models_needed": bool(self.downloader.needed()) if self.downloader is not None else False,
             "owner_name": self.owner_name,
