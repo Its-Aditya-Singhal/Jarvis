@@ -213,3 +213,34 @@ def test_owner_commands_feed_fusion_samples(settings):
     svc.mode = "verifying"  # samples are only kept while verifying
     svc.command("note a")
     assert svc.samples.counts() == {"owner": 1, "other": 0}
+
+
+def test_a_confirmation_runs_once_even_when_confirmed_twice_at_once(settings):
+    """Two confirmations (e.g. a click and a spoken yes) racing for the same pending action."""
+    import threading
+
+    from jarvis.tools.runner import ToolResult
+
+    svc, _, _, state = make(settings, [])
+    runs = []
+    r = svc.request_sensitive("privacy.export", "a copy", "Export?", lambda: runs.append(1) or ToolResult("x", True, "Done."))
+    pid = r["pending"]
+    both_checked = threading.Barrier(2, timeout=5)
+    real_trust = svc.trust
+
+    def trust(now=None):
+        t = real_trust(now)
+        if threading.current_thread().name.startswith("confirm"):
+            both_checked.wait()  # both confirmations are past the "is it pending?" check
+        return t
+
+    svc.trust = trust
+    out = []
+    threads = [threading.Thread(target=lambda: out.append(svc.confirm(pid, True, "click")), name=f"confirm{i}")
+               for i in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(5)
+    assert len(runs) == 1
+    assert sorted(o["ok"] for o in out) == [False, True]

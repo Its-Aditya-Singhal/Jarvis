@@ -838,8 +838,12 @@ class AssistantService:
         p = self._pending
         return p if p is not None and self.clock() < p.expires else None
 
-    def _finish_pending(self, outcome: str) -> Pending | None:
+    def _finish_pending(self, outcome: str, only: Pending | None = None) -> Pending | None:
+        """Close the pending action. With ``only``, close it only if it is still that one:
+        of two racing confirmations exactly one gets it (and runs it)."""
         with self._pending_lock:
+            if only is not None and self._pending is not only:
+                return None
             p, self._pending = self._pending, None
         if p is not None:
             self.bus.publish({"type": "confirm_done", "id": p.id, "outcome": outcome})
@@ -903,7 +907,8 @@ class AssistantService:
         if p is None or p.id != pid:
             return self._answer("Nothing is waiting for confirmation.", ok=False)
         if not accept:
-            self._finish_pending("cancelled")
+            if self._finish_pending("cancelled", p) is None:
+                return self._answer("Nothing is waiting for confirmation.", ok=False)
             self.bus.log("Cancelled by the owner")
             if p.run is not None:
                 return self._answer("ठीक है, कुछ नहीं बदला।" if hi else "Okay, nothing changed.", ok=True)
@@ -929,7 +934,8 @@ class AssistantService:
                 text = self._blocked_say(code, p.lang, source)
                 self.db.add_security_event("tool_blocked", f"{p.plan.tool} confirmation refused: {REASONS.get(code, code)}", blocked=True)
             return self._answer(text, ok=False)
-        self._finish_pending("done")
+        if self._finish_pending("done", p) is None:  # another confirmation got there first
+            return self._answer("Nothing is waiting for confirmation.", ok=False)
         try:
             if p.run is not None:
                 res = p.run()
