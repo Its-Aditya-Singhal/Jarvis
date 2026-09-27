@@ -188,6 +188,8 @@ export interface MicState {
 
 export interface Status {
   setup_complete: boolean;
+  /** required models aren't on disk yet: the download screen comes first */
+  models_needed?: boolean;
   owner_name: string;
   assistant_name: string;
   face_enrolled: boolean;
@@ -368,3 +370,53 @@ export type BackendEvent =
   | ({ type: "voice_enroll" } & VoiceEnrollSnapshot)
   | { type: "voice_enroll_complete" }
   | { type: "voice_enroll_cancelled"; reason: string };
+
+// ---- first-run model download ---------------------------------------------
+
+export interface ModelPack {
+  id: string;
+  title: string;
+  detail: string;
+  required: boolean;
+  installed: boolean;
+  size: number;
+  remaining: number;
+  partial: boolean;
+}
+
+export interface ModelFiles {
+  state: "idle" | "downloading" | "verifying" | "unpacking" | "done" | "cancelled" | "error";
+  error: string | null;
+  file: string | null;
+  done_bytes: number;
+  total_bytes: number;
+  speed_bps: number;
+  queued: string[];
+  packs: ModelPack[];
+  needed: string[];
+  needed_bytes: number;
+  free_bytes: number;
+}
+
+export interface OllamaModel {
+  name: string;
+  purpose: string;
+  required: boolean;
+  installed: boolean;
+  size_gb: number | null;
+}
+
+export interface OllamaState {
+  installed: boolean;
+  running: boolean;
+  error: string | null;
+  install: { url: string; brew: string };
+  models: OllamaModel[];
+  pull: { model: string | null; state: "idle" | "downloading" | "done" | "error"; status: string; completed: number; total: number; error: string | null };
+  ready: boolean;
+}
+
+export interface ModelsState {
+  files: ModelFiles;
+  ollama: OllamaState;
+}

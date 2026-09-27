@@ -3,6 +3,7 @@ import AppleCard from "../components/AppleCard";
 import FilesCard from "../components/FilesCard";
 import FusionCard from "../components/FusionCard";
 import MicCard from "../components/MicCard";
+import ModelDownloads from "../components/ModelDownloads";
 import VoiceEnroll from "../components/VoiceEnroll";
 import VoicePicker from "../components/VoicePicker";
 import { ApiError, PrefInfo, SettingsState, Status, VoiceGender, api, post } from "../lib/backend";
@@ -148,6 +149,10 @@ export default function SettingsPanel() {
 
         <PerformanceCard data={data} ctl={ctl} />
         <ModelsCard data={data} run={run} />
+        <div className="card">
+          <div className="panel-title">ON-DEVICE MODELS</div>
+          <ModelDownloads />
+        </div>
 
         <div className="card">
           <div className="panel-title">MEMORY</div>
@@ -344,7 +349,7 @@ function ModelsCard({ data, run }: { data: SettingsState | null; run: (fn: () =>
         <b>{status?.models.memory === "ready" ? "bge-m3" : status?.models.memory}</b>
       </div>
       <p className="muted small">
-        All models run through Ollama on this Mac. Add one with <code>ollama pull &lt;name&gt;</code>.
+        Language models run through Ollama on this Mac. Download the assistant's models under On-device models, or any other with <code>ollama pull &lt;name&gt;</code>.
       </p>
     </div>
   );

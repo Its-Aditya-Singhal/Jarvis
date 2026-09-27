@@ -3,6 +3,7 @@ import AlarmOverlay from "./components/AlarmOverlay";
 import StatusBar from "./components/StatusBar";
 import Main from "./pages/Main";
 import FaceRescan from "./pages/FaceRescan";
+import FirstRun from "./pages/FirstRun";
 import Setup from "./pages/Setup";
 import { startStore, useStore } from "./lib/store";
 
@@ -28,6 +29,8 @@ export default function App() {
           <div className="boot-ring" />
           <p>{connected ? "Loading profile…" : "Starting local systems…"}</p>
         </div>
+      ) : status.models_needed ? (
+        <FirstRun />
       ) : status.setup_complete ? (
         status.face_reenroll ? <FaceRescan /> : <Main />
       ) : (

@@ -432,3 +432,25 @@ code { font-family: var(--mono); font-size: 11.5px; color: var(--accent); }
 /* microphone input level (Settings → Microphone) */
 .level-track { height: 4px; margin: 6px 0 10px; border-radius: 2px; background: rgba(0, 212, 255, 0.08); overflow: hidden; }
 .level-fill { height: 100%; background: var(--accent, #00d4ff); transform-origin: left; transform: scaleX(0); transition: transform 60ms linear; }
+
+/* ---- model downloads (first run + settings) ---- */
+.tone-accent { color: var(--accent); }
+.mono { font-family: var(--mono); letter-spacing: 0.08em; }
+.firstrun { max-width: 760px; }
+.firstrun-head { display: flex; gap: 24px; align-items: center; margin-bottom: 8px; }
+.firstrun-orb { width: 120px; height: 120px; flex: none; }
+.dl { display: flex; flex-direction: column; gap: 12px; }
+.dl-packs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.dl-pack { display: grid; grid-template-columns: 1fr auto 110px; gap: 14px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.dl-pack > div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.dl-pack > :last-child { justify-self: end; }
+.dl-progress { display: flex; flex-direction: column; gap: 6px; }
+.dl-line { display: flex; justify-content: space-between; gap: 12px; }
+.dl-bar { height: 6px; border-radius: 3px; background: rgba(0, 212, 255, 0.1); overflow: hidden; }
+.dl-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--ok)); transform-origin: left; transition: transform 0.4s ease; box-shadow: 0 0 10px rgba(0, 212, 255, 0.6); }
+.dl-ollama { border-top: 1px solid var(--line); padding-top: 4px; display: flex; flex-direction: column; gap: 8px; }
+.panel-title.flush { padding: 10px 0 2px; }
+.dl-done { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 14px; border: 1px solid var(--line-strong); border-radius: 6px; background: rgba(45, 255, 179, 0.05); }
+.small-btn { padding: 6px 10px; font-size: 10px; margin-top: 0; }
+.dl .row { flex-wrap: wrap; }
+@media (prefers-reduced-motion: reduce) { .dl-fill { transition: none; } }
