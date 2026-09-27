@@ -69,7 +69,11 @@ def test_setup_flow_and_lockdown(settings):
         # cannot finish before a face is enrolled
         assert client.post("/api/setup/complete", headers=H).status_code == 400
         svc.store.save("face", np.eye(3, 512, dtype=np.float32))
-        # voice works on this machine, so it is required
+        # voice works on this machine (once its models have loaded), so it is required
+        import time
+        end = time.monotonic() + 10
+        while not svc.voice.available and time.monotonic() < end:
+            time.sleep(0.02)
         r = client.post("/api/setup/complete", headers=H)
         assert r.status_code == 400 and "voice" in r.json()["detail"]
         svc.store.save("voice", np.eye(3, 192, dtype=np.float32))

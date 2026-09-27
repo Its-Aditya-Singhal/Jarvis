@@ -43,7 +43,10 @@ class EventBus:
                 pass
         if self._loop is None:
             return
-        self._loop.call_soon_threadsafe(self._fanout, event)
+        try:
+            self._loop.call_soon_threadsafe(self._fanout, event)
+        except RuntimeError:  # the server has shut down (a worker thread finishing late)
+            pass
 
     def _fanout(self, event: dict[str, Any]) -> None:
         for q in list(self._subscribers):
