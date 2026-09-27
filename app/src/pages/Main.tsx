@@ -151,6 +151,8 @@ function Conversation({
   turns: { who: string; text: string; at: number; actions?: PlannedAction[] }[];
   name: string;
 }) {
+  // files Finder couldn't show (moved or deleted since the search): path -> why
+  const [gone, setGone] = useState<Record<string, string>>({});
   const recent = turns.filter((t) => Date.now() - t.at < 120_000).slice(-2);
   if (!recent.length) return null;
   return (
@@ -187,9 +189,14 @@ function Conversation({
                   {files.map((f) => (
                     <button
                       key={f}
-                      className="file-hit"
-                      title={f}
-                      onClick={() => post("/api/files/reveal", { path: f })}
+                      className={`file-hit${gone[f] ? " gone" : ""}`}
+                      title={gone[f] ?? f}
+                      disabled={!!gone[f]}
+                      onClick={() =>
+                        post("/api/files/reveal", { path: f }).catch((e) =>
+                          setGone((g) => ({ ...g, [f]: e instanceof ApiError ? e.message : "Backend unreachable" })),
+                        )
+                      }
                     >
                       {f.split("/").pop()}
                     </button>

@@ -137,4 +137,10 @@ class FileSearch:
     def reveal(self, path: str) -> None:
         if not self.allowed(path):
             raise FolderError("outside the allowed folders")
-        subprocess.run(["open", "-R", str(_expand(path))], check=True, timeout=10)
+        p = _expand(path)
+        if not p.exists():
+            raise FolderError("that file is no longer there")
+        try:
+            subprocess.run(["open", "-R", str(p)], check=True, timeout=10)
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise FolderError(f"Finder couldn't show it: {exc}") from exc

@@ -263,3 +263,19 @@ def test_app_names_dont_match_what_merely_contains_or_resembles_them(tmp_path, s
     from jarvis.fakes import fake_apps_dir
 
     assert AppIndex([fake_apps_dir(tmp_path, INSTALLED)]).resolve(spoken) is None
+
+
+def test_revealing_a_file_that_is_gone_says_so(tmp_path, monkeypatch):
+    from jarvis.database.db import Database
+    from jarvis.tools import files as files_mod
+    from jarvis.tools.files import FileSearch, FolderError
+
+    docs = tmp_path / "Docs"
+    docs.mkdir()
+    fs = FileSearch(Database(":memory:"))
+    fs.db.set("file_search_folders", f'["{docs}"]')
+    ran = []
+    monkeypatch.setattr(files_mod.subprocess, "run", lambda *a, **k: ran.append(a))
+    with pytest.raises(FolderError, match="no longer there"):
+        fs.reveal(str(docs / "deleted.pdf"))  # found by an earlier search, removed since
+    assert not ran
