@@ -1,3 +1,5 @@
+import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -21,3 +23,14 @@ def face_engine():
     if not engine.load():
         pytest.skip("face models not downloaded")
     return engine
+
+
+def pytest_collection_modifyitems(config, items):
+    """Mac-only tests (hardware, `say`, AppleScript, the Apple GPU) are skipped
+    on other systems, not deleted. JARVIS_RUN_MAC_TESTS=1 forces them to run."""
+    if sys.platform == "darwin" or os.environ.get("JARVIS_RUN_MAC_TESTS") == "1":
+        return
+    skip = pytest.mark.skip(reason="Mac-only: needs macOS or Mac hardware")
+    for item in items:
+        if "mac" in item.keywords:
+            item.add_marker(skip)

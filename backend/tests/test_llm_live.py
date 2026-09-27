@@ -9,6 +9,8 @@ from jarvis.llm.client import LLMUnavailable, OllamaClient
 from jarvis.llm.server import OllamaServer
 from jarvis.speech.text import has_devanagari
 
+pytestmark = pytest.mark.ollama
+
 
 class KV:
     def __init__(self): self.kv = {}

@@ -2,9 +2,12 @@
 
 import cv2
 import numpy as np
+import pytest
 
 from conftest import SAMPLES
 from jarvis.auth.matching import TemplateMatcher
+
+pytestmark = pytest.mark.models
 
 
 def _portrait():

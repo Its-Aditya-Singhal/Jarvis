@@ -23,7 +23,9 @@ SENTENCES = [
 ]
 VOICES = ["Daniel", "Samantha", "Albert"]
 
-pytestmark = pytest.mark.skipif(shutil.which("say") is None, reason="macOS `say` not available")
+# the synthetic speakers come from macOS `say`
+pytestmark = [pytest.mark.mac, pytest.mark.models,
+              pytest.mark.skipif(shutil.which("say") is None, reason="macOS `say` not available")]
 
 
 @pytest.fixture(scope="module")

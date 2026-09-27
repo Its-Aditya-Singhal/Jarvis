@@ -33,3 +33,8 @@ train = ["scikit-learn>=1.4"]  # only for comparing models in scripts/train_fusi
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = [".", "tests"]
+markers = [
+  "mac: needs macOS or Mac hardware (camera, microphone, `say`, AppleScript, Apple GPU); skipped elsewhere",
+  "models: needs the downloaded models in models/ (scripts/download_models.py); skipped when missing",
+  "ollama: needs a local Ollama with the configured model; skipped when not running",
+]

@@ -11,6 +11,8 @@ from jarvis.speech.tts import SAMPLE_RATE, TextToSpeech
 from jarvis.speech.wake import find_wake
 from jarvis.speech_service import name_prompt
 
+pytestmark = pytest.mark.models
+
 
 @pytest.fixture(scope="module")
 def tts():

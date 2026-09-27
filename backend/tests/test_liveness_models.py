@@ -6,6 +6,8 @@ import pytest
 
 from conftest import SAMPLES
 
+pytestmark = pytest.mark.models
+
 
 @pytest.fixture(scope="module")
 def engine(face_engine):
