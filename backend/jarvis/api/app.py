@@ -478,7 +478,8 @@ def create_app(
             ],
         }
 
-    @app.post("/api/alarms/{alarm_id}/cancel", dependencies=auth + [Depends(require_owner)])
+    # the same level as the alarm.cancel tool (tools.runner.LEVELS)
+    @app.post("/api/alarms/{alarm_id}/cancel", dependencies=auth + [Depends(require_level2)])
     def alarm_cancel(alarm_id: int):
         if svc.alarms is None:
             raise HTTPException(503, "tools disabled")
@@ -546,7 +547,8 @@ def create_app(
         bus.log("Apple sync settings updated")
         return apple_settings()
 
-    @app.post("/api/apple/sync", dependencies=auth + [Depends(require_owner)])
+    # creates items in Calendar / Notes, like calendar.create and notes.add (level 2)
+    @app.post("/api/apple/sync", dependencies=auth + [Depends(require_level2)])
     def apple_sync_now():
         try:
             pushed = tools_or_503().sync_now()

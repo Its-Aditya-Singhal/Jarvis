@@ -69,7 +69,14 @@ export default function ToolsPanel() {
                 {a.kind === "timer" ? <Countdown due={a.due} /> : `${fmtDay(a.due)} · ${fmtTime(a.due)}`}
                 {a.label && <em> — {a.label}</em>}
               </span>
-              <button className="btn ghost mini" onClick={() => post(`/api/alarms/${a.id}/cancel`)}>
+              <button
+                className="btn ghost mini"
+                onClick={() =>
+                  post(`/api/alarms/${a.id}/cancel`)
+                    .then(() => setError(null))
+                    .catch((e) => setError(e instanceof ApiError ? e.message : "Backend unreachable"))
+                }
+              >
                 CANCEL
               </button>
             </div>

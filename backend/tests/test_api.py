@@ -43,11 +43,13 @@ class FakeMic:
         return None
 
 
-def _client(settings, mic=None):
-    app = create_app(
-        settings, keys=StaticKeyProvider(), engine=FakeEngine(), camera=FakeCamera(),
-        speaker_engine=FakeSpeaker(), mic=mic or FakeMic(), vad_factory=lambda: (lambda frame: 0.0), speech=False, llm=False, tools=False, memory=False,
+def _client(settings, mic=None, **kw):
+    args = dict(
+        keys=StaticKeyProvider(), engine=FakeEngine(), camera=FakeCamera(), speaker_engine=FakeSpeaker(),
+        mic=mic or FakeMic(), vad_factory=lambda: (lambda frame: 0.0), speech=False, llm=False, tools=False,
+        memory=False,
     )
+    app = create_app(settings, **{**args, **kw})
     return TestClient(app, base_url="http://127.0.0.1"), app.state.svc
 
 
@@ -241,3 +243,23 @@ def test_foreign_host_names_are_refused(settings):
         assert client.get("/api/status", headers={**H, "host": "evil.example:8765"}).status_code == 400
         assert client.get("/api/status", headers={**H, "host": "127.0.0.1:8765"}).status_code == 200
         assert client.get("/api/status", headers={**H, "host": "localhost:8765"}).status_code == 200
+
+
+def test_tool_actions_from_the_ui_need_the_same_level_as_by_voice(settings):
+    """Cancelling an alarm is level 2 by voice (tools.runner.LEVELS), so it is from the UI too;
+    so is pushing items into Apple's apps."""
+    from test_command_service import fake_trust
+
+    from jarvis.tools.apple import AppleBridge
+
+    client, svc = _client(settings, tools=True, apple=AppleBridge(run=lambda *a: ""))
+    with client:
+        state = {"level": 1}
+        svc.trust = lambda now=None: fake_trust(state)
+        aid = svc.tools.store.add_alarm("timer", __import__("datetime").datetime.now().replace(year=2030), "")
+        r = client.post(f"/api/alarms/{aid}/cancel", headers=H)
+        assert r.status_code == 403 and "level 2" in r.json()["detail"]
+        assert client.post("/api/apple/sync", headers=H).status_code == 403
+        state["level"] = 2
+        assert client.post(f"/api/alarms/{aid}/cancel", headers=H).status_code == 200
+        assert client.post("/api/apple/sync", headers=H).status_code == 200
