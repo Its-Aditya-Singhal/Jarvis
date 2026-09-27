@@ -41,3 +41,15 @@ class TemplateStore:
 
     def delete(self, modality: str) -> None:
         self._path(modality).unlink(missing_ok=True)
+
+    def info(self, modality: str) -> dict | None:
+        """Size, age and sample count (decrypts; call for the verified owner only)."""
+        path = self._path(modality)
+        if not path.exists():
+            return None
+        st = path.stat()
+        try:
+            samples = int(len(self.load(modality)))
+        except Exception:
+            samples = None  # unreadable (e.g. the key is gone)
+        return {"bytes": st.st_size, "modified": st.st_mtime, "samples": samples}

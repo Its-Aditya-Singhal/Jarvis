@@ -9,6 +9,8 @@ from .api.app import create_app
 from .audio import mic
 from .camera.capture import request_permission
 from .config import get_settings
+from .database.db import Database
+from .netguard import NetGuard
 
 
 def _exit_with_parent() -> None:
@@ -27,10 +29,18 @@ def main() -> None:
         raise SystemExit("Refusing to bind to a non-loopback address")
     if os.environ.get("JARVIS_WATCH_PARENT") == "1":
         threading.Thread(target=_exit_with_parent, daemon=True).start()
+    # every model is on disk: libraries must not try to download or phone home
+    os.environ.setdefault("HF_HUB_OFFLINE", "1")
+    os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+    os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
+    # offline guard (on by default; the owner can allow the network in Privacy)
+    prefs_db = Database(s.db_path)
+    guard = NetGuard(offline=lambda: prefs_db.get("pref.privacy.offline", "True") == "True")
+    guard.install()
     # macOS permission prompts must come from the main thread
     request_permission(s.camera_index)
     mic.request_permission()
-    uvicorn.run(create_app(s), host=s.host, port=s.port, log_level="warning")
+    uvicorn.run(create_app(s, guard=guard), host=s.host, port=s.port, log_level="warning")
 
 
 if __name__ == "__main__":

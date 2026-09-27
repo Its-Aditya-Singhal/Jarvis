@@ -144,6 +144,9 @@ class SpeechOutput:
                 self._cache.popitem(last=False)
         return audio
 
+    def clear_cache(self) -> None:
+        self._cache.clear()
+
     def prewarm(self, phrases: list[str]) -> None:
         """Synthesise common phrases ahead of time (background, at startup)."""
         for p in phrases:

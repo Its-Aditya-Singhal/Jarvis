@@ -4,17 +4,16 @@ import CameraPreview from "../components/CameraPreview";
 import Orb, { OrbMode } from "../components/Orb";
 import SideNav, { View } from "../components/SideNav";
 import VoiceEnroll from "../components/VoiceEnroll";
-import AppleCard from "../components/AppleCard";
 import ConfirmCard from "../components/ConfirmCard";
-import FusionCard from "../components/FusionCard";
+import HealthCard from "../components/HealthCard";
 import TrustCard from "../components/TrustCard";
-import FilesCard from "../components/FilesCard";
-import VoicePicker from "../components/VoicePicker";
 import ToolsPanel from "./ToolsPanel";
 import MemoryPanel from "./MemoryPanel";
+import PrivacyPanel from "./PrivacyPanel";
+import SettingsPanel from "./SettingsPanel";
 import SuggestionChips from "../components/SuggestionChips";
-import { ApiError, Challenge, PlannedAction, Status, VoiceGender, api, post } from "../lib/backend";
-import { setStatus, useStore } from "../lib/store";
+import { ApiError, Challenge, PlannedAction, api, post } from "../lib/backend";
+import { useStore } from "../lib/store";
 
 interface SecurityEvent {
   id: number;
@@ -139,6 +138,7 @@ function Core() {
         {state === "approved" && <SuggestionChips />}
         {state === "approved" && <Conversation turns={conversation} name={name} />}
         {state === "approved" && <CommandBox disabled={thinking} />}
+        <HealthCard />
       </div>
     </div>
   );
@@ -418,6 +418,10 @@ const EVENT_TITLE: Record<string, string> = {
   sensitive_action: "DELETION CONFIRMED",
   fusion_retrained: "FUSION MODEL RETRAINED",
   fusion_reset: "FUSION MODEL RESET",
+  privacy_action: "PRIVACY ACTION CONFIRMED",
+  settings_changed: "SETTINGS CHANGED",
+  face_reenrolled: "FACE PROFILE REPLACED",
+  factory_reset: "FACTORY RESET",
 };
 
 function SecurityPanel() {
@@ -474,125 +478,6 @@ function SecurityPanel() {
   );
 }
 
-function LlmCard() {
-  const { status } = useStore();
-  const [models, setModels] = useState<string[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    api<{ installed: string[] }>("/api/llm/models")
-      .then((r) => setModels(r.installed))
-      .catch((e) => setError(e instanceof ApiError ? e.message : "unavailable"));
-  }, []);
-  const current = status?.llm_model ?? "";
-  const change = async (model: string) => {
-    setBusy(true);
-    setError(null);
-    try {
-      setStatus(
-        await api<Status>("/api/settings/llm", {
-          method: "PUT",
-          body: JSON.stringify({ model }),
-        }),
-      );
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Backend unreachable");
-    } finally {
-      setBusy(false);
-    }
-  };
-  const st = status?.models.llm ?? "—";
-  return (
-    <div className="card">
-      <div className="panel-title">LOCAL LANGUAGE MODEL</div>
-      <div className="kv">
-        <span>Status</span>
-        <b className={st === "ready" ? "tone-ok" : "tone-alert"}>{st === "ready" ? "READY" : st}</b>
-      </div>
-      <div className="kv">
-        <span>Model</span>
-        <select
-          className="field select"
-          value={current}
-          disabled={busy || !models?.length}
-          onChange={(e) => change(e.target.value)}
-        >
-          {!models?.includes(current) && <option value={current}>{current} (not installed)</option>}
-          {models?.map((m) => (
-            <option key={m} value={m}>
-              {m}
-            </option>
-          ))}
-        </select>
-      </div>
-      {error && <p className="error small">{error}</p>}
-      <p className="muted small">
-        Runs through Ollama on this Mac; nothing leaves the device. Add models with{" "}
-        <code>ollama pull &lt;name&gt;</code> (stored in ~/Developer/ollama/models).
-      </p>
-    </div>
-  );
-}
-
-function SettingsPanel() {
-  const { auth, status } = useStore();
-  const approved = auth?.state === "approved";
-  const [error, setError] = useState<string | null>(null);
-  const gender = status?.voice_gender ?? "female";
-  const choose = async (g: VoiceGender) => {
-    setError(null);
-    try {
-      setStatus(
-        await api<Status>("/api/settings/voice", {
-          method: "PUT",
-          body: JSON.stringify({ gender: g }),
-        }),
-      );
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Backend unreachable");
-    }
-  };
-  const model = (k: string, label: string) => (status?.models[k] === "ready" ? label : (status?.models[k] ?? "—"));
-  return (
-    <div className="view">
-      <h2 className="view-title">SETTINGS</h2>
-      {!approved ? (
-        <div className="card locked-card">Owner verification required to change settings.</div>
-      ) : (
-        <div className="cards">
-          <div className="card">
-            <div className="panel-title">ASSISTANT VOICE</div>
-            <VoicePicker value={gender} onChange={choose} />
-            {error && <p className="error small">{error}</p>}
-            <div className="kv">
-              <span>Speech recognition</span>
-              <b>{model("stt", "Whisper · local")}</b>
-            </div>
-            <div className="kv">
-              <span>Voice synthesis</span>
-              <b>{model("tts", "Kokoro-82M · local")}</b>
-            </div>
-            <div className="kv">
-              <span>Wake word</span>
-              <b>{status?.assistant_name}</b>
-            </div>
-          </div>
-          <LlmCard />
-          <FusionCard />
-          <FilesCard />
-          <AppleCard />
-          <div className="card">
-            <div className="panel-title">MORE SETTINGS</div>
-            <p className="muted small">
-              Performance modes, privacy controls and profile management arrive with the privacy dashboard in phase 9.
-            </p>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 export default function Main() {
   const [view, setView] = useState<View>("system");
   return (
@@ -611,6 +496,13 @@ export default function Main() {
         {view === "settings" && <SettingsPanel />}
         {view === "tools" && <ToolsPanel />}
         {view === "memory" && <MemoryPanel />}
+        {view === "privacy" && <PrivacyPanel />}
+        {/* the core view shows it inline; elsewhere it floats so a confirmation is never missed */}
+        {view !== "system" && (
+          <div className="confirm-float">
+            <ConfirmCard />
+          </div>
+        )}
       </main>
       <ActivityFeed />
     </div>

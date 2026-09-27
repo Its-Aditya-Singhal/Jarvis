@@ -32,6 +32,10 @@ from ..brain import Brain
 from ..llm.client import OllamaClient
 from ..memory.manager import RETENTION_CHOICES, Memory
 from ..memory.store import MemoryStore
+from ..netguard import NetGuard
+from ..perf import PerfMonitor
+from ..prefs import PREFS, coerce
+from ..privacy import ACTIONS as PRIVACY_ACTIONS, inventory
 from ..tools.apple import AppleBridge, AppleError
 from ..tools.apps import AppIndex
 from ..tools.files import FileSearch, FolderError
@@ -102,6 +106,30 @@ class RetentionIn(BaseModel):
     retention: Literal["off", "7d", "30d", "forever"]
 
 
+class PrefIn(BaseModel):
+    key: str = Field(min_length=1, max_length=40)
+    value: bool | float | str
+
+
+class NamesIn(BaseModel):
+    owner_name: str = Field(min_length=1, max_length=40)
+    assistant_name: str = Field(min_length=1, max_length=24)
+
+    @field_validator("owner_name", "assistant_name")
+    @classmethod
+    def _strip(cls, v: str) -> str:
+        return ProfileIn._strip(v)
+
+
+class LlmSlotIn(BaseModel):
+    model: str = Field(min_length=1, max_length=100)
+    slot: Literal["main", "fast"] = "main"
+
+
+class PrivacyIn(BaseModel):
+    path: str | None = Field(default=None, max_length=1024)
+
+
 class SnoozeIn(BaseModel):
     minutes: int = Field(default=5, ge=1, le=60)
 
@@ -126,6 +154,8 @@ def create_app(
     tools: bool = True,
     memory: bool = True,
     memory_client: OllamaClient | None = None,
+    guard: NetGuard | None = None,
+    perf: PerfMonitor | None = None,
 ) -> FastAPI:
     s = settings or get_settings()
     db = Database(s.db_path)
@@ -192,6 +222,8 @@ def create_app(
         brain_factory=make_brain if llm else None,
         tools_factory=make_tools if tools else None,
         memory_factory=make_memory if (memory and s.memory_enabled) else None,
+        guard=guard,
+        perf=perf,
     )
 
     @asynccontextmanager
@@ -238,8 +270,8 @@ def create_app(
             raise HTTPException(403, f"needs level 2: {REASONS.get(code, code)}{hint}")
 
     def require_setup_open() -> None:
-        # Enrollment/profile changes are open only during first-time setup.
-        # Re-enrollment by a verified owner arrives with the privacy dashboard (phase 9).
+        # the profile is created only during first-time setup; later changes go
+        # through Settings (level 2) and face re-scans through a confirmation
         if svc.setup_complete:
             raise HTTPException(409, "setup already completed")
 
@@ -257,8 +289,11 @@ def create_app(
         bus.log(f"Profile created — assistant named {body.assistant_name}")
         return svc.status()
 
-    @app.post("/api/enroll/face/start", dependencies=auth + [Depends(require_setup_open)])
+    @app.post("/api/enroll/face/start", dependencies=auth)
     def enroll_start():
+        allowed, why = svc.face_enroll_allowed()
+        if not allowed:
+            raise HTTPException(403, why)
         if not svc.engine.ready:
             raise HTTPException(503, svc.engine.error or "face model not ready")
         if svc.camera.status != "active":
@@ -269,6 +304,11 @@ def create_app(
     @app.post("/api/enroll/face/cancel", dependencies=auth)
     def enroll_cancel():
         svc.cancel_enrollment()
+        return {"ok": True}
+
+    @app.post("/api/enroll/face/keep", dependencies=auth)
+    def enroll_keep():
+        svc.end_rescan()  # only ever keeps the existing profile
         return {"ok": True}
 
     def voice_or_503() -> VoiceService:
@@ -347,14 +387,20 @@ def create_app(
         return {"current": svc.brain.model, "installed": svc.brain.installed_models(), "status": svc.brain.status()}
 
     @app.put("/api/settings/llm", dependencies=auth + [Depends(require_owner)])
-    def set_llm(body: ModelIn):
+    def set_llm(body: LlmSlotIn):
         if svc.brain is None:
             raise HTTPException(503, "language model disabled")
         try:
-            svc.brain.set_model(body.model)
+            if body.slot == "fast":
+                if body.model not in svc.brain.installed_models():
+                    raise ValueError(f"model {body.model} is not installed")
+                db.set("llm_fast_model", body.model)
+            else:
+                svc.brain.set_model(body.model)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
-        bus.log(f"Language model set to {body.model}")
+        bus.log(f"{'Fast-mode' if body.slot == 'fast' else 'Language'} model set to {body.model}")
+        svc.apply_mode()
         threading.Thread(target=svc.brain.start, daemon=True).start()  # warm the new model
         return svc.status()
 
@@ -560,11 +606,66 @@ def create_app(
         bus.log(f"Conversation history retention: {body.retention}")
         return m.status()
 
-    @app.delete("/api/history", dependencies=auth + [Depends(require_level2)])
-    def clear_history():
-        n = memory_or_503().clear_history()
-        bus.log(f"Conversation history cleared ({n} entries)")
-        return {"deleted": n}
+    # -- settings & privacy --------------------------------------------------------------
+    @app.get("/api/settings", dependencies=auth + [Depends(require_owner)])
+    def settings_state():
+        return {**svc.settings_info(), "owner_name": svc.owner_name, "assistant_name": svc.assistant_name,
+                "voice_gender": db.get("voice_gender", "female")}
+
+    @app.put("/api/settings/pref", dependencies=auth + [Depends(require_owner)])
+    def set_pref(body: PrefIn):
+        if body.key not in PREFS:
+            raise HTTPException(404, "no such setting")
+        try:
+            loosens = svc.prefs.loosens(body.key, body.value)
+            if PREFS[body.key].security:
+                require_level2()  # tightening needs level 2; loosening a confirmation on top
+            if loosens:
+                r = svc.request_pref(body.key, coerce(PREFS[body.key], body.value))
+                if not r["ok"]:
+                    raise HTTPException(409, r["reply"])
+                return {"pending": r["pending"], "reply": r["reply"]}
+            return svc.set_pref(body.key, body.value)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.put("/api/settings/profile", dependencies=auth + [Depends(require_level2)])
+    def set_names(body: NamesIn):
+        db.set("owner_name", body.owner_name)
+        db.set("assistant_name", body.assistant_name)
+        db.add_security_event("settings_changed", "Owner / assistant name changed")
+        bus.log(f"Names updated — wake word is now “{body.assistant_name}”")
+        if svc.brain is not None:
+            svc.brain.clear()
+            threading.Thread(target=svc.brain.prime, daemon=True).start()  # new names, new prompt prefix
+        return svc.status()
+
+    @app.get("/api/privacy", dependencies=auth + [Depends(require_owner)])
+    def privacy_state():
+        return {**inventory(svc), "network": svc.network_info()}
+
+    @app.post("/api/recovery/reset", dependencies=auth)
+    def recovery_reset():
+        # only when no one can ever verify again (no face, no usable voice): the data
+        # is erased, never revealed, so this gives nothing to whoever presses it
+        if not svc.locked_out():
+            raise HTTPException(403, "only available when no identity profile is left")
+        svc._factory_reset()
+        return svc.status()
+
+    @app.post("/api/privacy/{action}", dependencies=auth + [Depends(require_level2)])
+    def privacy_action(action: str, body: PrivacyIn | None = None):
+        if action not in PRIVACY_ACTIONS:
+            raise HTTPException(404, "no such action")
+        if action in ("clear_memory", "clear_history") and svc.memory is None:
+            raise HTTPException(503, "memory disabled")
+        try:
+            r = svc.request_privacy(action, path=body.path if body else None)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        if not r["ok"]:
+            raise HTTPException(409, r["reply"])
+        return r
 
     @app.get("/api/security/events", dependencies=auth + [Depends(require_owner)])
     def security_events(limit: int = 50):

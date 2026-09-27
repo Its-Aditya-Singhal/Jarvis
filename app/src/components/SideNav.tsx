@@ -1,4 +1,4 @@
-export type View = "system" | "auth" | "memory" | "tools" | "security" | "settings";
+export type View = "system" | "auth" | "memory" | "tools" | "security" | "privacy" | "settings";
 
 const ITEMS: { id: View; label: string; phase?: number }[] = [
   { id: "system", label: "System Status" },
@@ -6,6 +6,7 @@ const ITEMS: { id: View; label: string; phase?: number }[] = [
   { id: "memory", label: "Memory" },
   { id: "tools", label: "Tools" },
   { id: "security", label: "Security" },
+  { id: "privacy", label: "Privacy" },
   { id: "settings", label: "Settings" },
 ];
 

@@ -237,7 +237,7 @@ export default function MemoryPanel() {
                   className="btn danger"
                   onClick={() => {
                     setConfirmClear(false);
-                    act(() => api("/api/history", { method: "DELETE" }));
+                    act(() => post("/api/privacy/clear_history")); // level 3: confirm in the card below
                   }}
                 >
                   DELETE ALL HISTORY

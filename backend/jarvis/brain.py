@@ -67,11 +67,12 @@ class Brain:
         self.installed: list[str] = []
         self.is_app: Callable[[str], bool] = lambda name: False  # set when tools are enabled
         self.recall: Callable[[str], list[str]] = lambda text: []  # set when memory is enabled
+        self.override: str | None = None  # performance mode's model (Fast mode); None = the chosen one
 
     # -- model selection -------------------------------------------------------
     @property
     def model(self) -> str:
-        return self.db.get("llm_model") or self.s.llm_model
+        return self.override or self.db.get("llm_model") or self.s.llm_model
 
     def set_model(self, model: str) -> None:
         if model not in self.installed_models():

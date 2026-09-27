@@ -39,6 +39,11 @@ class KeychainKeyProvider:
         keyring.set_password(self.service, self.account, base64.b64encode(key).decode())
         return key
 
+    def has_key(self) -> bool:
+        import keyring
+
+        return keyring.get_password(self.service, self.account) is not None
+
     def delete_key(self) -> None:
         import keyring
         from keyring.errors import PasswordDeleteError
@@ -57,6 +62,9 @@ class StaticKeyProvider:
 
     def get_key(self) -> bytes:
         return self._key
+
+    def has_key(self) -> bool:
+        return True
 
     def delete_key(self) -> None:
         self._key = AESGCM.generate_key(bit_length=256)

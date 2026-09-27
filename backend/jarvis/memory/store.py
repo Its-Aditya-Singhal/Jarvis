@@ -130,6 +130,9 @@ class MemoryStore:
     def delete_turns_before(self, ts: float) -> int:
         return len(self.db.run("DELETE FROM history WHERE ts < ? RETURNING id", (ts,)))
 
+    def clear_facts(self) -> int:
+        return len(self.db.run("DELETE FROM memories RETURNING id"))
+
     def clear_history(self) -> int:
         return len(self.db.run("DELETE FROM history RETURNING id"))
 

@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import AlarmOverlay from "./components/AlarmOverlay";
 import StatusBar from "./components/StatusBar";
 import Main from "./pages/Main";
+import FaceRescan from "./pages/FaceRescan";
 import Setup from "./pages/Setup";
 import { startStore, useStore } from "./lib/store";
 
@@ -28,7 +29,7 @@ export default function App() {
           <p>{connected ? "Loading profile…" : "Starting local systems…"}</p>
         </div>
       ) : status.setup_complete ? (
-        <Main />
+        status.face_reenroll ? <FaceRescan /> : <Main />
       ) : (
         <Setup />
       )}

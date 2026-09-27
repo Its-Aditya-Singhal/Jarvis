@@ -3,9 +3,9 @@ import { useStore } from "../lib/store";
 
 type Tone = "ok" | "warn" | "alert" | "off";
 
-function Indicator({ label, value, tone }: { label: string; value: string; tone: Tone }) {
+function Indicator({ label, value, tone, title }: { label: string; value: string; tone: Tone; title?: string }) {
   return (
-    <div className="indicator">
+    <div className="indicator" title={title}>
       <span className="indicator-label">{label}</span>
       <span className={`indicator-value tone-${tone}`}>
         <i className="dot" />
@@ -26,6 +26,8 @@ export default function StatusBar() {
   }, []);
 
   const cam = status?.camera.status ?? "off";
+  const net = status?.network;
+  const perf = status?.perf;
   const security: [string, Tone] =
     auth?.state === "denied"
       ? ["INTRUDER", "alert"]
@@ -80,8 +82,32 @@ export default function StatusBar() {
         />
         <Indicator label="SECURITY" value={security[0]} tone={security[1]} />
         <Indicator
-          label="AUTH LEVEL"
-          value={`L${auth?.level ?? 0} · ${["LOCKED", "READ", "ACT"][auth?.level ?? 0]}`}
+          label="NETWORK"
+          value={!net ? "—" : net.external > 0 ? `${net.external} OUT` : net.offline ? "OFFLINE ✓" : "ALLOWED"}
+          tone={!net ? "off" : net.external > 0 ? "alert" : net.offline ? "ok" : "warn"}
+          title={
+            net?.offline
+              ? `Internet blocked; everything runs on this Mac${net.blocked ? ` · ${net.blocked} attempts blocked` : ""}`
+              : "Internet access allowed (Privacy → Network)"
+          }
+        />
+        <Indicator
+          label="MODE"
+          value={
+            perf
+              ? `${perf.mode.toUpperCase()}${perf.on_battery ? ` · 🔋${perf.battery_pct ?? ""}%` : ""}`
+              : "—"
+          }
+          tone={perf ? "ok" : "off"}
+          title={
+            perf
+              ? `${perf.pref === "auto" ? "Auto: Fast on battery, Balanced plugged in" : "Chosen in Settings"} · CPU ${perf.cpu ?? "—"}% · backend ${perf.backend_mb ?? "—"} MB · models ${perf.ollama_mb ?? "—"} MB`
+              : undefined
+          }
+        />
+        <Indicator
+          label="LEVEL"
+          value={`L${auth?.level ?? 0} ${["LOCKED", "READ", "ACT"][auth?.level ?? 0]}`}
           tone={(auth?.level ?? 0) >= 2 ? "ok" : (auth?.level ?? 0) === 1 ? "warn" : "off"}
         />
       </div>

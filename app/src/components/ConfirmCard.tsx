@@ -35,7 +35,7 @@ export default function ConfirmCard() {
   return (
     <div className="confirm">
       <div className="confirm-head">
-        <span>LEVEL 3 · CONFIRM DELETION</span>
+        <span>LEVEL 3 · {/^(notes|calendar|memory)\./.test(confirm.tool) ? "CONFIRM DELETION" : "CONFIRM"}</span>
         <span>{Math.ceil(left)} s</span>
       </div>
       <div className="confirm-text">{confirm.text}</div>

@@ -188,6 +188,81 @@ export interface Status {
   ringing: RingingAlarm[];
   pending: PendingConfirm | null; // owner-only
   suggestions: MemorySuggestion[]; // owner-only
+  issues: Issue[];
+  perf: PerfStatus;
+  network: { offline: boolean; external: number; blocked: number };
+  /** face profile missing or a re-scan authorised: show the scan screen */
+  face_reenroll: { allowed: boolean; reason: string; locked_out: boolean; kind: "deleted" | "redo" | null } | null;
+}
+
+export interface Issue {
+  id: string;
+  level: "error" | "warn";
+  title: string;
+  fix: string;
+}
+
+export type PerfMode = "fast" | "balanced" | "quality";
+
+export interface PerfStatus {
+  mode: PerfMode;
+  pref: "auto" | PerfMode;
+  on_battery: boolean;
+  battery_pct: number | null;
+  cpu?: number;
+  backend_mb?: number;
+  ollama_mb?: number;
+}
+
+export interface PrefInfo {
+  key: string;
+  value: string | number | boolean;
+  choices: (string | number | boolean)[];
+  labels: string[];
+  security: boolean;
+}
+
+export interface SettingsState {
+  prefs: PrefInfo[];
+  mode: PerfStatus & {
+    effective: PerfMode;
+    note: string;
+    llm: string | null;
+    stt: string | null;
+    face_fps: number;
+    suggestions: boolean;
+    stats: { cpu?: number; backend_mb?: number; ollama_mb?: number; system_mem_pct?: number };
+  };
+  llm: { main: string; fast: string };
+  owner_name: string;
+  assistant_name: string;
+  voice_gender: VoiceGender;
+}
+
+export interface PrivacyItem {
+  id: string;
+  title: string;
+  present: boolean;
+  detail: string;
+  updated: string | null;
+  protection: string;
+  action: string | null;
+}
+
+export interface NetworkInfo {
+  offline: boolean;
+  external: { process: string; host: string; port: number; status: string; count: number }[];
+  attempts: { ts: number; host: string; port: number | null; what: string; blocked: boolean }[];
+  blocked: number;
+}
+
+export interface PrivacyState {
+  items: PrivacyItem[];
+  never_stored: string[];
+  location: string;
+  keychain_key: boolean;
+  db_bytes: number;
+  network: NetworkInfo;
 }
 
 export interface MemorySuggestion {
@@ -269,6 +344,8 @@ export type BackendEvent =
   | { type: "confirm_done"; id: string; outcome: "done" | "cancelled" | "expired" }
   | ({ type: "memory_suggestion" } & MemorySuggestion)
   | { type: "memory_changed" }
+  | { type: "privacy_changed" }
+  | { type: "face_reenroll"; kind: string }
   | { type: "listening"; active: boolean; seconds?: number }
   | { type: "speaking"; active: boolean }
   | { type: "voice"; verdict: VoiceState }

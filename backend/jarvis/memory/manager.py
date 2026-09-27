@@ -310,6 +310,19 @@ class Memory:
         self.on_change()
         return n
 
+    def clear_facts(self) -> int:
+        n = self.store.clear_facts()
+        self._invalidate()
+        self.on_change()
+        return n
+
+    def reset_cache(self) -> None:
+        """After a factory reset: drop decrypted facts and pending suggestions."""
+        self._invalidate()
+        with self._lock:
+            self._suggestions = []
+        self.on_change()
+
     # -- suggestions ----------------------------------------------------------------
     def suggestions(self) -> list[Suggestion]:
         cutoff = time.monotonic() - SUGGESTION_TTL_S

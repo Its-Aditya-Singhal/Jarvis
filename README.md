@@ -5,10 +5,9 @@ A local-first desktop assistant for macOS (Apple Silicon) that keeps checking
 name during setup (JARVIS, FRIDAY, anything). No paid APIs and no cloud: every
 model runs on your Mac.
 
-> **Status: Phase 8 of 10: identity, liveness, speech, local LLM, tools,
-> auth levels, a trained fusion model, and memory.** The privacy dashboard
-> comes next. The UI marks
-> every unbuilt feature as such rather than faking it.
+> **Status: Phase 9 of 10: identity, liveness, speech, local LLM, tools,
+> auth levels, a trained fusion model, memory, and the privacy dashboard,
+> settings and performance modes.** Packaging and the website come next.
 
 ## What works now
 
@@ -98,6 +97,34 @@ model runs on your Mac.
   language model entirely. Speech recognition runs on the Apple GPU, and
   saying just the name answers with an instant ping.
 - Security log visible only while the verified owner is at the screen.
+- Privacy dashboard (Privacy view):
+  - Lists every kind of stored data with its size, age and protection:
+    face and voice profiles, memory, history, notes/alarms/events, fusion
+    samples, the security log and settings. It also lists what is never
+    stored.
+  - Delete any of them, export a readable JSON copy (templates are never
+    exported), or factory reset. Every one needs level 3.
+  - Deleting the face profile goes straight to a new face scan. If that
+    window is missed, saying the assistant's name in your verified voice
+    unlocks the scan again.
+- Offline mode, on by default: the backend refuses every connection except
+  to itself and Ollama on 127.0.0.1. The Privacy view lists blocked attempts
+  and any open internet connections, including the Ollama server's. The
+  status bar shows **OFFLINE ✓**.
+- Settings in one place:
+  - Identity: rename yourself or the assistant, which also changes the
+    wake word. Re-scan your face (your old profile stays until the new one
+    is saved) or re-enroll your voice.
+  - Voice: speed, beep or "Yes?", and the follow-up window.
+  - Security presets.
+  - Performance modes, models, memory switches, file-search folders, Apple
+    sync and the fusion model.
+- Performance modes, **Fast / Balanced / Quality**. Auto (the default) uses
+  Balanced when plugged in and Fast on battery. The status bar shows the
+  mode, and Settings shows CPU, memory and loaded-model use.
+- Problems are explained with a fix: camera or microphone blocked, a model
+  missing, Ollama not running, low disk space or memory. They appear on the
+  System view, and serious ones are spoken once after startup.
 
 ## Architecture
 
@@ -213,6 +240,18 @@ Model output is untrusted: each tool validates its arguments (times in the
 future, sane timer lengths, known apps, allowed folders). AppleScript
 receives values as `argv`, never as script text.
 
+## Privacy, settings and performance
+
+| Part | Detail |
+|---|---|
+| Levels | ordinary preferences need L1. Security presets and names need L2. Loosening a security preset, allowing the network, and every deletion, export or factory reset need an L3 confirmation (spoken or clicked) |
+| Security presets | face match Standard/Strict (cosine 0.42/0.50), voice Standard/Strict (0.50/0.58), lock after 8 s / 20 s / 1 min away, random liveness checks every 5–15 or 2–5 min. There are no free-form numbers, so nothing can be set to an unsafe value |
+| Factory reset | stops verification, deletes templates and the personal fusion model, empties every table (then `VACUUM`), and deletes the Keychain key, so anything left on disk can't be decrypted |
+| Locked out | if no face profile, no usable voice profile and no re-scan window remain, nobody can ever be verified. Only then is a reset allowed without verification: it erases and never reveals |
+| Export | JSON written with `0600` permissions to a path you pick in the save dialog, never inside the app's data folder |
+| Offline guard | wraps socket connect and DNS lookups for the whole backend process; loopback always passes. `HF_HUB_OFFLINE` stops libraries from trying to download. Ollama is a separate process, so its connections are observed and shown, not blocked |
+| Modes | Fast: the fast-mode model (default `qwen2.5:3b`), Whisper small, 4 face checks/s, no memory suggestions. Balanced: your model, Whisper small, 6/s. Quality: your model, Whisper medium, 8/s. A model that isn't downloaded is reported, not faked |
+
 ## How memory works
 
 | Part | Detail |
@@ -298,9 +337,9 @@ field accuracy.
 - Biometrics are identifiers, not passwords. They can't be changed if leaked,
   which is why they never leave the device.
 - The backend binds to 127.0.0.1 and requires a random token for each launch.
-- Once setup is complete, the profile and face enrollment endpoints are
-  locked. Re-enrollment will need a verified owner (privacy dashboard,
-  phase 9).
+- Once setup is complete, the setup endpoints are locked. A face scan then
+  needs a level-3 confirmation, or the owner's verified voice when the face
+  profile is gone.
 - Audio is processed in memory and discarded. Only voice embeddings are kept,
   sealed the same way as face templates.
 - Memory (facts, conversation history, their embeddings) is sealed the same
@@ -309,8 +348,9 @@ field accuracy.
 - Security events: unknown face or voice, spoof suspected, liveness check
   failed, liveness lockout, frozen camera feed, voice command while not
   verified, command in a non-owner voice, and a tool blocked because the
-  level was too low (or the owner left mid-command). Confirmed deletions and
-  fusion retraining are also logged. Each event records the time, the
+  level was too low (or the owner left mid-command). Confirmed deletions,
+  privacy actions, security-setting changes, face re-scans, factory resets
+  and fusion retraining are also logged. Each event records the time, the
   outcome, and whether access was blocked.
 - **Known gaps:** voice alone has no replay protection, so a recording of
   the owner's voice may pass voice verification. Acting on it still requires
@@ -327,12 +367,13 @@ Requirements: macOS on Apple Silicon, Python 3.12, Node 20+, Rust (`brew install
 
 ```bash
 cd backend && python3.12 -m venv .venv && .venv/bin/pip install -e ".[dev]"
-.venv/bin/python ../scripts/download_models.py   # ~1.8 GB, one time (add "medium" for Whisper medium)
-.venv/bin/python -m pytest                        # 189 tests (LLM tests need the model)
+.venv/bin/python ../scripts/download_models.py   # ~1.8 GB, one time (add "medium" for Quality mode)
+.venv/bin/python -m pytest                        # 209 tests (LLM tests need the model)
 brew install ollama && mkdir -p ~/Developer/ollama/models
 OLLAMA_MODELS=~/Developer/ollama/models ollama serve &   # JARVIS also starts it itself
 ollama pull qwen2.5:7b                            # ~4.7 GB
 ollama pull bge-m3                                # ~1.2 GB, memory recall
+ollama pull qwen2.5:3b                            # ~1.9 GB, Fast mode (optional)
 cd ../app && npm install && npm run tauri dev
 ```
 
@@ -356,5 +397,5 @@ which is fine for this academic project.
 6. ✅ Tools: alarm, calendar, notes, app launcher, file search (Apple sync optional)
 7. ✅ Continuous multi-factor auth + trained fusion model, auth levels 1–3
 8. ✅ Memory (encrypted facts + history, bge-m3 recall, suggestions) and a speed pass
-9. Privacy dashboard + settings + performance modes
+9. ✅ Privacy dashboard, settings, performance modes, offline guard, health checks
 10. Polish, `.dmg` packaging, download website, full docs

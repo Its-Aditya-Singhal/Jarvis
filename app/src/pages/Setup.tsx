@@ -4,7 +4,7 @@ import Orb from "../components/Orb";
 import VoiceEnroll from "../components/VoiceEnroll";
 import VoicePicker from "../components/VoicePicker";
 import { ApiError, Status, VoiceGender, post } from "../lib/backend";
-import { setStatus, useStore } from "../lib/store";
+import { resetFaceEnroll, setStatus, useStore } from "../lib/store";
 import { useLatest } from "../lib/useLatest";
 
 type Step = "welcome" | "names" | "face" | "voice" | "done";
@@ -122,12 +122,14 @@ function Names({ status, onNext }: { status: Status | null; onNext: () => void }
   );
 }
 
-function FaceEnroll({ onNext }: { onNext: () => void }) {
+/** Guided face scan. ``rescan``: replacing an existing profile, so only a scan
+ * finished in this session counts as done. */
+export function FaceEnroll({ onNext, rescan = false, title }: { onNext: () => void; rescan?: boolean; title?: string }) {
   const { enroll, status, enrollComplete } = useStore();
   const [started, setStarted] = useState(status?.mode === "enrolling");
   const [error, setError] = useState<string | null>(null);
 
-  const done = enrollComplete || (status?.face_enrolled ?? false);
+  const done = enrollComplete || (!rescan && (status?.face_enrolled ?? false));
   const onNextRef = useLatest(onNext);
   useEffect(() => {
     if (done) {
@@ -138,6 +140,7 @@ function FaceEnroll({ onNext }: { onNext: () => void }) {
 
   const start = async () => {
     setError(null);
+    resetFaceEnroll();
     try {
       await post("/api/enroll/face/start");
       setStarted(true);
@@ -160,7 +163,7 @@ function FaceEnroll({ onNext }: { onNext: () => void }) {
           </div>
         </div>
         <div className="enroll-text">
-          <h2>Let's learn what you look like.</h2>
+          <h2>{title ?? "Let's learn what you look like."}</h2>
           {!started && !done && (
             <>
               <p className="muted">
@@ -221,8 +224,10 @@ function Done() {
     status?.voice_enrolled
       ? ["Voice enrolled", true]
       : ["Voice skipped — no working microphone", false, "enroll later from Authentication"],
-    ["Liveness configured", false, "phase 3"],
-    ["Local AI configured", false, "phase 5"],
+    ["Liveness checks active", status?.models.liveness !== "disabled"],
+    status?.models.llm === "ready"
+      ? ["Local AI ready", true]
+      : ["Local AI not running yet", false, "see System for the fix"],
   ];
 
   return (
@@ -233,7 +238,7 @@ function Done() {
           <li key={label} className={ok ? "ok" : "pending"}>
             <i>{ok ? "✓" : "○"}</i>
             {label}
-            {later && <em>coming in {later}</em>}
+            {later && <em>{later}</em>}
           </li>
         ))}
       </ul>

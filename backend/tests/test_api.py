@@ -73,7 +73,7 @@ def test_setup_flow_and_lockdown(settings):
         assert client.post("/api/setup/complete", headers=H).json()["setup_complete"] is True
         # once set up, nobody can overwrite the profile or re-enroll through setup
         assert client.post("/api/setup/profile", headers=H, json={"owner_name": "Mallory", "assistant_name": "X"}).status_code == 409
-        assert client.post("/api/enroll/face/start", headers=H).status_code == 409
+        assert client.post("/api/enroll/face/start", headers=H).status_code == 403  # needs a confirmed re-scan
 
 
 def test_security_log_requires_verified_owner(settings):
@@ -166,3 +166,39 @@ def test_level_gated_endpoints(settings):
         r = client.post("/api/fusion/retrain", headers=H)
         assert r.status_code == 400 and "owner samples" in r.json()["detail"]
         assert client.post("/api/fusion/reset", headers=H).json()["source"] == "default"
+
+
+def test_settings_and_privacy_endpoints(settings, tmp_path):
+    from jarvis.auth.levels import Trust
+
+    client, svc = _client(settings)
+    with client:
+        assert client.get("/api/privacy", headers=H).status_code == 403
+        assert client.put("/api/settings/pref", headers=H, json={"key": "voice.speed", "value": 1.1}).status_code == 403
+        svc.trust = lambda now=None: Trust(1, 0.95, blockers={2: "voice_needed", 3: "voice_needed"})
+        inv = client.get("/api/privacy", headers=H).json()
+        assert {i["id"] for i in inv["items"]} >= {"face", "voice", "security", "settings"}
+        assert inv["network"]["offline"] is True
+        # ordinary preferences at level 1, bad values refused
+        assert client.put("/api/settings/pref", headers=H, json={"key": "voice.speed", "value": 1.1}).status_code == 200
+        assert client.put("/api/settings/pref", headers=H, json={"key": "voice.speed", "value": 5}).status_code == 400
+        assert client.put("/api/settings/pref", headers=H, json={"key": "nope", "value": 1}).status_code == 404
+        # security settings and privacy actions need level 2
+        assert client.put("/api/settings/pref", headers=H, json={"key": "security.face", "value": "strict"}).status_code == 403
+        assert client.post("/api/privacy/factory_reset", headers=H).status_code == 403
+        assert client.put("/api/settings/profile", headers=H,
+                          json={"owner_name": "A", "assistant_name": "Friday"}).status_code == 403
+        svc.trust = lambda now=None: Trust(2, 0.99, l3_ready=True)
+        assert client.put("/api/settings/pref", headers=H, json={"key": "security.face", "value": "strict"}).json()["prefs"]
+        # loosening opens a confirmation instead of applying
+        r = client.put("/api/settings/pref", headers=H, json={"key": "security.face", "value": "standard"}).json()
+        assert r["pending"] and svc.prefs.get("security.face") == "strict"
+        assert client.post(f"/api/confirm/{r['pending']}", headers=H, json={"accept": True}).json()["ok"]
+        assert svc.prefs.get("security.face") == "standard"
+        assert client.post("/api/privacy/export", headers=H, json={"path": "rel.json"}).status_code == 400
+        assert client.post("/api/privacy/bogus", headers=H).status_code == 404
+        r = client.post("/api/privacy/clear_security_log", headers=H).json()
+        assert r["ok"] and r["pending"]
+        assert client.post("/api/privacy/clear_tools", headers=H).status_code == 409  # one at a time
+        assert client.put("/api/settings/profile", headers=H,
+                          json={"owner_name": " Aditya ", "assistant_name": "Friday"}).json()["assistant_name"] == "Friday"

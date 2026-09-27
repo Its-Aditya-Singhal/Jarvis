@@ -77,6 +77,7 @@ def common_phrases(owner: str) -> list[str]:
         "I couldn't confirm your voice. Please say that again.",
         "Okay, I won't delete it.",
         "Note saved.",
+        "Yes?",
     ]
 
 
@@ -117,6 +118,9 @@ class SpeechService:
         self.confirm_pending: Callable[[], bool] = lambda: False
         self.on_confirm: Callable[[bool, str | None], None] = lambda accept, verdict: None
         self.on_voice_mismatch: Callable[[], None] = lambda: None
+        self.ack: Callable[[], str] = lambda: "ping"  # ping | say
+        # custom answer while nobody is verified (face-profile recovery); None = the default refusal
+        self.unverified_reply: Callable[[str | None], str | None] = lambda verdict: None
         self.out = SpeechOutput(tts, bus, self.voice_gender, player=player)
         self._q: queue.Queue[tuple[np.ndarray, str | None]] = queue.Queue(maxsize=3)
         self._stop = threading.Event()
@@ -239,6 +243,10 @@ class SpeechService:
                 self.db.add_security_event(
                     "unauthorized_command", "Voice command while the owner was not verified", blocked=True
                 )
+            custom = self.unverified_reply(verdict)
+            if custom is not None:
+                self.out.say(custom)
+                return
             self.bus.log("Voice command blocked — owner not verified", "alert")
             self.out.say("Authentication required. I only take commands from my verified owner.")
             return
@@ -260,7 +268,10 @@ class SpeechService:
             self.bus.publish({"type": "heard", "text": tr.text, "lang": tr.language, "stt_s": latency})
             self._listen_until = time.monotonic() + self.s.followup_s
             self.bus.publish({"type": "listening", "active": True, "seconds": self.s.followup_s})
-            self.out.ping()  # instant "go ahead" instead of a synthesised "Yes?"
+            if self.ack() == "say":
+                self.out.say("Yes?")
+            else:
+                self.out.ping()  # instant "go ahead" instead of a synthesised "Yes?"
             return
         if self._listen_until:
             self._listen_until = 0.0

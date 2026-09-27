@@ -48,6 +48,8 @@ export interface AppState {
   suggestions: MemorySuggestion[];
   /** bumps when facts or history change */
   memoryVersion: number;
+  /** bumps after a privacy action (dashboard refetches) */
+  privacyVersion: number;
 }
 
 export interface Turn {
@@ -79,6 +81,7 @@ let state: AppState = {
   confirm: null,
   suggestions: [],
   memoryVersion: 0,
+  privacyVersion: 0,
 };
 
 const withExpiry = (p: PendingConfirm | null | undefined) =>
@@ -197,6 +200,14 @@ function handle(e: BackendEvent) {
     case "memory_changed":
       set({ memoryVersion: state.memoryVersion + 1 });
       break;
+    case "privacy_changed":
+      set({ privacyVersion: state.privacyVersion + 1, memoryVersion: state.memoryVersion + 1, toolsVersion: state.toolsVersion + 1 });
+      refreshStatus();
+      break;
+    case "face_reenroll":
+      set({ enroll: null, enrollComplete: false });
+      refreshStatus();
+      break;
     case "confirm_done":
       if (state.confirm?.id === e.id) set({ confirm: null });
       break;
@@ -215,6 +226,10 @@ export async function refreshStatus() {
   } catch {
     /* backend still starting; the websocket will deliver status */
   }
+}
+
+export function resetFaceEnroll() {
+  set({ enroll: null, enrollComplete: false });
 }
 
 export function resetVoiceEnroll() {

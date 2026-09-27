@@ -109,6 +109,31 @@ class Database:
             ).fetchall()
         return [dict(r) for r in rows]
 
+    # -- privacy ---------------------------------------------------------------
+    def tables(self) -> list[str]:
+        rows = self.run("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
+        return [r["name"] for r in rows]
+
+    def count(self, table: str, where: str = "") -> int:
+        if table not in self.tables():  # table names can't be bound as parameters
+            raise ValueError(f"no table {table}")
+        return int(self.run(f"SELECT COUNT(*) AS n FROM {table} {where}")[0]["n"])
+
+    def clear_security_events(self) -> int:
+        return len(self.run("DELETE FROM security_events RETURNING id"))
+
+    def wipe(self) -> None:
+        """Delete every row of every table and compact the file (factory reset)."""
+        with self._lock:
+            names = [r["name"] for r in self._conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")]
+            for n in names:
+                self._conn.execute(f"DELETE FROM {n}")
+            if self._conn.execute("SELECT name FROM sqlite_master WHERE name = 'sqlite_sequence'").fetchone():
+                self._conn.execute("DELETE FROM sqlite_sequence")
+            self._conn.commit()
+            self._conn.execute("VACUUM")  # deleted rows would otherwise linger in free pages
+
     def close(self) -> None:
         with self._lock:
             self._conn.close()

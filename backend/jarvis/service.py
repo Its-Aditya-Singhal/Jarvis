@@ -42,6 +42,11 @@ from .tools.runner import LEVELS, Plan, ToolResult, ToolRunner
 from .tools.scheduler import AlarmScheduler
 from .tools.store import Alarm
 from .memory.manager import Memory
+from .netguard import NetGuard
+from .perf import MODES, PerfMonitor, effective_mode
+from .prefs import FACE_PRESETS, LIVENESS_PRESETS, PREFS, VOICE_PRESETS, Prefs
+from . import health, privacy
+from .speech.stt import SpeechToText
 from .speech_service import SpeechService
 from .voice_service import VoiceService
 
@@ -60,6 +65,8 @@ def notify(title: str, text: str) -> None:
 
 FACE = "face"
 MIN_OWNER_SAMPLES = 10  # before a personal retrain makes sense
+REENROLL_GRANT_S = 600.0  # after a confirmed face delete/redo, time to scan the new face
+RECOVERY_VOICE_S = 60.0  # face missing: a verified voice this recent may start a new scan
 
 # spoken when an action needs a higher level than the evidence allows
 BLOCKED_SAY = {
@@ -79,13 +86,14 @@ BLOCKED_SAY = {
 
 @dataclass
 class Pending:
-    """A deletion waiting for the owner's confirmation."""
+    """A deletion (or other level-3 action) waiting for the owner's confirmation."""
 
     id: str
     plan: Plan
     lang: str
     say: str
     expires: float  # monotonic
+    run: Callable[[], ToolResult] | None = None  # set for privacy/settings actions; tools use plan
 
 
 class AssistantService:
@@ -102,10 +110,14 @@ class AssistantService:
         brain_factory: "Callable[[AssistantService], Brain] | None" = None,
         tools_factory: "Callable[[AssistantService], tuple[ToolRunner, AlarmScheduler]] | None" = None,
         memory_factory: "Callable[[AssistantService], Memory] | None" = None,
+        guard: NetGuard | None = None,
+        perf: PerfMonitor | None = None,
     ):
         self.s = settings
         self.clock: Callable[[], float] = time.monotonic  # same clock as the face loop's ``now``
         self.db = db
+        self.prefs = Prefs(db)
+        self._apply_security_settings()  # before the auth objects below read them
         self.store = store
         self.bus = bus
         self.engine = engine
@@ -162,10 +174,140 @@ class AssistantService:
             self.speech.confirm_pending = lambda: self.pending() is not None
             self.speech.on_confirm = self.confirm_spoken
             self.speech.on_voice_mismatch = lambda: self.record_sample(0, "voice_mismatch")
+            self.speech.ack = lambda: self.prefs.get("voice.ack")
+            self.speech.unverified_reply = self._unverified_reply
+        if self.memory is not None and self.brain is not None:
+            self.brain.recall = lambda text: self.memory.relevant(text) if self.prefs.get("memory.enabled") else []
+        self.guard = guard or NetGuard()
+        self.guard.offline = lambda: self.prefs.get("privacy.offline")
+        self.perf = perf or PerfMonitor(self._power_changed, ollama_host=settings.ollama_host)
+        self._mode = "balanced"
+        self._mode_note = ""  # why a mode couldn't fully apply (e.g. a model isn't downloaded)
+        self._reenroll: tuple[str, float] | None = None  # (redo | deleted, grant expiry)
+        self._told_issues = False
+        self._apply_voice_settings()
 
     def owner_verified(self) -> bool:
         """Level 1 or higher: the live owner is at the screen."""
         return self.trust().level >= 1
+
+    # -- preferences -------------------------------------------------------------
+    def _apply_security_settings(self) -> None:
+        p, s = self.prefs, self.s
+        s.face_threshold, s.face_reject_threshold = FACE_PRESETS[p.get("security.face")]
+        s.voice_threshold, s.voice_reject_threshold = VOICE_PRESETS[p.get("security.voice")]
+        s.absence_lock_s = p.get("security.away_lock_s")
+        s.liveness_recheck_min_s, s.liveness_recheck_max_s = LIVENESS_PRESETS[p.get("security.liveness")]
+        # live objects (absent during __init__)
+        if (a := getattr(self, "auth", None)) is not None:
+            a.threshold, a.reject_threshold, a.absence_lock_s = s.face_threshold, s.face_reject_threshold, s.absence_lock_s
+        if (g := getattr(self, "live", None)) is not None:
+            g.cfg.rechallenge_min_s, g.cfg.rechallenge_max_s = s.liveness_recheck_min_s, s.liveness_recheck_max_s
+        if (v := getattr(self, "voice", None)) is not None:
+            v.auth.threshold, v.auth.reject_threshold = s.voice_threshold, s.voice_reject_threshold
+
+    def _apply_voice_settings(self) -> None:
+        self.s.tts_speed = self.prefs.get("voice.speed")
+        self.s.followup_s = self.prefs.get("voice.followup_s")
+        sp = self.speech
+        if sp is not None and getattr(sp.tts, "speed", None) != self.s.tts_speed:
+            sp.tts.speed = self.s.tts_speed
+            sp.out.clear_cache()  # cached phrases were spoken at the old speed
+            if sp.tts.ready:
+                from .speech_service import common_phrases
+
+                threading.Thread(target=sp.out.prewarm, args=(common_phrases(self.owner_name),),
+                                 name="tts-prewarm", daemon=True).start()
+
+    def set_pref(self, key: str, value) -> dict:
+        """Apply a preference. Callers have checked the level (see ``prefs_needs_l3``)."""
+        v = self.prefs.set(key, value)
+        if key.startswith("security."):
+            self._apply_security_settings()
+            self.db.add_security_event("settings_changed", f"{key} set to {v}")
+        elif key.startswith("voice."):
+            self._apply_voice_settings()
+        elif key == "perf.mode":
+            self.apply_mode()
+        elif key == "privacy.offline":
+            self.db.add_security_event("settings_changed", f"offline mode {'on' if v else 'off'}")
+        self.bus.log(f"Setting changed: {key} → {v}")
+        return self.settings_info()
+
+    def settings_info(self) -> dict:
+        return {"prefs": self.prefs.describe(), "mode": self.mode_info(),
+                "llm": {"main": self.db.get("llm_model") or self.s.llm_model, "fast": self.fast_model()}}
+
+    def request_pref(self, key: str, value, lang: str = "en") -> dict:
+        """Loosening a security setting: level-3 confirmation first."""
+        p = PREFS[key]
+        label = p.labels[p.choices.index(self.prefs.get(key))] if p.labels else str(self.prefs.get(key))
+        new = p.labels[p.choices.index(value)] if p.labels else str(value)
+        what = f"{key.split('.', 1)[1].replace('_s', '').replace('_', ' ')}: {label} → {new}"
+        return self.request_sensitive(
+            "settings.loosen", what, f"Loosen security ({what})?",
+            lambda: ToolResult("settings.loosen", True, f"Done: {what}.", self.set_pref(key, value)),
+        )
+
+    # -- performance modes ---------------------------------------------------------
+    def fast_model(self) -> str:
+        return self.db.get("llm_fast_model") or "qwen2.5:3b"
+
+    def _power_changed(self, on_battery: bool) -> None:
+        self.bus.log("On battery power" if on_battery else "On mains power")
+        if self.prefs.get("perf.mode") == "auto":
+            self.apply_mode()
+
+    def apply_mode(self) -> None:
+        name = effective_mode(self.prefs.get("perf.mode"), self.perf.on_battery)
+        mode = MODES[name]
+        changed = name != self._mode
+        self._mode = name
+        self.s.process_fps = mode.face_fps
+        notes = []
+        b = self.brain
+        if b is not None and hasattr(b, "override"):
+            want = self.fast_model() if mode.llm == "fast" else None
+            if want and want not in (b.installed or b.installed_models()):
+                notes.append(f"fast model {want} not installed (ollama pull {want})")
+                want = None
+            if want != b.override:
+                b.override = want
+                b.clear()
+                b._status = None
+                threading.Thread(target=b.start, name="llm-warm", daemon=True).start()
+        if self.speech is not None and isinstance(self.speech.stt, SpeechToText) and self.speech.stt.size != mode.stt:
+            threading.Thread(target=self._swap_stt, args=(mode.stt,), name="stt-swap", daemon=True).start()
+        elif self.speech is not None and getattr(self.speech.stt, "size", mode.stt) != mode.stt:
+            notes.append(f"speech model stays {self.speech.stt.size}")
+        self._mode_note = "; ".join(notes)
+        if changed:
+            self.bus.log(f"Performance mode: {name.capitalize()}" + (f" ({self._mode_note})" if notes else ""))
+
+    def _swap_stt(self, size: str) -> None:
+        cur = self.speech.stt
+        new = SpeechToText(self.s.models_dir, size)
+        has_mlx = any((new.mlx_path / f).is_file() for f in ("weights.npz", "weights.safetensors"))
+        if not has_mlx and not (new.path / "model.bin").is_file():
+            self._mode_note = f"Whisper {size} not downloaded (scripts/download_models.py {size})"
+            self.bus.log(f"Speech model {size} not downloaded — keeping {cur.size}", "warn")
+            return
+        if new.load():
+            self.speech.stt = new
+            self.bus.log(f"Speech recognition switched to Whisper {size}")
+        else:
+            self.bus.log(f"Whisper {size} failed to load — keeping {cur.size}", "warn")
+
+    def mode_info(self) -> dict:
+        return {"pref": self.prefs.get("perf.mode"), "effective": self._mode, "on_battery": self.perf.on_battery,
+                "battery_pct": self.perf.battery_pct, "note": self._mode_note, "stats": self.perf.stats,
+                "llm": self.brain.model if self.brain else None,
+                "stt": getattr(self.speech.stt, "size", None) if self.speech else None,
+                "face_fps": self.s.process_fps, "suggestions": self.suggestions_on()}
+
+    def suggestions_on(self) -> bool:
+        return bool(self.prefs.get("memory.enabled") and self.prefs.get("memory.suggestions")
+                    and MODES[self._mode].suggestions)
 
     # -- auth levels -----------------------------------------------------------
     def evidence(self, now: float | None = None) -> Evidence:
@@ -334,8 +476,30 @@ class AssistantService:
             threading.Thread(target=self._start_memory, name="memory-start", daemon=True).start()
         if self.setup_complete and self.face_enrolled:
             self.begin_verification()
+        elif self.setup_complete and self.voice is not None and self.voice.enrolled:
+            self.voice.begin_verification()  # face profile deleted: the voice can unlock a re-scan
+        self.perf.start()
+        self.apply_mode()
         self._thread = threading.Thread(target=self._loop, name="face-loop", daemon=True)
         self._thread.start()
+        t = threading.Timer(12.0, self._announce_issues)
+        t.daemon = True
+        t.start()
+
+    def _announce_issues(self) -> None:
+        """Say once, after startup, if something important is broken."""
+        if self._told_issues or self._stop.is_set():
+            return
+        errors = [i for i in self.issues() if i["level"] == "error"]
+        if errors:
+            self._told_issues = True
+            extra = f" and {len(errors) - 1} more" if len(errors) > 1 else ""
+            self.bus.publish({"type": "say", "text": f"Heads up: {errors[0]['title']}{extra}. The fix is on screen."})
+
+    def issues(self) -> list[dict]:
+        st = {"camera": {"status": self.camera.status}, "models": self._models(),
+              "mic": {"status": self.voice.mic.status} if self.voice else {}}
+        return health.issues(st, self.s.data_dir, self.perf.stats)
 
     def _start_memory(self) -> None:
         try:
@@ -349,6 +513,7 @@ class AssistantService:
 
     def stop(self) -> None:
         self._stop.set()
+        self.perf.stop()
         if self._thread:
             self._thread.join(timeout=2)
         self.camera.stop()
@@ -376,6 +541,12 @@ class AssistantService:
             self.enrollment = None
             self.mode = "verifying" if self.verifier else "idle"
         self.bus.log("Face enrollment cancelled", "warn")
+
+    def end_rescan(self) -> None:
+        """Give up a re-scan and keep the current face profile."""
+        if self.face_enrolled:
+            self.cancel_enrollment()
+            self._reenroll = None
 
     def begin_verification(self) -> bool:
         try:
@@ -442,13 +613,17 @@ class AssistantService:
         if session.done:
             template = session.template()
             self.store.save(FACE, template)
-            health = TemplateMatcher(template, self.s.face_top_k).self_consistency()
+            quality = TemplateMatcher(template, self.s.face_top_k).self_consistency()
             with self._lock:
                 self.enrollment = None
                 self.mode = "idle"
-            log.info("face template saved: %d samples, self-consistency %.3f", len(template), health)
+            log.info("face template saved: %d samples, self-consistency %.3f", len(template), quality)
             self.bus.log(f"Face profile saved ({len(template)} encrypted samples)")
             self.bus.publish({"type": "enroll_complete"})
+            if self.setup_complete:  # a re-scan: back to continuous verification with the new face
+                self._reenroll = None
+                self.db.add_security_event("face_reenrolled", "Face profile replaced by a new scan")
+                self.begin_verification()
 
     def _tick_verification(self, faces: list[FaceObservation], now: float) -> None:
         verifier = self.verifier
@@ -557,7 +732,7 @@ class AssistantService:
             self.bus.log(f"Command understood ({kinds}) {how}" if r.ok else "Language model unavailable", "info" if r.ok else "error")
         self.bus.publish({"type": "reply", "text": result["reply"], "actions": result["actions"]})
         self.bus.publish({"type": "say", "text": result["reply"]})
-        if self.memory is not None and result.get("ok", True):
+        if self.memory is not None and result.get("ok", True) and self.prefs.get("memory.enabled"):
             # after the reply: history and memory suggestions never slow down the answer
             chat = not result["actions"]
             threading.Thread(target=self._after_turn, args=(text, result["reply"], result["language"], chat),
@@ -567,7 +742,7 @@ class AssistantService:
     def _after_turn(self, text: str, reply: str, lang: str, chat: bool) -> None:
         try:
             self.memory.log_turn(text, reply, lang)
-            if chat and self.memory.sounds_personal(text):
+            if chat and self.suggestions_on() and self.memory.sounds_personal(text):
                 for sug in self.memory.suggest(text):
                     self.bus.publish({"type": "memory_suggestion", "id": sug.id, "text": sug.text})
                     self.bus.log("Memory suggestion ready")
@@ -642,10 +817,10 @@ class AssistantService:
             return
         if now >= p.expires:
             self._finish_pending("expired")
-            self.bus.log("Deletion not confirmed in time — cancelled", "warn")
+            self.bus.log("Not confirmed in time — cancelled", "warn")
         elif self.trust(now).level == 0:
             self._finish_pending("cancelled")
-            self.bus.log("Pending deletion cancelled — owner no longer verified", "warn")
+            self.bus.log("Pending confirmation cancelled — owner no longer verified", "warn")
 
     def _request_confirmation(self, action, lang: str, trust: Trust) -> ToolResult:
         hi = lang != "en"
@@ -654,19 +829,33 @@ class AssistantService:
         plan = self.tools.plan(action, lang)
         if isinstance(plan, ToolResult):
             return plan
-        ttl = self.s.confirm_ttl_s
         say = f"{plan.what} हटा दूँ? “हाँ, कर दो” बोलिए या Confirm दबाइए।" if hi else (
             f"Delete {plan.what}? Say “yes, go ahead” or click Confirm.")
+        return self._open_pending(plan, lang, say, trust)
+
+    def request_sensitive(self, tool: str, what: str, question: str, run: Callable[[], ToolResult],
+                          lang: str = "en") -> dict:
+        """Open a level-3 confirmation for a privacy/settings action (callers checked level 2)."""
+        if self.pending() is not None:
+            return {"ok": False, "reply": "Another confirmation is already waiting."}
+        say = f"{question} Say “yes, go ahead” or click Confirm."
+        res = self._open_pending(Plan(tool, 0, what, lang != "en"), lang, say, self.trust(), run)
+        self.bus.publish({"type": "say", "text": res.say})
+        return {"ok": True, "reply": res.say, "pending": res.data.get("pending")}
+
+    def _open_pending(self, plan: Plan, lang: str, say: str, trust: Trust,
+                      run: Callable[[], ToolResult] | None = None) -> ToolResult:
+        ttl = self.s.confirm_ttl_s
         if trust.needs_fresh_liveness:
             self._demand_liveness = "Fresh liveness check before a deletion"
             ttl += 20.0  # time for the challenge
             say = self._blocked_say("fresh_liveness", lang, "voice") + " " + say
         pid = secrets.token_hex(4)
         with self._pending_lock:
-            self._pending = Pending(pid, plan, lang, say, self.clock() + ttl)
+            self._pending = Pending(pid, plan, lang, say, self.clock() + ttl, run)
         self.bus.publish({"type": "confirm", "id": pid, "tool": plan.tool, "text": say, "expires_s": ttl})
         self.bus.log(f"Waiting for confirmation: {plan.tool}")
-        return ToolResult(action.tool, True, say, {"pending": pid})
+        return ToolResult(plan.tool, True, say, {"pending": pid})
 
     def confirm_spoken(self, accept: bool, verdict: str | None) -> None:
         p = self.pending()
@@ -680,7 +869,9 @@ class AssistantService:
             return self._answer("Nothing is waiting for confirmation.", ok=False)
         if not accept:
             self._finish_pending("cancelled")
-            self.bus.log("Deletion cancelled by the owner")
+            self.bus.log("Cancelled by the owner")
+            if p.run is not None:
+                return self._answer("ठीक है, कुछ नहीं बदला।" if hi else "Okay, nothing changed.", ok=True)
             return self._answer("ठीक है, नहीं हटाया।" if hi else "Okay, I won't delete it.", ok=True)
         if source == "voice" and verdict != "verified":
             # a short "yes" carries too little voice to identify the speaker
@@ -704,8 +895,13 @@ class AssistantService:
                 self.db.add_security_event("tool_blocked", f"{p.plan.tool} confirmation refused: {REASONS.get(code, code)}", blocked=True)
             return self._answer(text, ok=False)
         self._finish_pending("done")
-        res = self.tools.execute(p.plan)
-        self.db.add_security_event("sensitive_action", f"{p.plan.tool} confirmed by {'voice' if source == 'voice' else 'click'}")
+        try:
+            res = p.run() if p.run is not None else self.tools.execute(p.plan)
+        except Exception as exc:
+            log.exception("confirmed action %s failed", p.plan.tool)
+            res = ToolResult(p.plan.tool, False, f"That failed: {exc}")
+        if p.run is None:  # privacy/settings actions log their own, more specific event
+            self.db.add_security_event("sensitive_action", f"{p.plan.tool} confirmed by {'voice' if source == 'voice' else 'click'}")
         self.bus.log(f"Tool {p.plan.tool}: {'done' if res.ok else 'failed'} (confirmed)", "ok" if res.ok else "warn")
         self.record_sample(1, "owner_confirm")
         action = {"tool": p.plan.tool, "args": {}, "summary": p.plan.what, "ok": res.ok, "result": res.say, "data": res.data}
@@ -715,6 +911,157 @@ class AssistantService:
         self.bus.publish({"type": "reply", "text": text, "actions": actions or []})
         self.bus.publish({"type": "say", "text": text})
         return {"ok": ok, "reply": text}
+
+    # -- privacy ------------------------------------------------------------------
+    def request_privacy(self, action: str, lang: str = "en", path: str | None = None) -> dict:
+        """Open the level-3 confirmation for a privacy action (callers checked level 2)."""
+        what, question = privacy.ACTIONS[action]
+        if action == "export":
+            target = privacy.validate_export_path(path or "", self.s.data_dir)
+            run = lambda: self._export(target)
+            question = f"Export your data to {target.name}? It will be readable, not encrypted."
+        elif action == "reenroll_face":
+            run = lambda: self._grant_reenroll("redo")
+        else:
+            run = getattr(self, f"_{action}")
+        return self.request_sensitive(f"privacy.{action}", what, question, run, lang)
+
+    def _done(self, action: str, say: str, detail: str | None = None, **data) -> ToolResult:
+        self.db.add_security_event("privacy_action", detail or say)
+        self.bus.log(say, "ok")
+        self.bus.publish({"type": "privacy_changed"})
+        return ToolResult(f"privacy.{action}", True, say, data)
+
+    def _grant_reenroll(self, kind: str) -> ToolResult:
+        self._reenroll = (kind, self.clock() + REENROLL_GRANT_S)
+        self.bus.publish({"type": "face_reenroll", "kind": kind})
+        return self._done("reenroll_face", "Okay — look at the camera and follow the prompts to re-scan your face.",
+                          "Face re-scan authorised")
+
+    def face_enroll_allowed(self) -> tuple[bool, str]:
+        """May someone start a face scan right now?"""
+        if not self.setup_complete:
+            return True, "first-time setup"
+        g = self._reenroll
+        if g is not None and self.clock() < g[1]:
+            return True, f"re-scan authorised ({g[0]})"
+        if not self.face_enrolled:
+            v = self.voice
+            last = v.auth.last_verified if v is not None and v.mode == "verifying" else None
+            if last is not None and self.clock() - last.t <= RECOVERY_VOICE_S and not v.auth.rejected_since_verified:
+                return True, "voice verified"
+            if v is not None and v.enrolled:
+                return False, f"Say “{self.assistant_name}, it's me” so I can recognise your voice first"
+            return False, "No face or voice profile left — use Factory reset to set up again"
+        return False, "Re-scanning needs a confirmation (Settings → Identity → Re-scan face)"
+
+    def locked_out(self) -> bool:
+        """Set up, but no face profile, no usable voice profile and no re-scan window:
+        nobody can ever be verified again, so a reset must be possible without it."""
+        if not self.setup_complete or self.face_enrolled:
+            return False
+        g = self._reenroll
+        if g is not None and self.clock() < g[1]:
+            return False
+        v = self.voice
+        return v is None or not v.enrolled or not v.available
+
+    def _unverified_reply(self, verdict: str | None) -> str | None:
+        """What to say to an addressed command while nobody is verified (None = default)."""
+        if not (self.setup_complete and not self.face_enrolled):
+            return None
+        if verdict == "verified":
+            self.bus.publish({"type": "face_reenroll", "kind": "voice"})
+            return "I recognise your voice. You can scan your face now."
+        return "I need to recognise your voice first. Please say that again, a little longer."
+
+    def _stop_face(self) -> None:
+        with self._lock:
+            self.enrollment = None
+            self.verifier = None
+            self.auth = self._new_auth()
+            self.live = self._new_gate()
+            self._unlocked = False
+            self.mode = "idle"
+        if self.brain is not None:
+            self.brain.clear()
+
+    def _delete_face(self) -> ToolResult:
+        self._stop_face()
+        self.store.delete(FACE)
+        self._grant_reenroll("deleted")
+        self._push_state()
+        return self._done("delete_face", "Face profile deleted. Look at the camera to scan your face again.",
+                          "Face profile deleted")
+
+    def _delete_voice(self) -> ToolResult:
+        v = self.voice
+        if v is not None:
+            v.cancel_enrollment("Voice enrollment stopped — profile deleted")
+            with v._lock:
+                v.matcher = None
+                v.mode = "idle"
+            v.auth.reset()
+        self.store.delete("voice")
+        return self._done("delete_voice", "Voice profile deleted. You can enroll again from Authentication.")
+
+    def _clear_memory(self) -> ToolResult:
+        n = self.memory.clear_facts() if self.memory else 0
+        return self._done("clear_memory", f"Forgot everything I remembered ({n} facts).")
+
+    def _clear_history(self) -> ToolResult:
+        n = self.memory.clear_history() if self.memory else 0
+        return self._done("clear_history", f"Conversation history deleted ({n} messages).")
+
+    def _clear_tools(self) -> ToolResult:
+        if self.alarms is not None:
+            self.alarms.dismiss()
+        n = sum(len(self.db.run(f"DELETE FROM {t} RETURNING id")) for t in ("notes", "alarms", "events")
+                if t in self.db.tables())
+        self.tools_changed()
+        return self._done("clear_tools", f"Notes, alarms and events deleted ({n} items).")
+
+    def _clear_security_log(self) -> ToolResult:
+        n = self.db.clear_security_events()
+        return self._done("clear_security_log", f"Security log cleared ({n} events).", "Security log cleared")
+
+    def _reset_fusion(self) -> ToolResult:
+        self.samples.clear()
+        self.reset_fusion()
+        return self._done("reset_fusion", "Fusion model reset and its device samples deleted.")
+
+    def _export(self, path) -> ToolResult:
+        n = privacy.write_export(self, path)
+        return self._done("export", f"Exported your data to {path.name} ({n // 1024 + 1} KB).",
+                          f"Data exported to {path}", path=str(path))
+
+    def _factory_reset(self) -> ToolResult:
+        self._stop_face()
+        self._reenroll = None
+        if self.voice is not None:
+            self.voice.cancel_enrollment("Voice enrollment stopped — factory reset")
+            with self.voice._lock:
+                self.voice.matcher = None
+                self.voice.mode = "idle"
+            self.voice.auth.reset()
+        if self.alarms is not None:
+            self.alarms.dismiss()
+        for f in self.s.templates_dir.glob("*"):
+            f.unlink(missing_ok=True)
+        self.s.fusion_model_path.unlink(missing_ok=True)
+        self.fusion, self.fusion_source = load_model(None) if self.s.fusion_enabled else (None, "disabled")
+        self.db.wipe()
+        self.store.keys.delete_key()  # crypto-erase: anything left on disk can't be decrypted
+        if self.memory is not None:
+            self.memory.reset_cache()
+        self._apply_security_settings()
+        self._apply_voice_settings()
+        self.apply_mode()
+        self.db.add_security_event("factory_reset", "All data erased; encryption key destroyed")
+        self.bus.log("Factory reset complete — starting setup", "ok")
+        self.bus.publish({"type": "privacy_changed"})
+        self.bus.publish({"type": "status", **self.status()})
+        return ToolResult("privacy.factory_reset", True, "Everything is erased. Let's set things up again.")
 
     # -- alarms ------------------------------------------------------------------
     def tools_changed(self) -> None:
@@ -861,7 +1208,29 @@ class AssistantService:
             return "challenges only — " + (getattr(passive, "error", None) or "passive model not loaded")
         return "ready"
 
+    def _models(self) -> dict:
+        return {
+            "face": "ready" if self.engine.ready else (self.engine.error or "not loaded"),
+            "voice": self.voice.model_status() if self.voice else "disabled",
+            "liveness": self._liveness_status(),
+            "llm": self.brain.status() if self.brain else "disabled",
+            "tools": "ready" if self.tools else "disabled",
+            "memory": (
+                ("ready" if self.memory.semantic else f"word match only — {self.memory.embed_error}")
+                if self.memory else "disabled"
+            ),
+            **(self.speech.status() if self.speech else {"stt": "disabled", "tts": "disabled"}),
+        }
+
+    def network_info(self) -> dict:
+        stats = self.perf.stats or {}
+        ext = stats.get("external", [])
+        attempts = self.guard.recent()
+        return {"offline": self.prefs.get("privacy.offline"), "external": ext, "attempts": attempts[:20],
+                "blocked": sum(1 for a in attempts if a["blocked"])}
+
     def status(self) -> dict:
+        allowed, why = self.face_enroll_allowed() if self.setup_complete else (True, "")
         return {
             "setup_complete": self.setup_complete,
             "owner_name": self.owner_name,
@@ -876,18 +1245,24 @@ class AssistantService:
                 if self.voice
                 else {"status": "off", "error": "voice pipeline disabled", "device": None}
             ),
-            "models": {
-                "face": "ready" if self.engine.ready else (self.engine.error or "not loaded"),
-                "voice": self.voice.model_status() if self.voice else "disabled",
-                "liveness": self._liveness_status(),
-                "llm": self.brain.status() if self.brain else "disabled",
-                "tools": "ready" if self.tools else "disabled",
-                "memory": (
-                    ("ready" if self.memory.semantic else f"word match only — {self.memory.embed_error}")
-                    if self.memory else "disabled"
-                ),
-                **(self.speech.status() if self.speech else {"stt": "disabled", "tts": "disabled"}),
-            },
+            "models": (models := self._models()),
+            "issues": health.issues({"camera": {"status": self.camera.status},
+                                     "mic": {"status": self.voice.mic.status} if self.voice else {},
+                                     "models": models}, self.s.data_dir, self.perf.stats),
+            "perf": {"mode": self._mode, "pref": self.prefs.get("perf.mode"), "on_battery": self.perf.on_battery,
+                     "battery_pct": self.perf.battery_pct,
+                     **{k: v for k, v in (self.perf.stats or {}).items() if k in ("cpu", "backend_mb", "ollama_mb")}},
+            "network": {"offline": self.prefs.get("privacy.offline"),
+                        "external": sum(c["count"] for c in (self.perf.stats or {}).get("external", [])),
+                        "blocked": sum(1 for a in self.guard.recent() if a["blocked"])},
+            # face profile missing or a re-scan authorised: the UI shows the scan screen
+            "face_reenroll": (
+                {"allowed": allowed, "reason": why, "locked_out": self.locked_out(),
+                 "kind": self._reenroll[0] if self._reenroll and self.clock() < self._reenroll[1] else None}
+                if self.setup_complete and (not self.face_enrolled or self.mode == "enrolling"
+                                            or (self._reenroll and self.clock() < self._reenroll[1]))
+                else None
+            ),
             "voice_gender": self.speech.voice_gender() if self.speech else self.db.get("voice_gender", "female"),
             "listening": bool(self.speech and self.speech.listening),
             "llm_model": self.brain.model if self.brain else None,
