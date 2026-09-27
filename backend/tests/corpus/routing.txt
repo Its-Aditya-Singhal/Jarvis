@@ -1,0 +1,409 @@
+# Command-routing corpus: how spoken requests should be understood.
+#
+#   route | expected | what the owner says
+#
+# route     fast  understood instantly by jarvis/llm/fastpath.py with exactly these actions
+#           llm   the fast path must pass it on; the language model should produce these tools
+#           gap   should be instant but isn't yet (a known gap; the test is a strict xfail,
+#                 so it fails once fixed and the line can become "fast")
+# expected  tool(key=value, ...) joined by " + ", or reply=time / reply=date (answered directly),
+#           or none (chat or a refusal: no tool). For "llm" lines only the tool names are checked.
+#
+# The clock is Sunday 27 September 2026, 16:30. Installed apps: see APPS in test_routing_corpus.py.
+
+# -- timers ---------------------------------------------------------------------------------
+fast | timer.set(seconds=300) | set a timer for 5 minutes
+fast | timer.set(seconds=300) | Set a timer for five minutes.
+gap  | timer.set(seconds=300) | start a 5 minute timer
+fast | timer.set(seconds=300) | timer for 5 minutes
+fast | timer.set(seconds=300) | 5 minute timer
+fast | timer.set(seconds=300) | please set a timer for 5 minutes
+fast | timer.set(seconds=300) | can you set a timer for 5 minutes
+fast | timer.set(seconds=60) | set a timer for one minute
+fast | timer.set(seconds=60) | set a timer for a minute
+fast | timer.set(seconds=90) | timer for 90 seconds
+fast | timer.set(seconds=30) | set a timer for 30 seconds
+gap  | timer.set(seconds=600) | set a 10 minute timer
+fast | timer.set(seconds=900) | fifteen minute timer
+fast | timer.set(seconds=1200) | twenty minutes timer
+fast | timer.set(seconds=1800) | half an hour timer
+fast | timer.set(seconds=1800) | set a timer for half an hour
+fast | timer.set(seconds=3600) | set a timer for an hour
+fast | timer.set(seconds=3600) | timer for 1 hour
+fast | timer.set(seconds=7200) | timer for two hours
+fast | timer.set(seconds=4200) | set a timer for an hour and 10 minutes
+fast | timer.set(seconds=150) | timer for 2 minutes and 30 seconds
+fast | timer.set(seconds=600) | remind me in 10 minutes
+fast | timer.set(seconds=1200) | wake me up in 20 minutes
+fast | timer.set(seconds=300) | 5 minute ka timer laga do
+fast | timer.set(seconds=300) | paanch minute ka timer lagao
+fast | timer.set(seconds=600) | das minute ka timer set karo
+fast | timer.set(seconds=120) | do minute ka timer
+fast | timer.set(seconds=1800) | aadha ghanta timer
+fast | timer.set(seconds=3600) | ek ghante ka timer laga do
+fast | timer.set(seconds=5400) | dedh ghante ka timer
+fast | timer.set(seconds=300) | पांच मिनट का टाइमर लगाओ
+fast | timer.set(seconds=600) | दस मिनट का टाइमर लगा दो
+fast | timer.set(seconds=120) | दो मिनट का टाइमर
+fast | timer.set(seconds=300) | zara 5 minute ka timer laga do na
+fast | timer.set(seconds=300) | set timer 5 min
+gap  | timer.set(seconds=300) | put a five minute timer on
+fast | timer.set(seconds=45) | 45 second timer
+fast | timer.set(seconds=180) | three minutes timer please
+fast | timer.set(seconds=2700) | timer for forty five minutes
+llm  | none | set a timer
+llm  | timer.set | set a timer for my pasta
+llm  | timer.set | start a timer for the time it takes to boil eggs, about 8 minutes
+
+# -- alarms --------------------------------------------------------------------------------
+fast | alarm.set(time=2026-09-28T07:00) | wake me up at 7
+fast | alarm.set(time=2026-09-28T07:00) | wake me at 7 am
+fast | alarm.set(time=2026-09-28T06:30) | wake me up at 6:30
+fast | alarm.set(time=2026-09-27T19:30) | set an alarm for 7:30 pm
+fast | alarm.set(time=2026-09-27T19:30) | set an alarm for 7:30 p.m.
+fast | alarm.set(time=2026-09-28T07:30) | set an alarm for 7:30 am
+fast | alarm.set(time=2026-09-28T06:00) | set an alarm for 6 tomorrow
+fast | alarm.set(time=2026-09-28T06:00) | set an alarm for tomorrow at 6
+fast | alarm.set(time=2026-09-28T06:00) | set an alarm for 6 am
+fast | alarm.set(time=2026-09-27T17:00) | alarm for 5
+fast | alarm.set(time=2026-09-27T19:00) | alarm at 7
+fast | alarm.set(time=2026-09-28T04:00) | set alarm for 4
+fast | alarm.set(time=2026-09-27T21:00) | set an alarm for 9 tonight
+fast | alarm.set(time=2026-09-27T18:00) | set an alarm for 6 in the evening
+fast | alarm.set(time=2026-09-28T05:45) | set an alarm for 5:45 in the morning
+fast | alarm.set(time=2026-09-27T22:15) | set an alarm for 22:15
+fast | alarm.set(time=2026-09-28T00:00) | set an alarm for 12 am
+fast | alarm.set(time=2026-09-28T12:00) | set an alarm for 12 pm
+fast | alarm.set(time=2026-09-28T07:00) | kal subah saat baje ka alarm laga do
+fast | alarm.set(time=2026-09-28T07:00) | kal subah 7 baje ka alarm
+fast | alarm.set(time=2026-09-28T06:00) | subah chhe baje ka alarm lagao
+fast | alarm.set(time=2026-09-27T18:30) | saade chhe baje ka alarm
+fast | alarm.set(time=2026-09-27T20:00) | shaam aath baje ka alarm laga do
+fast | alarm.set(time=2026-09-28T07:00) | kal subah saat baje jaga dena
+gap  | alarm.set(time=2026-09-28T07:00) | mujhe kal subah 7 baje utha dena
+fast | alarm.set(time=2026-09-28T07:00) | कल सुबह सात बजे का अलार्म लगा दो
+gap  | alarm.set(time=2026-09-28T06:00) | सुबह छह बजे का अलार्म लगाओ
+fast | alarm.set(time=2026-09-28T07:00) | please set an alarm for 7 am
+gap  | alarm.set(time=2026-09-28T07:00) | set an alarm for seven o'clock tomorrow morning
+gap  | alarm.set(time=2026-09-28T06:15) | alarm at quarter past six tomorrow
+gap  | alarm.set(time=2026-09-28T07:00) | I need to get up at 7
+llm  | alarm.set | set an alarm for 7 on Tuesday
+llm  | alarm.set | set an alarm for an hour before sunrise
+llm  | alarm.set | wake me up at 7 every weekday
+
+# -- alarm list & cancel ---------------------------------------------------------------------
+fast | alarm.cancel() | cancel my alarms
+fast | alarm.cancel() | cancel all alarms
+fast | alarm.cancel() | delete the timer
+fast | alarm.cancel() | turn off my alarm
+fast | alarm.cancel() | stop the timer
+gap  | alarm.cancel() | cancel all alarms and timers
+fast | alarm.cancel() | alarm cancel kar do
+fast | alarm.cancel() | saare alarm band karo
+fast | alarm.list() | what alarms do i have
+fast | alarm.list() | which alarms are set
+fast | alarm.list() | show my alarms
+gap  | alarm.list() | list my alarms and timers
+fast | alarm.list() | how much time is left on the timer
+fast | alarm.list() | how much time left
+fast | alarm.list() | do i have any alarms set
+fast | alarm.list() | kaunse alarm lage hain
+llm  | alarm.cancel | cancel my 7 am alarm
+llm  | alarm.cancel | cancel tomorrow morning's alarm
+
+# -- apps ------------------------------------------------------------------------------------
+fast | app.open(name=safari) | open safari
+fast | app.open(name=safari) | Open Safari.
+fast | app.open(name=safari) | launch safari
+fast | app.open(name=safari) | start safari
+fast | app.open(name=safari) | open the safari app
+fast | app.open(name=spotify) | launch spotify please
+fast | app.open(name=notes) | open notes
+fast | app.open(name=calendar) | open calendar
+fast | app.open(name=music) | open music
+fast | app.open(name=whatsapp) | open whatsapp
+fast | app.open(name=vs code) | open vs code
+fast | app.open(name=vscode) | open vscode
+fast | app.open(name=visual studio code) | open visual studio code
+fast | app.open(name=chrome) | open chrome
+fast | app.open(name=google chrome) | open google chrome
+fast | app.open(name=terminal) | open terminal
+fast | app.open(name=settings) | open settings
+fast | app.open(name=system settings) | open system settings
+fast | app.open(name=xcode) | open xcode
+fast | app.open(name=slack) | open slack
+fast | app.open(name=photos) | show me photos
+fast | app.open(name=calculator) | open the calculator
+fast | app.open(name=safari) | safari kholo
+fast | app.open(name=safari) | Safari kholo
+fast | app.open(name=spotify) | spotify khol do
+fast | app.open(name=whatsapp) | whatsapp open karo
+fast | app.open(name=notes) | notes chalu karo
+fast | app.open(name=calculator) | calculator khol
+fast | app.close(name=safari) | close safari
+fast | app.close(name=safari) | Close Safari
+fast | app.close(name=spotify) | quit spotify
+fast | app.close(name=whatsapp) | quit whatsapp
+fast | app.close(name=slack) | exit slack
+fast | app.close(name=xcode) | close the xcode app
+fast | app.close(name=safari) | safari band karo
+fast | app.close(name=whatsapp) | whatsapp band kar do
+fast | app.close(name=spotify) | spotify ko band karo
+gap  | app.open(name=safari) | सफारी खोलो
+gap  | app.open(name=notes) | bring up notes
+gap  | app.open(name=safari) | fire up safari
+llm  | none | open the pod bay doors
+llm  | none | close the door please
+llm  | none | open my heart
+
+# -- folders ---------------------------------------------------------------------------------
+fast | folder.open(name=documents) | Open documents folder
+fast | folder.open(name=documents) | open my documents
+fast | folder.open(name=downloads) | open my downloads
+fast | folder.open(name=downloads) | open the downloads folder
+fast | folder.open(name=desktop) | open desktop
+fast | folder.open(name=music) | open music folder
+fast | folder.open(name=pictures) | open pictures
+fast | folder.open(name=home) | open home folder
+fast | folder.open(name=capstone) | open capstone folder
+fast | folder.open(name=projects) | open the projects folder
+fast | folder.open(name=downloads) | downloads kholo
+fast | folder.open(name=documents) | mera documents folder kholo
+gap  | folder.open(name=downloads) | show me what's in downloads
+llm  | folder.open | open the folder where I keep my tax stuff
+
+# -- websites & web search --------------------------------------------------------------------
+fast | web.open(target=youtube) | open youtube
+fast | web.open(target=youtube) | youtube kholo
+# the fuzzy app match takes "gmail" for Mail.app
+gap  | web.open(target=gmail) | open gmail
+fast | web.open(target=github.com) | go to github.com
+fast | web.open(target=github.com) | open github.com
+fast | web.open(target=wikipedia.org) | visit wikipedia.org
+fast | web.open(target=news.ycombinator.com) | open news.ycombinator.com
+fast | web.open(target=github) | open github
+fast | web.open(target=netflix) | open netflix
+fast | web.open(target=chatgpt) | open chatgpt
+fast | web.open(target=google maps) | open google maps
+fast | web.open(target=Best laptops) | google best laptops
+fast | web.open(target=Best laptops 2026) | search google for best laptops 2026
+fast | web.open(target=Weather in Delhi) | search the web for weather in Delhi
+fast | web.open(target=Python decorators) | look up python decorators online
+fast | web.open(target=Flights to Goa) | search flights to Goa on google
+fast | web.open(target=IPL score) | IPL score google karo
+gap  | web.open(target=Best laptops) | search for best laptops on youtube
+llm  | none | what's the weather
+llm  | none | what's the latest news
+llm  | web.open | find me a recipe for paneer butter masala online
+llm  | web.open | open the website for my bank
+
+# -- volume ----------------------------------------------------------------------------------
+fast | system.volume(change=10) | volume up
+fast | system.volume(change=10) | turn it up
+fast | system.volume(change=10) | turn the volume up a bit
+fast | system.volume(change=10) | increase the volume
+fast | system.volume(change=10) | louder
+fast | system.volume(change=10) | volume badhao
+fast | system.volume(change=10) | awaaz tez karo
+fast | system.volume(change=-10) | volume down
+fast | system.volume(change=-10) | turn it down
+fast | system.volume(change=-10) | lower the volume
+fast | system.volume(change=-10) | quieter
+fast | system.volume(change=-10) | volume kam karo
+fast | system.volume(change=-10) | awaaz dheere karo
+fast | system.volume(level=40) | set volume to 40
+fast | system.volume(level=40) | set the volume to 40 percent
+fast | system.volume(level=40) | volume 40
+fast | system.volume(level=100) | volume to 100
+fast | system.volume(level=0) | set volume to zero
+fast | system.volume(mute=true) | mute
+fast | system.volume(mute=true) | mute the sound
+fast | system.volume(mute=true) | volume mute karo
+fast | system.volume(mute=true) | chup ho jao
+fast | system.volume(mute=false) | unmute
+fast | system.volume(mute=false) | turn the sound back on
+fast | system.volume(mute=false) | volume chalu karo
+fast | system.volume() | what's the volume
+fast | system.volume() | volume kitni hai
+gap  | system.volume(level=50) | volume half
+gap  | system.volume(level=100) | max volume
+gap  | system.volume(change=-10) | too loud
+llm  | system.volume | make it a little quieter than it was yesterday
+
+# -- music -----------------------------------------------------------------------------------
+fast | media.control(action=play) | play
+fast | media.control(action=play) | play music
+fast | media.control(action=play) | play some music
+fast | media.control(action=play) | resume the music
+fast | media.control(action=play) | continue the song
+fast | media.control(action=play) | gaana chalao
+fast | media.control(action=play) | gaane bajao
+fast | media.control(action=play) | music play karo
+fast | media.control(action=pause) | pause
+fast | media.control(action=pause) | pause the music
+fast | media.control(action=pause) | stop the music
+fast | media.control(action=pause) | pause spotify
+fast | media.control(action=pause) | gaana roko
+fast | media.control(action=pause) | music band karo
+fast | media.control(action=next) | next
+fast | media.control(action=next) | next song
+fast | media.control(action=next) | skip this song
+fast | media.control(action=next) | play the next track
+fast | media.control(action=next) | agla gaana
+fast | media.control(action=next) | agla gaana chalao
+fast | media.control(action=previous) | previous song
+fast | media.control(action=previous) | go back
+fast | media.control(action=previous) | play the previous track
+fast | media.control(action=previous) | pichla gaana
+gap  | media.control(action=pause) | shut the music off
+llm  | media.control | play some lo-fi on spotify
+llm  | media.control | play Kesariya by Arijit Singh
+
+# -- battery, lock ---------------------------------------------------------------------------
+fast | system.battery() | battery
+fast | system.battery() | battery level
+fast | system.battery() | what's my battery
+fast | system.battery() | what is the battery percentage
+fast | system.battery() | how much battery do i have
+fast | system.battery() | how much battery is left
+fast | system.battery() | battery kitni hai
+fast | system.battery() | kitni battery bachi hai
+fast | system.lock() | lock the screen
+fast | system.lock() | lock my mac
+fast | system.lock() | lock the computer now
+fast | system.lock() | lock
+fast | system.lock() | screen lock karo
+fast | system.lock() | mac lock kar do
+gap  | system.battery() | is my battery low
+gap  | system.lock() | I'm stepping away, lock it
+
+# -- notes -----------------------------------------------------------------------------------
+fast | notes.add(text=Call Dr. Mehta) | take a note to call Dr. Mehta
+fast | notes.add(text=Buy milk) | add a note to buy milk
+fast | notes.add(text=The wifi password is on the router) | take a note that the wifi password is on the router
+fast | notes.add(text=Pick up the laundry) | make a note to pick up the laundry
+fast | notes.add(text=Meeting moved to Friday) | note down meeting moved to Friday
+fast | notes.add(text=Parking is on level 3) | note that parking is on level 3
+fast | notes.add(text=Renew passport in November) | save a note: renew passport in November
+llm  | notes.add | take a note to buy milk and eggs
+llm  | notes.add | नोट लिखो दूध लाना
+llm  | notes.add | doodh lene ka note bana do
+llm  | notes.add | likh lo ki kal bank jana hai
+llm  | notes.search | find my note about the wifi password
+llm  | notes.search | what did I note about parking
+llm  | notes.delete | delete my note about milk
+llm  | notes.delete | remove the note about the laundry
+
+# -- memory ----------------------------------------------------------------------------------
+fast | memory.remember(text=My sister's birthday is on 4 March) | remember that my sister's birthday is on 4 March
+fast | memory.remember(text=I keep my passport in the blue folder) | remember I keep my passport in the blue folder
+fast | memory.remember(text=My car is a white Swift) | don't forget my car is a white Swift
+fast | memory.remember(text=I'm allergic to peanuts) | please remember that I'm allergic to peanuts
+llm  | memory.remember | yaad rakhna ki mera gym Monday aur Thursday ko hai
+fast | memory.remember(text=Mom's flight lands at 6) | Mom's flight lands at 6, yaad rakhna
+fast | memory.forget(query=My car) | forget about my car
+fast | memory.forget(query=My sister's birthday) | forget what i said about my sister's birthday
+llm  | none | remember to call mom at 5
+llm  | memory.remember | मेरी बहन का जन्मदिन चार मार्च को है, याद रखना
+llm  | none | when is my sister's birthday
+llm  | history.search | what did we talk about yesterday
+llm  | history.search | what did I ask you about flights last week
+
+# -- calendar --------------------------------------------------------------------------------
+fast | calendar.list(date=2026-09-27) | what's on my calendar
+fast | calendar.list(date=2026-09-28) | What's on my calendar tomorrow?
+fast | calendar.list(date=2026-09-27) | what's my schedule
+fast | calendar.list(date=2026-09-27) | what do i have today
+fast | calendar.list(date=2026-09-28) | what do i have tomorrow
+fast | calendar.list(date=2026-09-27) | my calendar
+fast | calendar.list(date=2026-09-27) | aaj ka schedule
+fast | calendar.list(date=2026-09-28) | kal ka schedule kya hai
+# the fuzzy app match takes "kal ka calendar" for the Calendar app
+gap  | calendar.list(date=2026-09-28) | kal ka calendar dikhao
+gap  | calendar.list(date=2026-09-28) | am I free tomorrow
+gap  | calendar.list(date=2026-09-27) | any meetings today
+llm  | calendar.list | what do I have on Friday
+llm  | calendar.create | add a meeting with Rahul tomorrow at 3
+llm  | calendar.create | put dentist appointment on Tuesday at 11 in my calendar
+llm  | calendar.create | kal shaam 5 baje team call add kar do
+llm  | calendar.delete | cancel my meeting with Rahul
+llm  | calendar.delete | delete tomorrow's dentist appointment
+
+# -- files -----------------------------------------------------------------------------------
+fast | files.search(query=lease) | find files about lease
+fast | files.search(query=tax invoice) | find my files named tax invoice
+fast | files.search(query=resume) | search for documents called resume
+fast | files.search(query=capstone report) | look for files on capstone report
+gap  | files.search(query=resume) | where is my resume
+llm  | none | search for my passport
+llm  | files.search | find the PDF I downloaded yesterday
+llm  | files.search | find the presentation about marketing
+
+# -- time and date ----------------------------------------------------------------------------
+fast | reply=time | what time is it
+fast | reply=time | what's the time
+fast | reply=time | What is the time right now?
+fast | reply=time | Tell me the time.
+fast | reply=time | Current time
+fast | reply=time | Can you tell me the time
+fast | reply=time | do you know the time
+fast | reply=time | time please
+fast | reply=time | what time is it right now
+fast | reply=time | time kya hua hai
+fast | reply=time | time kya ho gaya
+fast | reply=time | abhi kitne baje hain
+fast | reply=time | kitne baje hain
+fast | reply=time | kitna baja hai
+fast | reply=time | time batao
+fast | reply=time | abhi ka time kya hai
+fast | reply=time | समय क्या हुआ है
+fast | reply=date | what's the date today
+fast | reply=date | what is the date
+fast | reply=date | what day is it
+fast | reply=date | what day is today
+fast | reply=date | today's date
+fast | reply=date | what date is it today
+fast | reply=date | aaj kya date hai
+fast | reply=date | aaj kaun sa din hai
+fast | reply=date | aaj ki tareekh batao
+gap  | reply=time | got the time
+gap  | reply=date | आज कौन सा दिन है
+llm  | none | what time is it in London
+llm  | none | how many days until Diwali
+llm  | none | what's the date next Friday
+
+# -- compound requests -------------------------------------------------------------------------
+fast | alarm.set(time=2026-09-28T07:00) + notes.add(text=Buy milk) | wake me up at 7 tomorrow and add a note to buy milk
+fast | app.open(name=notes) + timer.set(seconds=120) | open notes and set a timer for 2 minutes
+fast | app.open(name=spotify) + media.control(action=play) | open spotify and play music
+fast | system.volume(change=10) + media.control(action=next) | volume up and next song
+fast | app.close(name=safari) + system.lock() | close safari and lock the screen
+llm  | timer.set + timer.set | set a timer for 5 minutes and another for 10 minutes
+fast | app.open(name=safari) + web.open(target=youtube) | open safari then open youtube
+fast | timer.set(seconds=300) + app.open(name=spotify) | 5 minute ka timer laga do aur spotify kholo
+fast | alarm.set(time=2026-09-28T06:00) + alarm.cancel() | set an alarm for 6 am, then cancel my alarms
+llm  | alarm.set + notes.add | kal subah saat baje mujhe jagana aur doodh lene ka note bana do
+llm  | timer.set + notes.add | set a timer for 10 minutes and remind me to check the oven
+llm  | none | what time is it and what's the date
+
+# -- chat, knowledge and refusals ----------------------------------------------------------------
+llm  | none | who wrote hamlet
+llm  | none | What is the capital of France?
+llm  | none | how are you
+llm  | none | tell me a joke
+llm  | none | thank you
+llm  | none | good morning
+llm  | none | explain recursion in one line
+llm  | none | what's 15 percent of 240
+llm  | none | how many grams in a pound
+llm  | none | तुम कौन हो
+llm  | none | aaj mausam kaisa hai
+llm  | none | mujhe ek joke sunao
+llm  | none | Send an email to my boss saying I'm late
+llm  | none | order a pizza
+llm  | none | delete all my files
+llm  | none | run rm -rf on my home folder
+llm  | none | transfer money to Rahul
+llm  | none | call mom
+llm  | none | message Priya that I'm running late
+llm  | none | buy the cheapest flight to Goa
