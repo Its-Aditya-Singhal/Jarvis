@@ -22,6 +22,18 @@ from .tts import SAMPLE_RATE, TextToSpeech
 log = logging.getLogger(__name__)
 
 TAIL_MUTE_S = 0.4  # room echo after playback ends
+CHIME = "\x00chime"
+
+
+def chime_audio(sr: int = SAMPLE_RATE) -> np.ndarray:
+    """Two soft rising tones, twice — the alarm sound (generated, no asset)."""
+    def tone(f: float, dur: float) -> np.ndarray:
+        t = np.arange(int(sr * dur)) / sr
+        env = np.minimum(1, t / 0.02) * np.exp(-t * 5)
+        return (0.35 * env * (np.sin(2 * np.pi * f * t) + 0.3 * np.sin(4 * np.pi * f * t))).astype(np.float32)
+    gap = np.zeros(int(sr * 0.08), np.float32)
+    one = np.concatenate([tone(880, 0.32), gap, tone(1320, 0.45), gap * 3])
+    return np.concatenate([one, one])
 LEVEL_PERIOD_S = 1 / 15
 MAX_QUEUE = 4
 
@@ -79,7 +91,7 @@ class SpeechOutput:
         self._stop_current.set()
         self._q.put(("", None))
 
-    def say(self, text: str, gender: str | None = None) -> None:
+    def say(self, text: str, gender: str | None = None) -> None:  # noqa: D401
         text = " ".join(text.split())
         if not text or not self.tts.ready:
             return
@@ -89,6 +101,9 @@ class SpeechOutput:
             except queue.Empty:
                 break
         self._q.put((text, gender))
+
+    def chime(self) -> None:
+        self._q.put((CHIME, None))
 
     def interrupt(self) -> None:
         while not self._q.empty():
@@ -111,8 +126,12 @@ class SpeechOutput:
                 break
             self._stop_current.clear()
             self._speaking = True
-            self.bus.publish({"type": "tts", "active": True, "text": text})
+            if text != CHIME:
+                self.bus.publish({"type": "tts", "active": True, "text": text})
             try:
+                if text == CHIME:
+                    self.player.play(chime_audio(), SAMPLE_RATE, self._level, self._stop_current)
+                    continue
                 for sentence in split_sentences(text):
                     if self._stop_current.is_set():
                         break

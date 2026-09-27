@@ -5,9 +5,9 @@ A local-first desktop assistant for macOS (Apple Silicon) that keeps checking
 name during setup (JARVIS, FRIDAY, anything). No paid APIs and no cloud: every
 model runs on your Mac.
 
-> **Status: Phase 5 of 10: identity, liveness, speech and a local LLM.**
-> The assistant understands requests and answers questions. Carrying out
-> actions (alarms, notes, apps…) arrives with the tools in phase 6. The UI marks
+> **Status: Phase 6 of 10: identity, liveness, speech, local LLM and tools.**
+> The assistant carries out requests for the verified owner. Auth levels,
+> the fusion model, memory and the privacy dashboard come next. The UI marks
 > every unbuilt feature as such rather than faking it.
 
 ## What works now
@@ -48,12 +48,22 @@ model runs on your Mac.
   English or Hindi. It turns requests into structured intents, including
   compound ones ("wake me at 7 and note to buy milk" becomes two actions),
   and resolves times like "kal subah saat baje". Until the tools arrive, it
-  restates what it understood and says it can't carry it out yet. That reply
-  is built in code, so the model can never claim an action was done.
+  carries out requests with real tools, and every spoken result is built
+  from what actually happened, never from the model's wording.
   - Type commands too (English, हिंदी or Hinglish), owner only.
   - Switch models in Settings. If Ollama or the model is missing, the app
     says so plainly.
   - Voice enrollment now checks that you actually read the phrase shown.
+- Tools (verified owner only, rechecked before each action):
+  - **Alarms and timers:** chime, spoken reminder and macOS notification;
+    dismiss, snooze, or just say "stop".
+  - **Calendar and notes:** stored encrypted inside the app. Optional sync
+    with Apple Calendar and Apple Notes, switched on in Settings.
+  - **Opening apps:** any installed app by name, including in Hindi
+    ("सफारी खोलो").
+  - **File search:** Spotlight search in Documents, Desktop and Downloads,
+    plus folders you add in Settings.
+  - A Tools view lists alarms, upcoming events and notes.
 - Security log visible only while the verified owner is at the screen.
 
 ## Architecture
@@ -79,6 +89,7 @@ backend/jarvis/
   speech_service.py     transcription, wake word, owner checks, spoken replies
   llm/                  Ollama server manager + client, intent schema and prompt
   brain.py              command → intent (JSON) → reply; short in-memory context
+  tools/                encrypted store, runner, alarm scheduler, app index, file search, Apple bridge
 models/                 downloaded models (git-ignored)
 scripts/download_models.py
 ```
@@ -141,6 +152,21 @@ only) on your own camera. If a real face sits below 0.6, lower
 | Safety | the model never executes anything; replies to action requests are composed by code; no shell, web or messaging |
 | Context | last 4 exchanges, in memory only, expire after 5 min and are cleared when the owner leaves |
 
+## How tools work
+
+| Tool | How | Level* |
+|---|---|---|
+| alarm.set / timer.set | encrypted SQLite + in-app scheduler (rings only while JARVIS runs; alarms > 10 min overdue at startup are marked missed) | 2 |
+| calendar.create / list | encrypted local events; with Apple sync on, also created in the chosen Apple calendar and listed from all Apple calendars | 2 / 1 |
+| notes.add / search | encrypted local notes (fuzzy search); with sync on, also in Apple Notes folder "JARVIS" | 2 / 1 |
+| app.open | any `.app` in the standard Applications folders, fuzzy and Devanagari-aware name match, opened with `open <bundle>` (no shell, no arguments) | 2 |
+| files.search | `mdfind -onlyin` per allowed folder; file names only; system, library and hidden folders refused | 1 |
+
+\*Levels are declared now and enforced by the auth levels in phase 7.
+Model output is untrusted: each tool validates its arguments (times in the
+future, sane timer lengths, known apps, allowed folders). AppleScript
+receives values as `argv`, never as script text.
+
 ## How the voice ML works
 
 | Stage | Model / method |
@@ -179,7 +205,8 @@ A trained fusion classifier over face, voice and liveness comes in phase 7.
   sealed the same way as face templates.
 - Security events: unknown face or voice, spoof suspected, liveness check
   failed, liveness lockout, frozen camera feed, voice command while not
-  verified, command in a non-owner voice. Each records time, outcome
+  verified, command in a non-owner voice, tool blocked because the owner
+  left mid-command. Each records time, outcome
   and whether access was blocked.
 - **Known gaps:** voice alone has no replay protection, so a recording of
   the owner's voice may pass voice verification. Commands still require the
@@ -196,7 +223,7 @@ Requirements: macOS on Apple Silicon, Python 3.12, Node 20+, Rust (`brew install
 ```bash
 cd backend && python3.12 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 .venv/bin/python ../scripts/download_models.py   # ~1 GB, one time (add "medium" for Whisper medium)
-.venv/bin/python -m pytest                        # 83 tests (LLM tests need the model)
+.venv/bin/python -m pytest                        # 94 tests (LLM tests need the model)
 brew install ollama && mkdir -p ~/Developer/ollama/models
 OLLAMA_MODELS=~/Developer/ollama/models ollama serve &   # JARVIS also starts it itself
 ollama pull qwen2.5:7b                            # ~4.7 GB
@@ -217,7 +244,7 @@ which is fine for this academic project.
 3. ✅ Liveness (passive anti-spoof + blink/turn challenges)
 4. ✅ Speech I/O (faster-whisper STT, Kokoro TTS, wake word = assistant name)
 5. ✅ Local LLM via Ollama (configurable model, structured intents)
-6. Tools: alarm, calendar, notes, app launcher, file search (permissioned)
+6. ✅ Tools: alarm, calendar, notes, app launcher, file search (Apple sync optional)
 7. Continuous multi-factor auth + trained fusion model, auth levels 1–3
 8. Memory (SQLite + local embeddings)
 9. Privacy dashboard + settings + performance modes

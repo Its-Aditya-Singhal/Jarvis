@@ -28,6 +28,12 @@ from ..events import EventBus
 from ..security.crypto import KeychainKeyProvider, KeyProvider
 from ..security.template_store import TemplateStore
 from ..brain import Brain
+from ..tools.apple import AppleBridge, AppleError
+from ..tools.apps import AppIndex
+from ..tools.files import FileSearch, FolderError
+from ..tools.runner import ToolRunner
+from ..tools.scheduler import AlarmScheduler
+from ..tools.store import ToolStore
 from ..service import AssistantService
 from ..speech.stt import SpeechToText
 from ..speech.tts import TextToSpeech
@@ -66,6 +72,24 @@ class ModelIn(BaseModel):
     model: str = Field(min_length=1, max_length=100)
 
 
+class FoldersIn(BaseModel):
+    folders: list[str] = Field(max_length=30)
+
+
+class PathIn(BaseModel):
+    path: str = Field(min_length=1, max_length=1024)
+
+
+class AppleIn(BaseModel):
+    calendar_sync: bool
+    calendar: str = Field(default="", max_length=200)
+    notes_sync: bool
+
+
+class SnoozeIn(BaseModel):
+    minutes: int = Field(default=5, ge=1, le=60)
+
+
 def create_app(
     settings: Settings | None = None,
     keys: KeyProvider | None = None,
@@ -81,10 +105,14 @@ def create_app(
     speech: bool = True,
     brain: Brain | None = None,
     llm: bool = True,
+    apple: AppleBridge | None = None,
+    apps: AppIndex | None = None,
+    tools: bool = True,
 ) -> FastAPI:
     s = settings or get_settings()
     db = Database(s.db_path)
-    store = TemplateStore(s.templates_dir, keys or KeychainKeyProvider(s.keychain_service))
+    keyp = keys or KeychainKeyProvider(s.keychain_service)
+    store = TemplateStore(s.templates_dir, keyp)
     bus = EventBus()
 
     def make_voice(svc: AssistantService) -> VoiceService:
@@ -115,6 +143,14 @@ def create_app(
             on_command=lambda text, lang: svc.command(text, lang, "voice"),
         )
 
+    files = FileSearch(db, protected=[s.data_dir])
+    apple_bridge = apple or AppleBridge()
+
+    def make_tools(svc: AssistantService) -> tuple[ToolRunner, AlarmScheduler]:
+        tstore = ToolStore(db, keyp)
+        runner = ToolRunner(db, tstore, apps or AppIndex(), files, apple_bridge, on_change=svc.tools_changed)
+        return runner, AlarmScheduler(tstore, on_ring=svc.ring, on_change=svc.tools_changed)
+
     def make_brain(svc: AssistantService) -> Brain:
         return brain or Brain(s, db, names=lambda: (svc.assistant_name, svc.owner_name), voice_gender=lambda: db.get("voice_gender", "female"))
 
@@ -128,6 +164,7 @@ def create_app(
         voice_factory=make_voice if voice else None,
         speech_factory=make_speech if (speech and s.speech_enabled) else None,
         brain_factory=make_brain if llm else None,
+        tools_factory=make_tools if tools else None,
     )
 
     @asynccontextmanager
@@ -282,6 +319,112 @@ def create_app(
         bus.log(f"Language model set to {body.model}")
         threading.Thread(target=svc.brain.start, daemon=True).start()  # warm the new model
         return svc.status()
+
+    # -- tools -------------------------------------------------------------------------
+    def tools_or_503() -> ToolRunner:
+        if svc.tools is None:
+            raise HTTPException(503, "tools disabled")
+        return svc.tools
+
+    @app.get("/api/tools", dependencies=auth + [Depends(require_owner)])
+    def tools_state():
+        t = tools_or_503()
+        now = datetime.now()
+        from datetime import timedelta
+
+        events = t.store.events_between(now.replace(hour=0, minute=0), now + timedelta(days=14))
+        return {
+            "alarms": [
+                {"id": a.id, "kind": a.kind, "due": a.due.isoformat(timespec="seconds"), "label": a.label, "status": a.status}
+                for a in t.store.alarms()
+            ],
+            "events": [
+                {"id": e.id, "title": e.title, "start": e.start.isoformat(timespec="minutes"),
+                 "end": e.end.isoformat(timespec="minutes"), "apple": e.apple_uid is not None}
+                for e in events
+            ],
+            "notes": [
+                {"id": n.id, "text": n.text, "created": n.created.isoformat(timespec="minutes"), "apple": n.apple_id is not None}
+                for n in t.store.notes(30)
+            ],
+        }
+
+    @app.post("/api/alarms/{alarm_id}/cancel", dependencies=auth + [Depends(require_owner)])
+    def alarm_cancel(alarm_id: int):
+        if svc.alarms is None:
+            raise HTTPException(503, "tools disabled")
+        svc.alarms.cancel(alarm_id)
+        bus.log("Alarm cancelled")
+        return {"ok": True}
+
+    # silencing a ringing alarm needs no verification, like a phone alarm
+    @app.post("/api/alarms/dismiss", dependencies=auth)
+    def alarm_dismiss():
+        return {"dismissed": svc.dismiss_alarms()}
+
+    @app.post("/api/alarms/snooze", dependencies=auth)
+    def alarm_snooze(body: SnoozeIn):
+        return {"snoozed": svc.snooze_alarms(body.minutes)}
+
+    @app.get("/api/settings/files", dependencies=auth + [Depends(require_owner)])
+    def get_folders():
+        return {"folders": [str(p) for p in files.folders()]}
+
+    @app.put("/api/settings/files", dependencies=auth + [Depends(require_owner)])
+    def set_folders(body: FoldersIn):
+        try:
+            saved = files.set_folders(body.folders)
+        except FolderError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        bus.log(f"File search folders updated ({len(saved)})")
+        return {"folders": [str(p) for p in saved]}
+
+    @app.post("/api/files/reveal", dependencies=auth + [Depends(require_owner)])
+    def reveal(body: PathIn):
+        try:
+            files.reveal(body.path)
+        except FolderError as exc:
+            raise HTTPException(403, str(exc)) from exc
+        return {"ok": True}
+
+    def apple_settings() -> dict:
+        return {
+            "calendar_sync": db.get("apple_calendar_sync") == "1",
+            "calendar": db.get("apple_calendar_name") or "",
+            "notes_sync": db.get("apple_notes_sync") == "1",
+            "notes_folder": "JARVIS",
+        }
+
+    @app.get("/api/settings/apple", dependencies=auth + [Depends(require_owner)])
+    def get_apple():
+        return apple_settings()
+
+    @app.get("/api/apple/calendars", dependencies=auth + [Depends(require_owner)])
+    def apple_calendars():
+        # first use triggers macOS's "control Calendar" permission prompt
+        try:
+            return {"calendars": apple_bridge.calendars()}
+        except AppleError as exc:
+            raise HTTPException(502, str(exc)) from exc
+
+    @app.put("/api/settings/apple", dependencies=auth + [Depends(require_owner)])
+    def set_apple(body: AppleIn):
+        if body.calendar_sync and not body.calendar:
+            raise HTTPException(400, "choose an Apple calendar to sync with")
+        db.set("apple_calendar_sync", "1" if body.calendar_sync else "0")
+        db.set("apple_calendar_name", body.calendar)
+        db.set("apple_notes_sync", "1" if body.notes_sync else "0")
+        bus.log("Apple sync settings updated")
+        return apple_settings()
+
+    @app.post("/api/apple/sync", dependencies=auth + [Depends(require_owner)])
+    def apple_sync_now():
+        try:
+            pushed = tools_or_503().sync_now()
+        except AppleError as exc:
+            raise HTTPException(502, str(exc)) from exc
+        bus.log(f"Synced to Apple: {pushed['events']} events, {pushed['notes']} notes", "ok")
+        return pushed
 
     @app.get("/api/security/events", dependencies=auth + [Depends(require_owner)])
     def security_events(limit: int = 50):

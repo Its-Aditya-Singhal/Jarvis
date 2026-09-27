@@ -4,7 +4,7 @@ const ITEMS: { id: View; label: string; phase?: number }[] = [
   { id: "system", label: "System Status" },
   { id: "auth", label: "Authentication" },
   { id: "memory", label: "Memory", phase: 8 },
-  { id: "tools", label: "Tools", phase: 6 },
+  { id: "tools", label: "Tools" },
   { id: "security", label: "Security" },
   { id: "settings", label: "Settings" },
 ];

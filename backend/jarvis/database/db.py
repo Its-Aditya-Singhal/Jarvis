@@ -66,6 +66,24 @@ class Database:
             self._conn.execute("DELETE FROM profile WHERE key = ?", (key,))
             self._conn.commit()
 
+    # -- generic access for feature stores (tools etc.) ----------------------
+    def run(self, sql: str, params: tuple | dict = ()) -> list[sqlite3.Row]:
+        with self._lock:
+            rows = self._conn.execute(sql, params).fetchall()
+            self._conn.commit()
+        return rows
+
+    def script(self, sql: str) -> None:
+        with self._lock:
+            self._conn.executescript(sql)
+            self._conn.commit()
+
+    def insert(self, sql: str, params: tuple) -> int:
+        with self._lock:
+            cur = self._conn.execute(sql, params)
+            self._conn.commit()
+        return int(cur.lastrowid)
+
     # -- security events ---------------------------------------------------
     def add_security_event(
         self,

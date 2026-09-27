@@ -35,6 +35,7 @@ class BrainResult:
     actions: list[Action]
     latency_s: float
     ok: bool
+    chat: str = ""  # the model's own reply (questions/chat); unused for action requests
 
 
 class Brain:
@@ -160,4 +161,4 @@ class Brain:
         record = json.dumps(data, ensure_ascii=False)
         with self._lock:
             self._history.append((time.monotonic(), lang, text, record))
-        return BrainResult(reply, intent.language, intent.actions, time.monotonic() - t0, True)
+        return BrainResult(reply, intent.language, intent.actions, time.monotonic() - t0, True, intent.reply)

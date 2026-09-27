@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import AlarmOverlay from "./components/AlarmOverlay";
 import StatusBar from "./components/StatusBar";
 import Main from "./pages/Main";
 import Setup from "./pages/Setup";
@@ -31,6 +32,7 @@ export default function App() {
       ) : (
         <Setup />
       )}
+      <AlarmOverlay />
     </div>
   );
 }

@@ -162,7 +162,7 @@ def parse_intent(data: dict[str, Any], language: str, now: datetime) -> Intent:
 
 
 # -- spoken descriptions (code, not model) --------------------------------------
-def _dt(value: Any) -> datetime | None:
+def parse_local(value: Any) -> datetime | None:
     if not isinstance(value, str):
         return None
     try:
@@ -171,14 +171,14 @@ def _dt(value: Any) -> datetime | None:
         return None
 
 
-def _day(d: date, today: date, hindi: bool) -> str:
+def day_phrase(d: date, today: date, hindi: bool) -> str:
     delta = (d - today).days
     if hindi:
         return {0: "आज", 1: "कल", 2: "परसों"}.get(delta, d.strftime("%d/%m"))
     return {0: "today", 1: "tomorrow"}.get(delta, d.strftime("on %A %d %B"))
 
 
-def _clock(t: datetime, hindi: bool) -> str:
+def clock_phrase(t: datetime, hindi: bool) -> str:
     if not hindi:
         return t.strftime("%I:%M %p").lstrip("0")
     h = t.hour
@@ -190,21 +190,21 @@ def describe(a: Action, language: str, now: datetime) -> str:
     hi = language != "en"
     g = a.args
     text = lambda k: str(g.get(k) or "").strip()  # noqa: E731
-    if a.tool == "alarm.set" and (t := _dt(g.get("time"))):
-        return (f"{_day(t.date(), now.date(), True)} {_clock(t, True)} का अलार्म" if hi
-                else f"an alarm for {_clock(t, False)} {_day(t.date(), now.date(), False)}")
+    if a.tool == "alarm.set" and (t := parse_local(g.get("time"))):
+        return (f"{day_phrase(t.date(), now.date(), True)} {clock_phrase(t, True)} का अलार्म" if hi
+                else f"an alarm for {clock_phrase(t, False)} {day_phrase(t.date(), now.date(), False)}")
     if a.tool == "timer.set" and str(g.get("seconds", "")).isdigit():
         secs = int(g["seconds"])
         amount = f"{secs // 60} मिनट" if hi and secs >= 60 else f"{secs} सेकंड" if hi else (
             f"{secs // 60}-minute" if secs >= 60 else f"{secs}-second")
         return f"{amount} का टाइमर" if hi else f"a {amount} timer"
-    if a.tool == "calendar.create" and (t := _dt(g.get("start"))):
+    if a.tool == "calendar.create" and (t := parse_local(g.get("start"))):
         title = text("title") or ("इवेंट" if hi else "event")
-        return (f"{_day(t.date(), now.date(), True)} {_clock(t, True)} “{title}”" if hi
-                else f"“{title}” {_day(t.date(), now.date(), False)} at {_clock(t, False)}")
+        return (f"{day_phrase(t.date(), now.date(), True)} {clock_phrase(t, True)} “{title}”" if hi
+                else f"“{title}” {day_phrase(t.date(), now.date(), False)} at {clock_phrase(t, False)}")
     if a.tool == "calendar.list":
-        d = _dt(f"{text('date')}T00:00")
-        day = _day(d.date(), now.date(), hi) if d else ("आज" if hi else "today")
+        d = parse_local(f"{text('date')}T00:00")
+        day = day_phrase(d.date(), now.date(), hi) if d else ("आज" if hi else "today")
         return f"{day} के इवेंट" if hi else f"your events {day}"
     if a.tool == "notes.add" and text("text"):
         return f"नोट: “{text('text')}”" if hi else f"a note: “{text('text')}”"

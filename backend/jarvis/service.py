@@ -28,10 +28,24 @@ from .database.db import Database
 from .events import EventBus
 from .security.template_store import TemplateStore
 from .brain import Brain
+from .tools.runner import ToolResult, ToolRunner
+from .tools.scheduler import AlarmScheduler
+from .tools.store import Alarm
 from .speech_service import SpeechService
 from .voice_service import VoiceService
 
 log = logging.getLogger(__name__)
+
+
+def notify(title: str, text: str) -> None:
+    """macOS notification (values passed as argv, never interpolated)."""
+    import subprocess
+
+    script = "on run argv\n display notification (item 2 of argv) with title (item 1 of argv)\nend run"
+    try:
+        subprocess.Popen(["osascript", "-e", script, title, text], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError:
+        pass
 
 FACE = "face"
 
@@ -48,6 +62,7 @@ class AssistantService:
         voice_factory: "Callable[[AssistantService], VoiceService] | None" = None,
         speech_factory: "Callable[[AssistantService], SpeechService] | None" = None,
         brain_factory: "Callable[[AssistantService], Brain] | None" = None,
+        tools_factory: "Callable[[AssistantService], tuple[ToolRunner, AlarmScheduler]] | None" = None,
     ):
         self.s = settings
         self.db = db
@@ -72,6 +87,13 @@ class AssistantService:
         # speech first: the voice pipeline hands it utterances and asks it about muting
         self.speech: SpeechService | None = speech_factory(self) if speech_factory else None
         self.voice: VoiceService | None = voice_factory(self) if voice_factory else None
+        self.tools: ToolRunner | None = None
+        self.alarms: AlarmScheduler | None = None
+        if tools_factory:
+            self.tools, self.alarms = tools_factory(self)
+            if self.speech is not None:
+                self.speech.alarm_ringing = lambda: bool(self.alarms and self.alarms.ringing())
+                self.speech.dismiss_alarm = self.dismiss_alarms
 
     def owner_verified(self) -> bool:
         return self.effective_state() == "approved"
@@ -150,6 +172,10 @@ class AssistantService:
             self.speech.start()
         if self.voice is not None:
             self.voice.start()
+        if self.alarms is not None:
+            self.alarms.start()
+            for a in self.alarms.missed:
+                self.bus.log(f"Missed {a.kind} at {a.due:%H:%M} (the app was closed)", "warn")
         if self.brain is not None:
             if self.brain.start():
                 self.bus.log(f"Local language model ready ({self.brain.model})")
@@ -171,6 +197,8 @@ class AssistantService:
             self.speech.stop()
         if self.brain is not None:
             self.brain.stop()
+        if self.alarms is not None:
+            self.alarms.stop()
 
     # -- modes ---------------------------------------------------------------
     def begin_enrollment(self) -> None:
@@ -346,12 +374,70 @@ class AssistantService:
                 r = self.brain.respond(text, lang)
             self.bus.publish({"type": "thinking", "active": False})
             actions = [{"tool": a.tool, "args": a.args, "summary": a.summary} for a in r.actions]
-            result = {"reply": r.reply, "language": r.language, "actions": actions, "ok": r.ok, "latency_s": round(r.latency_s, 2)}
+            reply = r.reply
+            if r.actions and self.tools is not None:
+                results = self._run_tools(r.actions, r.language)
+                for info, res in zip(actions, results):
+                    info.update(ok=res.ok, result=res.say, data=res.data)
+                reply = " ".join(res.say for res in results)
+            result = {"reply": reply, "language": r.language, "actions": actions, "ok": r.ok, "latency_s": round(r.latency_s, 2)}
             kinds = ", ".join(a.tool for a in r.actions) or "conversation"
             self.bus.log(f"Command understood ({kinds}) in {r.latency_s:.1f} s" if r.ok else "Language model unavailable", "info" if r.ok else "error")
         self.bus.publish({"type": "reply", "text": result["reply"], "actions": result["actions"]})
         self.bus.publish({"type": "say", "text": result["reply"]})
         return result
+
+    def _run_tools(self, actions, lang: str) -> list[ToolResult]:
+        results: list[ToolResult] = []
+        for a in actions:
+            # the owner may have left while the model was thinking
+            if not self.owner_verified():
+                results.append(ToolResult(a.tool, False, "रुक गया: आप अब सत्यापित नहीं हैं।" if lang != "en"
+                                          else "Stopped: you're no longer verified."))
+                self.db.add_security_event("tool_blocked", f"{a.tool} blocked: owner no longer verified", blocked=True)
+                break
+            res = self.tools.run(a, lang)
+            self.bus.log(f"Tool {a.tool}: {'done' if res.ok else 'failed'}", "ok" if res.ok else "warn")
+            results.append(res)
+        return results
+
+    # -- alarms ------------------------------------------------------------------
+    def tools_changed(self) -> None:
+        self.bus.publish({"type": "tools_changed"})
+
+    def ring(self, alarm: Alarm, count: int) -> None:
+        owner = self.owner_name
+        label = f" {alarm.label}." if alarm.label else ""
+        if alarm.kind == "timer":
+            text = f"{owner}, your timer is done.{label}"
+        else:
+            text = f"{owner}, it's {alarm.due.strftime('%I:%M %p').lstrip('0')}. Your alarm is ringing.{label}"
+        self.bus.publish({"type": "alarm", "id": alarm.id, "kind": alarm.kind, "label": alarm.label,
+                          "due": alarm.due.isoformat(timespec="minutes"), "count": count})
+        if self.speech is not None:
+            self.speech.out.chime()
+        self.bus.publish({"type": "say", "text": text})
+        if count == 0:
+            self.bus.log(f"{alarm.kind.capitalize()} ringing", "warn")
+            notify(self.assistant_name, text)
+
+    def dismiss_alarms(self) -> int:
+        n = self.alarms.dismiss() if self.alarms else 0
+        if n:
+            if self.speech is not None:
+                self.speech.out.interrupt()
+            self.bus.publish({"type": "alarm_stopped"})
+            self.bus.log("Alarm dismissed")
+        return n
+
+    def snooze_alarms(self, minutes: int = 5) -> int:
+        n = self.alarms.snooze(minutes) if self.alarms else 0
+        if n:
+            if self.speech is not None:
+                self.speech.out.interrupt()
+            self.bus.publish({"type": "alarm_stopped"})
+            self.bus.log(f"Alarm snoozed for {minutes} min")
+        return n
 
     def _greet(self) -> None:
         self._unlocked = True
@@ -466,10 +552,16 @@ class AssistantService:
                 "voice": self.voice.model_status() if self.voice else "disabled",
                 "liveness": self._liveness_status(),
                 "llm": self.brain.status() if self.brain else "disabled",
+                "tools": "ready" if self.tools else "disabled",
                 **(self.speech.status() if self.speech else {"stt": "disabled", "tts": "disabled"}),
             },
             "voice_gender": self.speech.voice_gender() if self.speech else self.db.get("voice_gender", "female"),
             "listening": bool(self.speech and self.speech.listening),
             "llm_model": self.brain.model if self.brain else None,
+            # alarm state is shown to anyone at the screen, like a phone alarm
+            "ringing": [
+                {"id": a.id, "kind": a.kind, "label": a.label, "due": a.due.isoformat(timespec="minutes")}
+                for a in (self.alarms.ringing() if self.alarms else [])
+            ],
             "auth": self.auth_public(),
         }

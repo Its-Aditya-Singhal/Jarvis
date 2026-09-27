@@ -64,6 +64,7 @@ pub fn run() {
     };
 
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(Backend {
             info,
             child: Mutex::new(child),

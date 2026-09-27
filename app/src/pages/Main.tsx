@@ -4,7 +4,10 @@ import CameraPreview from "../components/CameraPreview";
 import Orb, { OrbMode } from "../components/Orb";
 import SideNav, { View } from "../components/SideNav";
 import VoiceEnroll from "../components/VoiceEnroll";
+import AppleCard from "../components/AppleCard";
+import FilesCard from "../components/FilesCard";
 import VoicePicker from "../components/VoicePicker";
+import ToolsPanel from "./ToolsPanel";
 import { ApiError, Challenge, PlannedAction, Status, VoiceGender, api, post } from "../lib/backend";
 import { setStatus, useStore } from "../lib/store";
 
@@ -80,7 +83,9 @@ function Core() {
         sub = "";
       } else {
         title = justChanged ? "AUTHENTICATION APPROVED" : `${name} ONLINE`;
-        sub = justChanged ? `Welcome back, ${status?.owner_name}.` : `Say “${status?.assistant_name ?? "JARVIS"}” to talk to me`;
+        sub = justChanged
+          ? `Welcome back, ${status?.owner_name}.`
+          : `Say “${status?.assistant_name ?? "JARVIS"}” to talk to me`;
       }
       break;
     case "liveness": {
@@ -143,23 +148,45 @@ function Conversation({
   if (!recent.length) return null;
   return (
     <div className="conversation">
-      {recent.map((t) => (
-        <div key={t.at} className={`turn ${t.who}`}>
-          <b>{t.who === "you" ? "YOU" : name}</b>
-          <span>
-            {t.text}
-            {t.actions && t.actions.length > 0 && (
-              <span className="actions">
-                {t.actions.map((a, i) => (
-                  <i key={i} title={JSON.stringify(a.args)}>
-                    {a.tool} · NOT EXECUTED (P6)
-                  </i>
-                ))}
-              </span>
-            )}
-          </span>
-        </div>
-      ))}
+      {recent.map((t) => {
+        // search results the owner can reveal in Finder
+        const files = (t.actions ?? []).flatMap((a) => a.data?.files ?? []).slice(0, 5);
+        return (
+          <div key={t.at} className={`turn ${t.who}`}>
+            <b>{t.who === "you" ? "YOU" : name}</b>
+            <span>
+              {t.text}
+              {t.actions && t.actions.length > 0 && (
+                <span className="actions">
+                  {t.actions.map((a, i) => (
+                    <i
+                      key={i}
+                      className={a.ok === undefined ? "" : a.ok ? "ok" : "fail"}
+                      title={JSON.stringify(a.args)}
+                    >
+                      {a.ok === undefined ? "○" : a.ok ? "✓" : "✗"} {a.tool}
+                    </i>
+                  ))}
+                </span>
+              )}
+              {files.length > 0 && (
+                <span className="file-hits">
+                  {files.map((f) => (
+                    <button
+                      key={f}
+                      className="file-hit"
+                      title={f}
+                      onClick={() => post("/api/files/reveal", { path: f })}
+                    >
+                      {f.split("/").pop()}
+                    </button>
+                  ))}
+                </span>
+              )}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -196,7 +223,12 @@ function CommandBox({ disabled }: { disabled: boolean }) {
 }
 
 // the preview is mirrored, so the person's left is on the left of the screen
-const STEP_ICON: Record<string, string> = { blink: "◉ ◉", turn_left: "←", turn_right: "→", closer: "⤢" };
+const STEP_ICON: Record<string, string> = {
+  blink: "◉ ◉",
+  turn_left: "←",
+  turn_right: "→",
+  closer: "⤢",
+};
 
 function ChallengeCard({ c }: { c: Challenge }) {
   return (
@@ -245,7 +277,8 @@ function FactorBadges() {
         <i className="dot" /> VOICE{speaking ? " · HEARING" : ""}
       </span>
       <span className={LIVE_LABEL[auth?.liveness?.state ?? "idle"][1]}>
-        <i className="dot" /> LIVENESS{auth?.liveness?.state === "disabled" ? " · OFF" : ""}
+        <i className="dot" /> LIVENESS
+        {auth?.liveness?.state === "disabled" ? " · OFF" : ""}
       </span>
     </div>
   );
@@ -274,9 +307,16 @@ function AuthPanel() {
       <div className="cards">
         <div className="card">
           <div className="panel-title">FACE</div>
-          {row("Status", approved ? "VERIFIED" : (auth?.state ?? "—").toUpperCase(), approved ? "tone-ok" : "tone-warn")}
+          {row(
+            "Status",
+            approved ? "VERIFIED" : (auth?.state ?? "—").toUpperCase(),
+            approved ? "tone-ok" : "tone-warn",
+          )}
           {/* confidence values are revealed only to the verified owner */}
-          {row("Confidence", approved && auth?.face_confidence != null ? `${Math.round(auth.face_confidence * 100)}%` : "hidden")}
+          {row(
+            "Confidence",
+            approved && auth?.face_confidence != null ? `${Math.round(auth.face_confidence * 100)}%` : "hidden",
+          )}
           {row("Faces in view", String(auth?.faces ?? 0))}
           {approved && auth?.bystander && row("Bystander", "UNKNOWN PERSON PRESENT", "tone-alert")}
           {row("Model", status?.models.face === "ready" ? "ArcFace R50 · local" : (status?.models.face ?? "—"))}
@@ -284,9 +324,18 @@ function AuthPanel() {
         <div className="card">
           <div className="panel-title">VOICE</div>
           {row("Status", vLabel[0], vLabel[1])}
-          {row("Confidence", approved && voice?.confidence != null ? `${Math.round(voice.confidence * 100)}%` : "hidden")}
+          {row(
+            "Confidence",
+            approved && voice?.confidence != null ? `${Math.round(voice.confidence * 100)}%` : "hidden",
+          )}
           {row("Last heard", approved && voice?.seconds_ago != null ? `${Math.round(voice.seconds_ago)} s ago` : "—")}
-          {row("Microphone", status?.mic.status === "active" ? (status.mic.device ?? "active") : (status?.mic.status ?? "—").toUpperCase(), status?.mic.status === "active" ? "" : "tone-alert")}
+          {row(
+            "Microphone",
+            status?.mic.status === "active"
+              ? (status.mic.device ?? "active")
+              : (status?.mic.status ?? "—").toUpperCase(),
+            status?.mic.status === "active" ? "" : "tone-alert",
+          )}
           {row("Model", status?.models.voice === "ready" ? "ECAPA-TDNN · local" : (status?.models.voice ?? "—"))}
           {approved ? (
             <button className="btn ghost card-btn" onClick={() => setEnrolling(true)}>
@@ -299,10 +348,21 @@ function AuthPanel() {
         <div className="card">
           <div className="panel-title">LIVENESS</div>
           {row("Status", ...(LIVE_LABEL[live?.state ?? "idle"] as [string, string]))}
-          {row("Anti-spoof score", approved && live?.live_score != null ? `${Math.round(live.live_score * 100)}%` : "hidden")}
+          {row(
+            "Anti-spoof score",
+            approved && live?.live_score != null ? `${Math.round(live.live_score * 100)}%` : "hidden",
+          )}
           {row("Last check", approved && live?.checked_ago != null ? `${Math.round(live.checked_ago)} s ago` : "—")}
-          {row("Next random check", approved && live?.next_check_s != null ? `within ${Math.ceil(live.next_check_s / 60)} min` : "—")}
-          {row("Model", status?.models.liveness === "ready" ? "Anti-spoof CNN + challenges · local" : (status?.models.liveness ?? "—"))}
+          {row(
+            "Next random check",
+            approved && live?.next_check_s != null ? `within ${Math.ceil(live.next_check_s / 60)} min` : "—",
+          )}
+          {row(
+            "Model",
+            status?.models.liveness === "ready"
+              ? "Anti-spoof CNN + challenges · local"
+              : (status?.models.liveness ?? "—"),
+          )}
           <p className="muted small">
             Randomised blink / turn / move-closer challenges at unlock and at random times, plus a texture check on
             every frame that rejects photos and screens.
@@ -405,7 +465,12 @@ function LlmCard() {
     setBusy(true);
     setError(null);
     try {
-      setStatus(await api<Status>("/api/settings/llm", { method: "PUT", body: JSON.stringify({ model }) }));
+      setStatus(
+        await api<Status>("/api/settings/llm", {
+          method: "PUT",
+          body: JSON.stringify({ model }),
+        }),
+      );
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Backend unreachable");
     } finally {
@@ -422,7 +487,12 @@ function LlmCard() {
       </div>
       <div className="kv">
         <span>Model</span>
-        <select className="field select" value={current} disabled={busy || !models?.length} onChange={(e) => change(e.target.value)}>
+        <select
+          className="field select"
+          value={current}
+          disabled={busy || !models?.length}
+          onChange={(e) => change(e.target.value)}
+        >
           {!models?.includes(current) && <option value={current}>{current} (not installed)</option>}
           {models?.map((m) => (
             <option key={m} value={m}>
@@ -448,7 +518,12 @@ function SettingsPanel() {
   const choose = async (g: VoiceGender) => {
     setError(null);
     try {
-      setStatus(await api<Status>("/api/settings/voice", { method: "PUT", body: JSON.stringify({ gender: g }) }));
+      setStatus(
+        await api<Status>("/api/settings/voice", {
+          method: "PUT",
+          body: JSON.stringify({ gender: g }),
+        }),
+      );
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Backend unreachable");
     }
@@ -479,11 +554,12 @@ function SettingsPanel() {
             </div>
           </div>
           <LlmCard />
+          <FilesCard />
+          <AppleCard />
           <div className="card">
             <div className="panel-title">MORE SETTINGS</div>
             <p className="muted small">
-              Performance modes, privacy controls and profile management arrive with the privacy dashboard in
-              phase 9.
+              Performance modes, privacy controls and profile management arrive with the privacy dashboard in phase 9.
             </p>
           </div>
         </div>
@@ -508,6 +584,7 @@ export default function Main() {
         {view === "auth" && <AuthPanel />}
         {view === "security" && <SecurityPanel />}
         {view === "settings" && <SettingsPanel />}
+        {view === "tools" && <ToolsPanel />}
       </main>
       <ActivityFeed />
     </div>

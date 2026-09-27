@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import queue
+import re
 import threading
 import time
 from typing import Callable
@@ -33,6 +34,7 @@ log = logging.getLogger(__name__)
 
 PHRASE_MATCH_MIN = 0.55  # enrollment: spoken words vs displayed phrase
 UNAUTHORIZED_EVENT_GAP_S = 20.0
+STOP_WORDS = {"stop", "dismiss", "enough", "okay", "ok", "bas", "band", "ruko", "chup", "बस", "बंद", "रुको", "चुप"}
 
 
 def name_prompt(assistant: str, owner: str = "") -> str:
@@ -78,6 +80,9 @@ class SpeechService:
         self.owner_verified = owner_verified
         self.names = names
         self.on_command = on_command  # (text, language) -> handled by the assistant brain
+        # set by the assistant service when tools are enabled
+        self.alarm_ringing: Callable[[], bool] = lambda: False
+        self.dismiss_alarm: Callable[[], int] = lambda: 0
         self.out = SpeechOutput(tts, bus, self.voice_gender, player=player)
         self._q: queue.Queue[tuple[np.ndarray, str | None]] = queue.Queue(maxsize=3)
         self._stop = threading.Event()
@@ -176,6 +181,10 @@ class SpeechService:
         # debug-level only: transcripts must not reach logs in normal operation
         log.debug("transcript %r (%s, verdict=%s, %.2fs)", tr.text, tr.language, verdict, time.monotonic() - t0)
         if not tr.text:
+            return
+        if self.alarm_ringing() and STOP_WORDS & set(re.findall(r"[\w\u0900-\u097F]+", tr.text.lower())):
+            # like a phone alarm, anyone nearby may silence it
+            self.dismiss_alarm()
             return
         found, rest = find_wake(assistant, tr.text)
         followup = time.monotonic() < self._listen_until

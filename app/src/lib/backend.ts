@@ -145,12 +145,23 @@ export interface Status {
   voice_gender: VoiceGender;
   listening: boolean;
   llm_model: string | null;
+  ringing: RingingAlarm[];
+}
+
+export interface RingingAlarm {
+  id: number;
+  kind: "alarm" | "timer";
+  label: string;
+  due: string;
 }
 
 export interface PlannedAction {
   tool: string;
   args: Record<string, unknown>;
   summary: string;
+  ok?: boolean; // present once the tool has run
+  result?: string;
+  data?: { files?: string[]; [k: string]: unknown };
 }
 
 export interface CommandResult {
@@ -204,6 +215,9 @@ export type BackendEvent =
   | { type: "heard"; text: string; lang: "en" | "hi"; stt_s?: number; source?: "voice" | "typed" }
   | { type: "reply"; text: string; actions?: PlannedAction[] }
   | { type: "thinking"; active: boolean }
+  | ({ type: "alarm"; count: number } & RingingAlarm)
+  | { type: "alarm_stopped" }
+  | { type: "tools_changed" }
   | { type: "listening"; active: boolean; seconds?: number }
   | { type: "speaking"; active: boolean }
   | { type: "voice"; verdict: VoiceState }

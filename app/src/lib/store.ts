@@ -7,6 +7,7 @@ import {
   BackendEvent,
   EnrollSnapshot,
   PlannedAction,
+  RingingAlarm,
   Status,
   VoiceEnrollSnapshot,
   api,
@@ -36,6 +37,9 @@ export interface AppState {
   conversation: Turn[];
   listeningUntil: number;
   thinking: boolean;
+  ringing: RingingAlarm[];
+  /** bumps whenever alarms/events/notes change, so views refetch */
+  toolsVersion: number;
 }
 
 export interface Turn {
@@ -62,6 +66,8 @@ let state: AppState = {
   conversation: [],
   listeningUntil: 0,
   thinking: false,
+  ringing: [],
+  toolsVersion: 0,
 };
 
 let turnSeq = 0;
@@ -85,7 +91,7 @@ function handle(e: BackendEvent) {
   switch (e.type) {
     case "status": {
       const { type: _t, ...status } = e;
-      set({ status, auth: status.auth });
+      set({ status, auth: status.auth, ringing: status.ringing ?? [] });
       break;
     }
     case "auth": {
@@ -148,6 +154,17 @@ function handle(e: BackendEvent) {
     case "thinking":
       set({ thinking: e.active });
       break;
+    case "alarm": {
+      const { type: _t, count: _c, ...a } = e;
+      if (!state.ringing.some((r) => r.id === a.id)) set({ ringing: [...state.ringing, a] });
+      break;
+    }
+    case "alarm_stopped":
+      set({ ringing: [], toolsVersion: state.toolsVersion + 1 });
+      break;
+    case "tools_changed":
+      set({ toolsVersion: state.toolsVersion + 1 });
+      break;
     case "listening":
       set({ listeningUntil: e.active ? Date.now() + (e.seconds ?? 8) * 1000 : 0 });
       break;
@@ -157,7 +174,7 @@ function handle(e: BackendEvent) {
 export async function refreshStatus() {
   try {
     const status = await api<Status>("/api/status");
-    set({ status, auth: status.auth });
+    set({ status, auth: status.auth, ringing: status.ringing ?? [] });
   } catch {
     /* backend still starting; the websocket will deliver status */
   }
