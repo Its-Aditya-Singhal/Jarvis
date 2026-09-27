@@ -201,3 +201,15 @@ def test_quitting_unloads_only_jarvis_models(settings):
     b.server = SimpleNamespace(stop=lambda: None)
     b.stop()
     assert sorted(b.client.unloaded) == ["bge-m3:latest", "qwen2.5:7b"]  # someone else's model stays
+
+
+def test_open_folder_never_launches_an_app_bundle(runner):
+    """`open X.app` runs the app: a downloaded bundle, or a folder symlinked to one, must not open."""
+    r, (m, calls, _, docs) = runner
+    (docs / "Setup.app").mkdir()
+    (docs / "Tools").symlink_to(docs / "Setup.app")
+    assert not r.run(Action("folder.open", {"name": "setup.app"}), "en").ok
+    assert not r.run(Action("folder.open", {"name": "tools folder"}), "en").ok
+    assert not any(c[0] == "open" for c in calls)
+    with pytest.raises(ValueError):
+        m.open_folder(docs / "Setup.app")

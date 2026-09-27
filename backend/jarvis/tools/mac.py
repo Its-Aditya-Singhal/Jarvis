@@ -55,6 +55,15 @@ SITES = {
     "google maps": "https://maps.google.com", "drive": "https://drive.google.com", "google drive": "https://drive.google.com",
     "stack overflow": "https://stackoverflow.com", "stackoverflow": "https://stackoverflow.com",
 }
+# folders macOS treats as programs or installers: `open` would run them instead of showing them
+BUNDLES = {".app", ".appex", ".bundle", ".framework", ".plugin", ".prefpane", ".kext", ".mpkg", ".pkg",
+           ".saver", ".workflow", ".action", ".xpc", ".qlgenerator", ".mdimporter", ".osax", ".scpt", ".scptd"}
+
+
+def is_bundle(path: Path) -> bool:
+    return path.suffix.lower() in BUNDLES or path.resolve().suffix.lower() in BUNDLES
+
+
 # never quit from a voice command
 KEEP_RUNNING = {"finder", "jarvis", "loginwindow", "dock", "systemuiserver"}
 PLAYERS = ("Spotify", "Music")
@@ -111,6 +120,10 @@ class MacControl:
 
     # -- folders & web ----------------------------------------------------------------------
     def folder(self, spoken: str) -> Path | None:
+        found = self._find_folder(spoken)
+        return None if found is None or is_bundle(found) else found
+
+    def _find_folder(self, spoken: str) -> Path | None:
         s = to_latin(spoken).strip()
         s = re.sub(r"^(my|the|meri|mera|mere)\s+", "", s)
         s = re.sub(r"\s+(folder|directory|dir|fold)$", "", s).strip()
@@ -132,6 +145,8 @@ class MacControl:
         return None
 
     def open_folder(self, path: Path) -> None:
+        if is_bundle(path) or not path.is_dir():
+            raise ValueError("only folders can be opened")
         self._run(["open", str(path)])
 
     @staticmethod
