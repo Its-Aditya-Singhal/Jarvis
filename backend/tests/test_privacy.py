@@ -242,7 +242,7 @@ def test_issues_come_with_a_fix():
     assert got["llm"]["fix"] == "Run: ollama pull qwen2.5:7b"
     assert "bge-m3" in got["memory"]["fix"] and got["model_liveness"]["level"] == "warn"
     down = issues({"models": {"llm": "Ollama not running"}})
-    assert "start.sh" in down[0]["fix"]
+    assert "Settings → Models" in down[0]["fix"]
     assert issues({"models": {"face": "ready", "llm": "ready"}}) == []
 
 

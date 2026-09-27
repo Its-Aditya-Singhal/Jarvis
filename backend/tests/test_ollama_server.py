@@ -59,3 +59,44 @@ def test_the_server_is_stopped_when_the_desktop_app_disappears(settings, monkeyp
     main._on_parent_exit([app])
     assert stopped == ["stop"]
     main._on_parent_exit([])  # before the app exists: nothing to do
+
+
+def test_first_run_setup_pulls_only_the_assistants_models():
+    import json as _json
+
+    import httpx
+    import pytest as _pytest
+
+    from jarvis.llm.client import OllamaClient
+    from jarvis.llm.setup import OllamaSetup
+
+    have: list[str] = ["bge-m3:latest"]
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.path == "/api/tags":
+            return httpx.Response(200, json={"models": [{"name": n} for n in have]})
+        if req.url.path == "/api/pull":
+            model = _json.loads(req.content)["model"]
+            have.append(model)
+            lines = [{"status": "pulling manifest"}, {"status": "downloading", "completed": 50, "total": 100},
+                     {"status": "downloading", "completed": 100, "total": 100}, {"status": "success"}]
+            return httpx.Response(200, content="\n".join(_json.dumps(x) for x in lines).encode())
+        return httpx.Response(404)
+
+    class Server:
+        error = None
+        def reachable(self): return True
+        def ensure(self, wait_s=15.0): return True
+
+    client = OllamaClient("http://127.0.0.1:11434", transport=httpx.MockTransport(handler))
+    wanted = lambda: [{"name": "qwen2.5:7b", "purpose": "chat", "required": True},
+                      {"name": "bge-m3", "purpose": "memory", "required": False}]
+    setup = OllamaSetup(Server(), client, wanted)  # type: ignore[arg-type]
+    d = setup.detect()
+    assert d["running"] and not d["ready"] and [m["installed"] for m in d["models"]] == [False, True]
+    with _pytest.raises(ValueError):
+        setup.pull("some-other-model")
+    assert setup.pull("qwen2.5:7b")["started"]
+    setup.wait(5)
+    d = setup.detect()
+    assert d["ready"] and d["pull"]["state"] == "done" and d["pull"]["completed"] == 100

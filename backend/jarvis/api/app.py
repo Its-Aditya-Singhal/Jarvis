@@ -9,7 +9,11 @@ from __future__ import annotations
 import asyncio
 import hmac
 import logging
+import os
+import sys
 import threading
+import time
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Literal
@@ -28,10 +32,12 @@ from ..brain import Brain
 from ..camera.capture import Camera
 from ..config import Settings, get_settings
 from ..database.db import Database
+from ..downloads import DownloadError, ModelDownloader
 from ..events import EventBus
 from ..host import responsible_app
 from ..llm.client import OllamaClient
 from ..llm.server import OllamaServer
+from ..llm.setup import OllamaSetup
 from ..memory.manager import RETENTION_CHOICES, Memory
 from ..memory.store import MemoryStore
 from ..netguard import NetGuard
@@ -180,6 +186,20 @@ class SnoozeIn(BaseModel):
     minutes: int = Field(default=5, ge=1, le=60)
 
 
+class PacksIn(BaseModel):
+    packs: list[str] | None = Field(default=None, max_length=20)  # None: the required ones still missing
+
+
+def restart_process() -> None:
+    """Start this backend again in the same process (same port, token and parent), so it
+    loads models downloaded after it started. The UI reconnects on its own."""
+    logging.shutdown()
+    if getattr(sys, "frozen", False):
+        os.execv(sys.executable, [sys.executable, *sys.argv[1:]])
+    args = list(getattr(sys, "orig_argv", [])) or [sys.executable, *sys.argv]
+    os.execv(sys.executable, [sys.executable, *args[1:]])
+
+
 def create_app(
     settings: Settings | None = None,
     keys: KeyProvider | None = None,
@@ -205,6 +225,8 @@ def create_app(
     mac: MacControl | None = None,
     llm_client: OllamaClient | None = None,
     llm_server: OllamaServer | None = None,
+    downloader: ModelDownloader | None = None,
+    restart: Callable[[], None] = restart_process,
 ) -> FastAPI:
     s = settings or get_settings()
     db = Database(s.db_path)
@@ -276,6 +298,26 @@ def create_app(
         perf=perf,
     )
 
+    models = downloader or ModelDownloader(s.models_dir, guard=svc.guard)
+    svc.downloader = models
+
+    def llm_wanted() -> list[dict]:
+        main = db.get("llm_model") or s.llm_model
+        out = [{"name": main, "purpose": "Understands requests and answers questions", "required": True}]
+        if s.memory_enabled:
+            out.append({"name": s.embed_model, "purpose": "Memory recall by meaning", "required": False})
+        fast = db.get("llm_fast_model") or "qwen2.5:3b"
+        if fast != main:
+            out.append({"name": fast, "purpose": "Fast mode (on battery)", "required": False})
+        return out
+
+    brain_ = svc.brain
+    ollama = OllamaSetup(
+        brain_.server if brain_ is not None else (llm_server or OllamaServer(s.ollama_host, s.ollama_models_dir, s.data_dir / "logs")),
+        brain_.client if brain_ is not None else (llm_client or OllamaClient(f"http://{s.ollama_host}", s.llm_timeout_s)),
+        llm_wanted,
+    )
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         bus.bind(asyncio.get_running_loop())
@@ -327,7 +369,57 @@ def create_app(
         if svc.setup_complete:
             raise HTTPException(409, "setup already completed")
 
+    def require_models_access() -> None:
+        """Model downloads: open during first-run setup and whenever a required model is
+        missing (nobody can be verified without them); otherwise the owner only."""
+        if svc.setup_complete and not models.needed():
+            require_owner()
+
     auth = [Depends(require_token)]
+    models_auth = auth + [Depends(require_models_access)]
+
+    @app.get("/api/models", dependencies=auth)
+    def models_state():
+        return {"files": models.status(), "ollama": ollama.detect()}
+
+    @app.post("/api/models/download", dependencies=models_auth)
+    def models_download(body: PacksIn | None = None):
+        try:
+            return models.start(body.packs if body else None)
+        except DownloadError as exc:
+            raise HTTPException(400, str(exc)) from None
+
+    @app.post("/api/models/cancel", dependencies=models_auth)
+    def models_cancel():
+        models.cancel()
+        return {"ok": True}
+
+    @app.post("/api/models/ollama/start", dependencies=models_auth)
+    def ollama_start():
+        return ollama.start_server()
+
+    @app.post("/api/models/ollama/pull", dependencies=models_auth)
+    def ollama_pull(body: ModelIn):
+        try:
+            return ollama.pull(body.model)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from None
+
+    @app.post("/api/models/restart", dependencies=models_auth)
+    def models_restart():
+        """Reload with the new models: the backend restarts in place a moment after answering."""
+        if models.running:
+            raise HTTPException(409, "the download is still running")
+
+        def later() -> None:
+            time.sleep(0.3)
+            try:
+                svc.stop()  # releases the camera and microphone first
+            finally:
+                restart()
+
+        threading.Thread(target=later, name="restart", daemon=True).start()
+        return {"ok": True}
 
     @app.get("/api/status", dependencies=auth)
     def status():

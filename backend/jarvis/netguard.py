@@ -17,7 +17,8 @@ import socket
 import threading
 import time
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 
 log = logging.getLogger(__name__)
 
@@ -34,6 +35,11 @@ def is_local(host: str) -> bool:
         return False
 
 
+def host_matches(host: str, domains: tuple[str, ...]) -> bool:
+    host = host.lower().rstrip(".")
+    return any(host == d or host.endswith("." + d) for d in domains)
+
+
 class NetGuard:
     def __init__(self, offline: Callable[[], bool] = lambda: True):
         self.offline = offline
@@ -41,10 +47,40 @@ class NetGuard:
         self._lock = threading.Lock()
         self._installed = False
         self._orig: dict[str, Callable] = {}
+        self._local = threading.local()  # a model download on this thread: allowed domains + their addresses
 
     # -- decisions -----------------------------------------------------------------
+    @contextmanager
+    def allow_download(self, domains: tuple[str, ...]) -> Iterator[None]:
+        """Let the current thread (only) reach ``domains`` while offline mode is on: the
+        owner-started model download. Addresses count only once resolved from one of them."""
+        self._local.domains, self._local.addrs = tuple(d.lower() for d in domains), set()
+        try:
+            yield
+        finally:
+            self._local.domains, self._local.addrs = (), set()
+
+    def _download_ok(self, host: str, what: str) -> bool:
+        domains = getattr(self._local, "domains", ())
+        if not domains:
+            return False
+        if what == "dns":
+            return host_matches(host, domains)
+        return host.strip("[]").split("%")[0] in self._local.addrs
+
+    def _resolved(self, host: str, infos) -> None:
+        """Remember the addresses a download domain resolved to (see ``allow_download``)."""
+        if getattr(self._local, "domains", ()) and host_matches(host, self._local.domains):
+            self._local.addrs.update(str(i[4][0]).split("%")[0] for i in infos if i and len(i) > 4)
+
     def check(self, host: str, port: int | None, what: str) -> None:
         if is_local(host):
+            return
+        if self._download_ok(host, what):
+            if what == "dns":
+                with self._lock:
+                    self.attempts.appendleft({"ts": time.time(), "host": host, "port": port, "what": "model download",
+                                              "blocked": False})
             return
         blocked = bool(self.offline())
         with self._lock:
@@ -94,7 +130,10 @@ class NetGuard:
             h = host.decode() if isinstance(host, bytes) else str(host or "")
             if h:
                 guard.check(h, port if isinstance(port, int) else None, "dns")
-            return orig_getaddrinfo(host, port, *args, **kwargs)
+            infos = orig_getaddrinfo(host, port, *args, **kwargs)
+            if h:
+                guard._resolved(h, infos)
+            return infos
 
         # datagrams (UDP) reach the network without connect()
         def sendto(sock, data, *args):

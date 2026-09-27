@@ -92,6 +92,24 @@ class OllamaClient:
             return {}
         return {m["name"]: int(m.get("size") or 0) for m in r.json().get("models", [])}
 
+    def pull(self, model: str, on_progress=lambda status, completed, total: None) -> None:
+        """Download a model into Ollama (it resumes interrupted pulls itself), reporting progress."""
+        try:
+            with self._http.stream("POST", f"{self.url}/api/pull", json={"model": model, "stream": True},
+                                   timeout=httpx.Timeout(None, connect=2.0)) as r:
+                if r.status_code >= 400:
+                    r.read()
+                    raise LLMUnavailable(f"Ollama error {r.status_code}: {r.text[:200]}")
+                for line in r.iter_lines():
+                    if not line.strip():
+                        continue
+                    msg = json.loads(line)
+                    if msg.get("error"):
+                        raise LLMUnavailable(str(msg["error"]))
+                    on_progress(str(msg.get("status", "")), int(msg.get("completed") or 0), int(msg.get("total") or 0))
+        except httpx.HTTPError as exc:
+            raise LLMUnavailable(f"Ollama not reachable: {exc}") from exc
+
     def unload(self, model: str) -> None:
         """Free a model's memory now (it reloads on next use)."""
         try:

@@ -278,3 +278,33 @@ def test_tool_actions_from_the_ui_need_the_same_level_as_by_voice(settings):
         state["level"] = 2
         assert client.post(f"/api/alarms/{aid}/cancel", headers=H).status_code == 200
         assert client.post("/api/apple/sync", headers=H).status_code == 200
+
+
+def test_model_download_endpoints_and_restart(settings, tmp_path):
+    import time
+
+    from jarvis.downloads import ModelDownloader, ModelFile, Pack
+
+    packs = [Pack("face", "Face", "", True, [ModelFile("f.bin", "http://127.0.0.1:9/f.bin", 4, "")])]
+    dl = ModelDownloader(tmp_path / "m", packs, disk_free=lambda p: 10**12)
+    restarted = []
+    client, svc = _client(settings, downloader=dl, restart=lambda: restarted.append(True))
+    with client:
+        st = client.get("/api/status", headers=H).json()
+        assert st["models_needed"] is True
+        m = client.get("/api/models", headers=H).json()
+        assert m["files"]["needed"] == ["face"] and "ollama" in m and m["ollama"]["install"]["brew"]
+        assert client.post("/api/models/download", headers=H, json={"packs": ["nope"]}).status_code == 400
+        (tmp_path / "m").mkdir()
+        (tmp_path / "m" / "f.bin").write_bytes(b"done")  # as if downloaded
+        assert client.get("/api/status", headers=H).json()["models_needed"] is False
+        assert client.post("/api/models/restart", headers=H).json() == {"ok": True}
+        end = time.monotonic() + 5
+        while not restarted and time.monotonic() < end:
+            time.sleep(0.02)
+        assert restarted == [True]
+        # once set up with every model present, only the verified owner may download
+        svc.db.set("setup_complete", "1")
+        assert client.post("/api/models/download", headers=H).status_code == 403
+        assert client.post("/api/models/ollama/pull", headers=H, json={"model": "qwen2.5:7b"}).status_code == 403
+        assert client.get("/api/models", headers=H).status_code == 200  # reading what's installed is fine

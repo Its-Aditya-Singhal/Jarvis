@@ -196,6 +196,7 @@ class AssistantService:
         self._mode_note = ""  # why a mode couldn't fully apply (e.g. a model isn't downloaded)
         self._reenroll: tuple[str, float] | None = None  # (redo | deleted, grant expiry)
         self._told_issues = False
+        self.downloader: Any = None  # the first-run model downloader (set by the API)
         self._apply_voice_settings()
 
     def owner_verified(self) -> bool:
@@ -1339,6 +1340,8 @@ class AssistantService:
         allowed, why = self.face_enroll_allowed() if self.setup_complete else (True, "")
         return {
             "setup_complete": self.setup_complete,
+            # required models not on disk: the UI shows the download screen first
+            "models_needed": bool(self.downloader.needed()) if self.downloader is not None else False,
             "owner_name": self.owner_name,
             "assistant_name": self.assistant_name,
             "face_enrolled": self.face_enrolled,

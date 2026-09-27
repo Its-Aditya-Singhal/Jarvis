@@ -9,7 +9,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-DOWNLOAD = "Run: backend/.venv/bin/python scripts/download_models.py"
+DOWNLOAD = "Open Settings → Models and press Download, then Restart."
 READY = {"ready", "disabled"}
 
 
@@ -65,7 +65,7 @@ def issues(status: dict, data_dir: Path | None = None, perf: dict | None = None)
             out.append({"id": "llm", "level": "error", "title": "Language model not installed", "fix": f"Run: {fix}"})
         else:
             out.append({"id": "llm", "level": "error", "title": "Local AI offline — I can only do instant commands",
-                        "fix": "Start Ollama: ~/Developer/ollama/start.sh (or install it: brew install ollama)."})
+                        "fix": "Start Ollama from Settings → Models (or install it from ollama.com/download)."})
     mem = models.get("memory", "")
     if mem.startswith("word match only"):
         out.append({"id": "memory", "level": "warn", "title": "Memory recall by word match only",
