@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JARVIS — an assistant that knows it's you</title>
+  <meta name="description" content="A private voice assistant for the Mac that keeps checking who is in front of it. Face, liveness and voice, all on your Mac. Free, open source, no cloud.">
+  <meta name="color-scheme" content="dark">
+  <link rel="icon" href="assets/icon.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="nav" data-nav>
+    <a class="logo" href="./" aria-label="JARVIS home"><span class="logo-mark" aria-hidden="true"></span>JARVIS</a>
+    <nav aria-label="Main">
+      <a href="#how">How it works</a>
+      <a href="#features">Features</a>
+      <a href="#security">Security</a>
+      <a href="docs.html">Docs</a>
+      <a class="nav-cta" href="#download">Download</a>
+    </nav>
+  </header>
+
+  <main id="main">
+    <section class="hero">
+      <canvas class="hero-canvas" aria-hidden="true" data-rings></canvas>
+      <div class="hero-copy">
+        <p class="eyebrow reveal">Free · open source · macOS on Apple Silicon</p>
+        <h1 class="reveal">An assistant that<br><span class="grad">knows it's you.</span></h1>
+        <p class="lede reveal">
+          Talk to your Mac in English, Hindi or Hinglish. Before it does anything, it checks your face, that
+          you're a live person, and your voice. Every model runs on the Mac. Nothing goes to a cloud.
+        </p>
+        <div class="cta-row reveal">
+          <a class="btn primary" href="#download">Download for Mac</a>
+          <a class="btn ghost" href="https://github.com/Its-Aditya-Singhal/Jarvis">View the source</a>
+        </div>
+      </div>
+      <p class="scroll-hint" aria-hidden="true">scroll</p>
+    </section>
+
+    <section class="band" aria-label="At a glance">
+      <ul class="stats">
+        <li class="reveal"><b>0</b><span>paid APIs or cloud services</span></li>
+        <li class="reveal"><b>3</b><span>factors: face, liveness, voice</span></li>
+        <li class="reveal"><b>~1.3 s</b><span>from "set a timer" to the reply*</span></li>
+        <li class="reveal"><b>AES-256</b><span>sealed profiles, key in the Keychain</span></li>
+      </ul>
+      <p class="footnote">*Measured on an M1 Pro, from the end of speech until the spoken reply starts.</p>
+    </section>
+
+    <section id="how" class="story">
+      <div class="story-sticky">
+        <div class="level-dial" data-dial aria-hidden="true">
+          <svg viewBox="0 0 200 200">
+            <circle class="dial-track" cx="100" cy="100" r="84"/>
+            <circle class="dial-arc" cx="100" cy="100" r="84" data-arc/>
+          </svg>
+          <div class="dial-label"><small>LEVEL</small><b data-level>0</b></div>
+        </div>
+      </div>
+      <div class="story-steps">
+        <h2 class="section-title">It keeps asking who's there.</h2>
+        <article class="step" data-step="0">
+          <span class="step-no">L0</span>
+          <h3>Nobody, or somebody else</h3>
+          <p>An unknown face, a photo held up to the camera, or a frozen video feed: nothing is unlocked and the
+            attempt is written to the security log. No scores are shown to whoever is sitting there.</p>
+        </article>
+        <article class="step" data-step="1">
+          <span class="step-no">L1 · READ</span>
+          <h3>Your face, and you're alive</h3>
+          <p>ArcFace matches your face over several frames. A passive anti-spoof model and random challenges
+            (blink, turn, lean in) prove it's a live person. Now it can answer questions and read your calendar.</p>
+        </article>
+        <article class="step" data-step="2">
+          <span class="step-no">L2 · ACT</span>
+          <h3>Plus your voice, in the last minute</h3>
+          <p>An ECAPA voiceprint confirms it's you speaking, with nobody else in view. Now it can set alarms, open
+            apps, write notes and control the Mac.</p>
+        </article>
+        <article class="step" data-step="3">
+          <span class="step-no">L3 · CONFIRM</span>
+          <h3>Deleting anything needs a yes</h3>
+          <p>A fresh liveness check and an explicit "yes, go ahead" in your verified voice, or a click, within 30
+            seconds. A fusion model weighs all the evidence, and it can only ever lower a level.</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="features" class="features">
+      <h2 class="section-title reveal">Everyday things, said out loud.</h2>
+      <div class="grid">
+        <article class="tile reveal"><h3>Alarms and timers</h3><p>"Wake me at 7 and note to buy milk" becomes two actions. Snooze or just say "stop".</p></article>
+        <article class="tile reveal"><h3>Calendar and notes</h3><p>Stored encrypted in the app, with optional sync to Apple Calendar and Notes.</p></article>
+        <article class="tile reveal"><h3>Your Mac, by voice</h3><p>Open and quit apps, volume, music, brightness, dark mode, screenshots, lock the screen.</p></article>
+        <article class="tile reveal"><h3>Files</h3><p>"The PDF I downloaded yesterday": found, shown in Finder, or moved to the Trash after you confirm.</p></article>
+        <article class="tile reveal"><h3>Memory</h3><p>"Remember that my sister's birthday is 12 March." Ask later in any of the three languages.</p></article>
+        <article class="tile reveal"><h3>Instant answers</h3><p>Math, unit conversions, the time and common commands skip the language model entirely.</p></article>
+        <article class="tile reveal"><h3>Ask Claude or ChatGPT</h3><p>Dictate a prompt; it opens a new chat with the prompt written in and waits for you to send it.</p></article>
+        <article class="tile reveal"><h3>Your name for it</h3><p>Call it JARVIS, FRIDAY or anything else. The name you pick is also the wake word.</p></article>
+      </div>
+    </section>
+
+    <section id="security" class="security">
+      <div class="split">
+        <div class="reveal">
+          <h2 class="section-title">What stays, and what never exists.</h2>
+          <p class="lede small">Biometrics can't be changed if they leak, so they never leave the Mac and are
+            never stored as pictures or recordings.</p>
+        </div>
+        <div class="ledger reveal">
+          <div class="ledger-col">
+            <h3>Kept, encrypted</h3>
+            <ul>
+              <li>Face and voice embeddings (numbers, not images or audio)</li>
+              <li>Notes, alarms, events, memory and chat history</li>
+              <li>A security log of blocked attempts</li>
+            </ul>
+          </div>
+          <div class="ledger-col never">
+            <h3>Never stored</h3>
+            <ul>
+              <li>Camera frames or photos</li>
+              <li>Audio recordings</li>
+              <li>Speech that wasn't addressed to the assistant</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      <div class="facts">
+        <div class="fact reveal"><h3>Offline by default</h3><p>The backend refuses every connection except to itself. The Privacy view lists anything that tried.</p></div>
+        <div class="fact reveal"><h3>Local-only API</h3><p>Bound to 127.0.0.1 with a fresh random token each launch, and DNS-rebinding checks.</p></div>
+        <div class="fact reveal"><h3>You can see and delete it</h3><p>A privacy dashboard shows every kind of data with its size and age. Export or erase any of it.</p></div>
+        <div class="fact reveal"><h3>Honest about limits</h3><p>A replayed voice recording can pass voice checks, which is why actions also need your live face. <a href="https://github.com/Its-Aditya-Singhal/Jarvis/blob/main/docs/SECURITY.md">Read the threat model</a>.</p></div>
+      </div>
+    </section>
+
+    <section id="download" class="download">
+      <div class="download-card reveal">
+        <img src="assets/icon.png" alt="" width="96" height="96">
+        <h2>Get JARVIS 1.0</h2>
+        <p>macOS 14 Sonoma or later on Apple Silicon (M1 or newer), 16 GB of memory recommended and about 10 GB of free
+          space for the models.</p>
+        <a class="btn primary big" href="https://github.com/Its-Aditya-Singhal/Jarvis/releases/latest">Download the .dmg</a>
+        <ol class="install">
+          <li>Open the .dmg and drag JARVIS to Applications.</li>
+          <li>The app isn't notarized by Apple. The first time, open it, then go to System Settings → Privacy &amp;
+            Security and press <b>Open Anyway</b>.</li>
+          <li>On first launch it downloads its models (about 1.7 GB) and helps you install Ollama for the
+            language model (about 5 GB more).</li>
+        </ol>
+        <p class="small muted">Checksums are published with every release. <a href="docs.html">Full user guide</a>.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <p>JARVIS is free and open source. This site loads nothing from third parties and sets no cookies.</p>
+    <p><a href="docs.html">Docs</a> · <a href="privacy.html">Privacy</a> · <a href="https://github.com/Its-Aditya-Singhal/Jarvis">GitHub</a></p>
+  </footer>
+  <script src="main.js" defer></script>
+</body>
+</html>

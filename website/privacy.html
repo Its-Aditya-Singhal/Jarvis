@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacy — JARVIS</title>
+  <meta name="color-scheme" content="dark">
+  <link rel="icon" href="assets/icon.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="nav scrolled">
+    <a class="logo" href="./" aria-label="JARVIS home"><span class="logo-mark" aria-hidden="true"></span>JARVIS</a>
+    <nav aria-label="Main">
+      <a href="./#how">How it works</a>
+      <a href="./#security">Security</a>
+      <a href="docs.html">Docs</a>
+      <a class="nav-cta" href="./#download">Download</a>
+    </nav>
+  </header>
+  <main id="main" class="doc">
+    <h1>Privacy</h1>
+    <p><strong>This website</strong> is a set of static pages on GitHub Pages. It uses no analytics, no cookies, no
+      fonts or scripts from other sites. GitHub, which hosts it, keeps its own server logs under
+      <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement">its privacy statement</a>.</p>
+    <h2>The app</h2>
+    <p>JARVIS has no account, no server and no telemetry. It never sends your face, voice, words or files anywhere.</p>
+    <ul>
+      <li><strong>Stored on your Mac, encrypted</strong> (AES-256-GCM, key in the macOS Keychain): face and voice
+        embeddings, notes, alarms, events, memory, chat history (30 days by default) and the security log.</li>
+      <li><strong>Never stored:</strong> camera frames, photos, audio, and speech that wasn't addressed to the assistant
+        (it is dropped right after transcription).</li>
+      <li><strong>Offline by default:</strong> the backend refuses every internet connection. The only exception is
+        the model download you start on first run, which can reach only the hosts that publish the models.</li>
+      <li><strong>Ollama</strong> runs the language model as a separate local program. Its connections are shown in
+        the app's Privacy view.</li>
+      <li><strong>Optional Apple sync</strong> writes events and notes into Apple Calendar and Notes only if you turn
+        it on. What Apple does with those apps' data is up to your iCloud settings.</li>
+    </ul>
+    <h2>Your control</h2>
+    <p>The Privacy view lists every kind of stored data with its size and age. You can export a readable copy,
+      delete any part of it, or factory-reset, which also deletes the Keychain key so nothing left on disk can be
+      decrypted.</p>
+  </main>
+  <footer class="footer">
+    <p>JARVIS is free and open source. This site loads nothing from third parties and sets no cookies.</p>
+    <p><a href="docs.html">Docs</a> · <a href="privacy.html">Privacy</a> · <a href="https://github.com/Its-Aditya-Singhal/Jarvis">GitHub</a></p>
+  </footer>
+</body>
+</html>

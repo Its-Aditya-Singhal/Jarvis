@@ -2,12 +2,15 @@
 # gigabytes on every launch) that scripts/build_dmg.sh copies into
 # JARVIS.app/Contents/Resources/backend/.
 #
-#   cd backend && .venv/bin/pyinstaller --noconfirm packaging/jarvis-backend.spec
+#   cd backend && .venv/bin/pyinstaller --noconfirm --distpath dist --workpath build packaging/jarvis-backend.spec
+import os
 import sys
 
 from PyInstaller.utils.hooks import collect_all, collect_submodules
 
-datas = [("../jarvis/model_manifest.json", "jarvis"), ("../jarvis/auth/fusion/default_model.json", "jarvis/auth/fusion")]
+BACKEND = os.path.dirname(SPECPATH)  # noqa: F821 (defined by PyInstaller)
+datas = [(os.path.join(BACKEND, "jarvis", "model_manifest.json"), "jarvis"),
+         (os.path.join(BACKEND, "jarvis", "auth", "fusion", "default_model.json"), "jarvis/auth/fusion")]
 binaries = []
 hiddenimports = collect_submodules("jarvis") + [
     "uvicorn.logging", "uvicorn.loops.auto", "uvicorn.protocols.http.auto", "uvicorn.protocols.websockets.auto",
@@ -34,8 +37,8 @@ for pkg in PACKAGES:
     hiddenimports += h
 
 a = Analysis(
-    ["run_backend.py"],
-    pathex=[".."],
+    [os.path.join(SPECPATH, "run_backend.py")],  # noqa: F821
+    pathex=[BACKEND],
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,

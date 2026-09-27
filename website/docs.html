@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JARVIS docs</title>
+  <meta name="color-scheme" content="dark">
+  <link rel="icon" href="assets/icon.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="nav scrolled">
+    <a class="logo" href="./" aria-label="JARVIS home"><span class="logo-mark" aria-hidden="true"></span>JARVIS</a>
+    <nav aria-label="Main">
+      <a href="./#how">How it works</a>
+      <a href="./#security">Security</a>
+      <a href="docs.html">Docs</a>
+      <a class="nav-cta" href="./#download">Download</a>
+    </nav>
+  </header>
+  <main id="main" class="doc">
+    <h1>Docs</h1>
+    <p>Everything is written up in the repository. Start with the user guide; the rest explains how it works
+      and how far its security goes.</p>
+    <div class="doc-cards">
+      <a href="https://github.com/Its-Aditya-Singhal/Jarvis/blob/main/docs/USER_GUIDE.md">User guide<span>Install, first run, commands, levels, privacy, troubleshooting.</span></a>
+      <a href="https://github.com/Its-Aditya-Singhal/Jarvis/blob/main/docs/SECURITY.md">Security<span>Threat model, what each level protects, and the known limits.</span></a>
+      <a href="https://github.com/Its-Aditya-Singhal/Jarvis/blob/main/docs/ML.md">The models<span>Face, liveness, voice and the fusion classifier, with measured numbers.</span></a>
+      <a href="https://github.com/Its-Aditya-Singhal/Jarvis/blob/main/docs/ARCHITECTURE.md">Architecture<span>The app, the backend, the tool registry and how data flows.</span></a>
+      <a href="https://github.com/Its-Aditya-Singhal/Jarvis/blob/main/CHANGELOG.md">Changelog<span>What's in each release.</span></a>
+      <a href="https://github.com/Its-Aditya-Singhal/Jarvis/blob/main/README.md">README<span>Overview and developer setup.</span></a>
+    </div>
+    <h2>Quick start</h2>
+    <ol>
+      <li>Download the .dmg from the <a href="https://github.com/Its-Aditya-Singhal/Jarvis/releases/latest">latest release</a> and drag JARVIS to Applications.</li>
+      <li>Open it once, then System Settings → Privacy &amp; Security → <strong>Open Anyway</strong> (the app is signed but not notarized).</li>
+      <li>Let it download its models, install Ollama when it asks, then follow setup: your name, its name, a face scan and six voice phrases.</li>
+      <li>Say its name, then what you want: <em>"FRIDAY, set a timer for five minutes."</em></li>
+    </ol>
+  </main>
+  <footer class="footer">
+    <p>JARVIS is free and open source. This site loads nothing from third parties and sets no cookies.</p>
+    <p><a href="docs.html">Docs</a> · <a href="privacy.html">Privacy</a> · <a href="https://github.com/Its-Aditya-Singhal/Jarvis">GitHub</a></p>
+  </footer>
+</body>
+</html>
