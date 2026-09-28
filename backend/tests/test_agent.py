@@ -226,8 +226,9 @@ def test_a_change_waits_for_confirmation_with_the_script_shown(settings, standar
 def test_cancelling_runs_nothing(settings, standard_mac):
     svc, db, _, ran = with_agent(settings, CHANGES[0])
     svc.command("add milk")
-    svc.confirm(svc.pending().id, False, "click")
+    out = svc.confirm(svc.pending().id, False, "click")
     assert ran == [] and svc.pending() is None
+    assert out["reply"] == "Okay, I won't run it."  # it used to say "I won't delete it"
 
 
 def test_blocked_script_is_refused_and_logged(settings, standard_mac):

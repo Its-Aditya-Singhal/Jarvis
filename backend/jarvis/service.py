@@ -1138,6 +1138,8 @@ class AssistantService:
             self.bus.log("Cancelled by the owner")
             if p.run is not None:
                 return self._answer("ठीक है, कुछ नहीं बदला।" if hi else "Okay, nothing changed.", ok=True)
+            if p.plan.tool == "mac.do":  # a generated script, not a deletion
+                return self._answer("ठीक है, स्क्रिप्ट नहीं चलाई।" if hi else "Okay, I won't run it.", ok=True)
             return self._answer("ठीक है, नहीं हटाया।" if hi else "Okay, I won't delete it.", ok=True)
         if source == "voice" and verdict != "verified":
             # a short "yes" carries too little voice to identify the speaker
