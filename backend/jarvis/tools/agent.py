@@ -53,7 +53,7 @@ SCHEMA: dict[str, Any] = {
 
 SYSTEM = """You write AppleScript for a private assistant on the user's Mac (macOS 15). Return JSON:
 - "script": ONE complete AppleScript that does the task, using apps' own AppleScript dictionaries
-  (Reminders, Calendar, Notes, Music, Messages, Mail, Safari, Finder, System Events, Contacts, Photos, Shortcuts…).
+  (Reminders, Calendar, Notes, Music, Messages, Mail, Safari, Finder, System Events, Contacts, Photos…).
   If it produces an answer, the script must END with `return <text>` so the answer can be read out.
 - "summary": what the script does, one short sentence starting with a verb ("Adds 'Buy milk' to Reminders").
 - "reads_only": true only if the script just reads information and changes nothing.
@@ -96,7 +96,18 @@ _BLOCKED: list[tuple[str, str]] = [
     (r"\bdo\s+shortcut\b|\brun\s+shortcut\b", "runs a Shortcut, which can run code"),
     (r'\b(?:tell|of|to)\s+application\s+(?!")|\bapplication\s+id\b|\bapplication\s+file\b', "names an app indirectly"),
     (r"\bwrite\s+text\b", "types into a terminal"),
+    (r'\bkeystroke\b[^\n]*"[^"]*(?:\brm\s+-|\bsudo\b|\bcurl\b|\bwget\b|\bchmod\b|\|\s*(?:ba|z)?sh\b|\bosascript\b)',
+     "types a shell command"),
+    (r'\bapplication\s+"[^"]*"\s*(?:&|as\b)|\bapplication\s*\(', "names an app indirectly"),
+    (r"\b(?:Terminal|iTerm2?|Script\s*Editor|Automator|Shortcuts|Keychain|Installer)\b|com\.apple\.Terminal",
+     "controls a tool that can run code"),
+    (r"\.(?:command|sh|zsh|bash|tool|pkg|mpkg|scpt|scptd|applescript|workflow|terminal|py|rb|pl|js|dylib|kext)\b",
+     "opens a program or script file"),
+    (r"LaunchAgents|LaunchDaemons|/\.[A-Za-z]|~/\.|login\s+item|/etc/|/usr/|/System/|/private/", "touches system or hidden files"),
 ]
+_IN_QUOTES = ("controls a tool that can run code", "touches passwords", "names an app indirectly",
+              "opens a program or script file", "touches system or hidden files", "types a shell command",
+              "asks for admin rights")
 # Finder / System Events deleting or moving files: never (files.trash exists, with confirmation)
 _FILE_TARGET = r'tell\s+application\s+"(?:Finder|System Events)"'
 _FILE_DESTRUCTIVE = r"\b(?:delete|move|duplicate)\b[^\n]*(?:\bfile\b|\bfolder\b|\bitems?\b|\bPOSIX\b|\balias\b|\bdisk\b|\bentire contents\b)"
@@ -124,9 +135,52 @@ class Script:
     reason: str = ""  # why it's blocked
 
 
-def _strip_strings(script: str) -> str:
-    """Quoted text removed: a reminder called "delete the tab" is data, not a command."""
-    return re.sub(r'"(?:[^"\\]|\\.)*"', '""', script)
+def _scan(script: str) -> tuple[str, str]:
+    """-> (the script without comments or line continuations, the same with quoted text emptied).
+
+    Comments and ``¬`` continuations could otherwise split a command's words
+    (``do shell (* x *) script``); quoted text is data, not a command (a reminder
+    called "delete the tab")."""
+    raw: list[str] = []
+    code: list[str] = []
+    i, n = 0, len(script)
+    depth = 0  # nested (* … *) comments
+
+    def emit(r: str, c: str | None = None) -> None:
+        raw.append(r)
+        code.append(r if c is None else c)
+
+    while i < n:
+        ch, two = script[i], script[i:i + 2]
+        if depth:
+            if two == "(*":
+                depth, i = depth + 1, i + 2
+            elif two == "*)":
+                depth, i = depth - 1, i + 2
+                emit(" ")
+            else:
+                i += 1
+            continue
+        if two == "(*":
+            depth, i = 1, i + 2
+        elif two == "--" or ch == "#":
+            while i < n and script[i] not in "\r\n":
+                i += 1
+        elif ch == "¬":  # continues the line
+            i += 1
+            while i < n and script[i] in " \t\r\n":
+                i += 1
+            emit(" ")
+        elif ch == '"':
+            j = i + 1
+            while j < n and script[j] != '"':
+                j += 2 if script[j] == "\\" else 1
+            emit(script[i:j + 1], '""')
+            i = j + 1
+        else:
+            emit(ch)
+            i += 1
+    return "".join(raw), "".join(code)
 
 
 def _local_name(target: str) -> bool:
@@ -142,13 +196,13 @@ def classify(script: str) -> tuple[str, str]:
         return "blocked", "the script is empty"
     if len(script) > MAX_SCRIPT:
         return "blocked", "the script is too long"
-    code = _strip_strings(script)
+    raw, code = _scan(script)
     for pat, why in _BLOCKED:
-        # app names and secrets live in quotes; commands in the code ("write to Mom" in a message is fine)
-        where = script if why in ("controls a tool that can run code", "touches passwords", "names an app indirectly") else code
+        # app names, paths and secrets live in quotes; commands in the code ("write to Mom" in a message is fine)
+        where = raw if why in _IN_QUOTES else code
         if re.search(pat, where, re.I):
             return "blocked", why
-    if re.search(_FILE_TARGET, script, re.I) and re.search(_FILE_DESTRUCTIVE, code, re.I):
+    if re.search(_FILE_TARGET, raw, re.I) and re.search(_FILE_DESTRUCTIVE, code, re.I):
         return "blocked", "deletes or moves files"
     lines = [ln.strip() for ln in code.splitlines()]
     for ln in lines:
