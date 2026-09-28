@@ -16,6 +16,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from ...hardware import profile
 from ..liveness.blink import eye_openness
 from ..liveness.passive import PassiveLiveness
 from .quality import frame_quality
@@ -49,13 +50,18 @@ class FaceEngine:
             self.error = f"face models missing at {self.model_dir}"
             return False
         try:
+            import onnxruntime as ort
             from insightface.app import FaceAnalysis
 
+            opts = ort.SessionOptions()
+            opts.intra_op_num_threads = profile().threads  # onnxruntime would take every core
             app = FaceAnalysis(
                 name=str(self.model_dir),
                 allowed_modules=["detection", "recognition", "landmark_3d_68", "landmark_2d_106"],
+                sess_options=opts,
             )
-            app.prepare(ctx_id=0, det_size=(640, 640))
+            size = profile().face_det_size
+            app.prepare(ctx_id=0, det_size=(size, size))
             self._app = app
             self.error = None
             if not self.liveness.load():

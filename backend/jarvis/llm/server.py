@@ -17,6 +17,8 @@ from pathlib import Path
 
 import httpx
 
+from ..hardware import profile
+
 log = logging.getLogger(__name__)
 
 CANDIDATES = ["/opt/homebrew/bin/ollama", "/usr/local/bin/ollama", "/Applications/Ollama.app/Contents/Resources/ollama"]
@@ -58,7 +60,7 @@ class OllamaServer:
             self.error = "Ollama is not installed (brew install ollama)"
             return False
         env = {**os.environ, "OLLAMA_HOST": self.host, "OLLAMA_FLASH_ATTENTION": "1", "OLLAMA_KV_CACHE_TYPE": "q8_0",
-               "OLLAMA_NUM_PARALLEL": "2"}  # a background memory request never blocks a command
+               "OLLAMA_NUM_PARALLEL": str(profile().num_parallel)}  # 2: a background memory request never blocks a command
         if self.models_dir is not None:
             self.models_dir.mkdir(parents=True, exist_ok=True)
             env["OLLAMA_MODELS"] = str(self.models_dir)

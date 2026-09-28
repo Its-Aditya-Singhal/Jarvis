@@ -11,7 +11,10 @@ import sys
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from .hardware import profile
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OLLAMA_MODELS = Path.home() / "Developer" / "ollama" / "models"
@@ -88,7 +91,7 @@ class Settings(BaseSettings):
     followup_s: float = 8.0  # after "<name>" alone, listen this long without the name
 
     # Local LLM (Ollama)
-    llm_model: str = "qwen2.5:7b"  # default; the owner can switch in Settings
+    llm_model: str = Field(default_factory=lambda: profile().llm_model)  # by the Mac's memory; the owner can switch
     ollama_host: str = "127.0.0.1:11434"
     ollama_models_dir: Path | None = _default_ollama_models_dir()  # None = Ollama's own default
     llm_autostart: bool = True  # start `ollama serve` if no server is running

@@ -39,6 +39,7 @@ from .camera.capture import Camera
 from .config import Settings
 from .database.db import Database
 from .events import EventBus
+from .hardware import profile
 from .host import responsible_app
 from .memory.manager import Memory
 from .netguard import NetGuard
@@ -70,8 +71,8 @@ FACE = "face"
 MIN_OWNER_SAMPLES = 10  # before a personal retrain makes sense
 IDLE_FPS = 2.0  # nobody in view for a while: look less often (the owner is picked up within 0.5 s)
 NO_FACE_IDLE_S = 10.0
-LOW_MEMORY_PCT = 88.0  # system memory use at which idle models are unloaded
-IDLE_BEFORE_FREE_S = 120.0
+LOW_MEMORY_PCT = profile().low_memory_pct  # system memory use at which idle models are unloaded
+IDLE_BEFORE_FREE_S = profile().idle_before_free_s
 REENROLL_GRANT_S = 600.0  # after a confirmed face delete/redo, time to scan the new face
 RECOVERY_VOICE_S = 60.0  # face missing: a verified voice this recent may start a new scan
 
@@ -301,9 +302,13 @@ class AssistantService:
                 b._status = None
                 if warm:  # loads the new model and unloads the old one
                     threading.Thread(target=b.start, name="llm-warm", daemon=True).start()
-        if self.speech is not None and isinstance(self.speech.stt, SpeechToText) and self.speech.stt.size != mode.stt:
-            threading.Thread(target=self._swap_stt, args=(mode.stt,), name="stt-swap", daemon=True).start()
-        elif self.speech is not None and getattr(self.speech.stt, "size", mode.stt) != mode.stt:
+        stt = mode.stt
+        if stt == "medium" and not profile().stt_medium:
+            stt = "small"
+            notes.append("Whisper medium needs more memory than this Mac has; speech stays small")
+        if self.speech is not None and isinstance(self.speech.stt, SpeechToText) and self.speech.stt.size != stt:
+            threading.Thread(target=self._swap_stt, args=(stt,), name="stt-swap", daemon=True).start()
+        elif self.speech is not None and getattr(self.speech.stt, "size", stt) != stt:
             notes.append(f"speech model stays {self.speech.stt.size}")
         self._mode_note = "; ".join(notes)
         if changed:

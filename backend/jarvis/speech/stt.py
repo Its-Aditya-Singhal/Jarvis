@@ -23,6 +23,8 @@ from typing import Any
 
 import numpy as np
 
+from ..hardware import profile
+
 log = logging.getLogger(__name__)
 
 LANGS = ("en", "hi")
@@ -39,13 +41,13 @@ class Transcript:
 
 
 class SpeechToText:
-    def __init__(self, models_root: Path, size: str = "small", threads: int = 8, engine: str = "auto"):
+    def __init__(self, models_root: Path, size: str = "small", threads: int | None = None, engine: str = "auto"):
         self.size = size
         self.path = Path(models_root) / "whisper" / size
         self.mlx_path = Path(models_root) / "whisper-mlx" / size
         self.engine_pref = engine  # auto | mlx | cpu
         self.engine = "none"
-        self.threads = threads
+        self.threads = threads or profile().threads
         self._model: Any = None  # faster-whisper model or _MlxWhisper
         self._lock = threading.Lock()
         self.error: str | None = None

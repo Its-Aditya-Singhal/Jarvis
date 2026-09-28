@@ -7,13 +7,15 @@ from typing import Any
 
 import httpx
 
+from ..hardware import profile
+
 
 class LLMUnavailable(RuntimeError):
     pass
 
 
-CHAT_KEEP_ALIVE = "20m"
-EMBED_KEEP_ALIVE = "10m"
+CHAT_KEEP_ALIVE = profile().chat_keep_alive
+EMBED_KEEP_ALIVE = profile().embed_keep_alive
 
 
 class OllamaClient:
@@ -44,7 +46,7 @@ class OllamaClient:
             "format": schema,
             "stream": False,
             "keep_alive": keep_alive,
-            "options": {"temperature": temperature, "num_ctx": 4096,
+            "options": {"temperature": temperature, "num_ctx": profile().num_ctx,
                         **({"num_predict": num_predict} if num_predict else {})},
         }
         try:

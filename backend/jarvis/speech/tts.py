@@ -19,6 +19,7 @@ from typing import Any
 
 import numpy as np
 
+from ..hardware import profile
 from .text import has_devanagari
 
 log = logging.getLogger(__name__)
@@ -38,10 +39,10 @@ VOICES = {
 
 
 class TextToSpeech:
-    def __init__(self, models_root: Path, speed: float = 1.0, threads: int = 8):
+    def __init__(self, models_root: Path, speed: float = 1.0, threads: int | None = None):
         self.dir = Path(models_root) / "kokoro"
         self.speed = speed
-        self.threads = threads
+        self.threads = threads or profile().threads
         self._k: Any = None  # kokoro_onnx.Kokoro
         self._lock = threading.Lock()
         self.error: str | None = None
