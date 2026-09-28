@@ -236,6 +236,7 @@ def _one(t: str, now: datetime, is_app: Callable[[str], bool], hi: bool, orig: s
         return r
     # timers
     m = (re.fullmatch(rf"{POLITE}(?:set|start|put)(?: me)?(?: a| an)? {TIMER} (?:for |of )?(.+?){TAIL}", t)
+         or re.fullmatch(rf"{POLITE}(?:set|start|put|make)(?: me)?(?: a| an)? (.+?) {TIMER}(?: on| going)?{TAIL}", t)
          or re.fullmatch(rf"{POLITE}{TIMER} (?:for |of )?(.+?){TAIL}", t)
          or re.fullmatch(rf"{POLITE}(.+?) (?:ka |ke liye |ki )?{TIMER}(?: {DO_IT})?{TAIL}", t))
     if m and (secs := _duration(m.group(1))):
@@ -501,7 +502,8 @@ def parse_fast(text: str, language: str, now: datetime, is_app: Callable[[str], 
     if (said := calc.answer(text, now, hi)) is not None:
         return Intent(language, [], said)
     # "and" inside a duration ("an hour and 10 minutes") is not a split point
-    joiner = rf"\s*(?:,? and then|,? and|,? then|,? aur phir|,? aur|,? phir)\s+(?!{N_ANY} (?:{MIN}|{SEC})\b)"
+    # nor is it in "alarms and timers"
+    joiner = rf"\s*(?:,? and then|,? and|,? then|,? aur phir|,? aur|,? phir)\s+(?!{N_ANY} (?:{MIN}|{SEC})\b|(?:{ALARM}|{TIMER})s?\b)"
     parts = [p.strip() for p in re.split(joiner, t) if p.strip()]
     actions: list[Action] = []
     reply = ""

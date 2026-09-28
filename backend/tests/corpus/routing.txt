@@ -15,7 +15,7 @@
 # -- timers ---------------------------------------------------------------------------------
 fast | timer.set(seconds=300) | set a timer for 5 minutes
 fast | timer.set(seconds=300) | Set a timer for five minutes.
-gap  | timer.set(seconds=300) | start a 5 minute timer
+fast | timer.set(seconds=300) | start a 5 minute timer
 fast | timer.set(seconds=300) | timer for 5 minutes
 fast | timer.set(seconds=300) | 5 minute timer
 fast | timer.set(seconds=300) | please set a timer for 5 minutes
@@ -24,7 +24,7 @@ fast | timer.set(seconds=60) | set a timer for one minute
 fast | timer.set(seconds=60) | set a timer for a minute
 fast | timer.set(seconds=90) | timer for 90 seconds
 fast | timer.set(seconds=30) | set a timer for 30 seconds
-gap  | timer.set(seconds=600) | set a 10 minute timer
+fast | timer.set(seconds=600) | set a 10 minute timer
 fast | timer.set(seconds=900) | fifteen minute timer
 fast | timer.set(seconds=1200) | twenty minutes timer
 fast | timer.set(seconds=1800) | half an hour timer
@@ -48,7 +48,7 @@ fast | timer.set(seconds=600) | दस मिनट का टाइमर ल�
 fast | timer.set(seconds=120) | दो मिनट का टाइमर
 fast | timer.set(seconds=300) | zara 5 minute ka timer laga do na
 fast | timer.set(seconds=300) | set timer 5 min
-gap  | timer.set(seconds=300) | put a five minute timer on
+fast | timer.set(seconds=300) | put a five minute timer on
 fast | timer.set(seconds=45) | 45 second timer
 fast | timer.set(seconds=180) | three minutes timer please
 fast | timer.set(seconds=2700) | timer for forty five minutes
@@ -98,13 +98,13 @@ fast | alarm.cancel(kind=alarm) | cancel all alarms
 fast | alarm.cancel(kind=timer) | delete the timer
 fast | alarm.cancel(kind=alarm) | turn off my alarm
 fast | alarm.cancel(kind=timer) | stop the timer
-gap  | alarm.cancel() | cancel all alarms and timers
+fast | alarm.cancel() | cancel all alarms and timers
 fast | alarm.cancel(kind=alarm) | alarm cancel kar do
 fast | alarm.cancel(kind=alarm) | saare alarm band karo
 fast | alarm.list() | what alarms do i have
 fast | alarm.list() | which alarms are set
 fast | alarm.list() | show my alarms
-gap  | alarm.list() | list my alarms and timers
+fast | alarm.list() | list my alarms and timers
 fast | alarm.list() | how much time is left on the timer
 fast | alarm.list() | how much time left
 fast | alarm.list() | do i have any alarms set
