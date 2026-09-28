@@ -8,11 +8,13 @@ Audio is never stored; history holds only turns addressed to the assistant.
 
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass
 from datetime import datetime
 
 import numpy as np
+from cryptography.exceptions import InvalidTag
 
 from ..database.db import Database
 from ..security.crypto import KeyProvider, seal, unseal
@@ -36,6 +38,8 @@ CREATE TABLE IF NOT EXISTS history (
 );
 CREATE INDEX IF NOT EXISTS history_ts ON history(ts);
 """
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -77,6 +81,18 @@ class MemoryStore:
     def _unvec(self, ctx: str, blob: bytes | None) -> np.ndarray | None:
         return None if not blob else np.frombuffer(self._open(ctx, blob), np.float32)
 
+    @staticmethod
+    def _readable(table: str, rows, make) -> list:
+        """Rows sealed with a key that is gone (a copied database, a replaced Keychain entry) are
+        skipped, not allowed to break recall, the Memory page and the export."""
+        out = []
+        for r in rows:
+            try:
+                out.append(make(r))
+            except InvalidTag:
+                log.warning("%s row %s can't be decrypted with this Mac's key: skipped", table, r["id"])
+        return out
+
     # -- facts --------------------------------------------------------------------
     def add_fact(self, text: str, source: str, embedding: np.ndarray | None = None) -> int:
         now = time.time()
@@ -100,11 +116,9 @@ class MemoryStore:
 
     def facts(self) -> list[Fact]:
         rows = self.db.run("SELECT * FROM memories ORDER BY updated DESC")
-        return [
-            Fact(r["id"], self._open("fact", r["text"]).decode(), datetime.fromtimestamp(r["created"]),
-                 datetime.fromtimestamp(r["updated"]), r["source"], self._unvec("fact_emb", r["embedding"]))
-            for r in rows
-        ]
+        return self._readable("memories", rows, lambda r: Fact(
+            r["id"], self._open("fact", r["text"]).decode(), datetime.fromtimestamp(r["created"]),
+            datetime.fromtimestamp(r["updated"]), r["source"], self._unvec("fact_emb", r["embedding"])))
 
     # -- history ------------------------------------------------------------------
     def add_turn(self, role: str, text: str, lang: str, embedding: np.ndarray | None = None) -> int:
@@ -121,11 +135,9 @@ class MemoryStore:
             "SELECT * FROM history WHERE ts >= ? AND ts < ? ORDER BY ts DESC LIMIT ?",
             (since or 0.0, until or 1e12, limit),
         )
-        return [
-            Turn(r["id"], datetime.fromtimestamp(r["ts"]), r["role"], self._open("turn", r["text"]).decode(),
-                 r["lang"], self._unvec("turn_emb", r["embedding"]))
-            for r in rows
-        ]
+        return self._readable("history", rows, lambda r: Turn(
+            r["id"], datetime.fromtimestamp(r["ts"]), r["role"], self._open("turn", r["text"]).decode(),
+            r["lang"], self._unvec("turn_emb", r["embedding"])))
 
     def delete_turns_before(self, ts: float) -> int:
         return len(self.db.run("DELETE FROM history WHERE ts < ? RETURNING id", (ts,)))

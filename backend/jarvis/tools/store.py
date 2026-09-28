@@ -7,12 +7,17 @@ Keychain key that also protects the biometric templates.
 
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass
 from datetime import datetime
 
+from cryptography.exceptions import InvalidTag
+
 from ..database.db import Database
 from ..security.crypto import KeyProvider, seal, unseal
+
+log = logging.getLogger(__name__)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS alarms (
@@ -81,6 +86,17 @@ class ToolStore:
             return ""
         return unseal(self.keys.get_key(), blob, f"tools:{table}".encode()).decode()
 
+    def _readable(self, table: str, rows, make):
+        """Rows sealed with a key that is gone (a copied database, a replaced Keychain entry) are
+        skipped, not allowed to break every list and the alarm clock."""
+        out = []
+        for r in rows:
+            try:
+                out.append(make(r))
+            except InvalidTag:
+                log.warning("%s row %s can't be decrypted with this Mac's key: skipped", table, r["id"])
+        return out
+
     # -- alarms & timers ---------------------------------------------------------
     def add_alarm(self, kind: str, due: datetime, label: str = "") -> int:
         return self.db.insert(
@@ -89,7 +105,11 @@ class ToolStore:
         )
 
     def _alarm(self, r) -> Alarm:
-        return Alarm(r["id"], r["kind"], datetime.fromtimestamp(r["due"]), self._open("alarms", r["label"]), r["status"])
+        try:
+            label = self._open("alarms", r["label"])
+        except InvalidTag:  # the alarm still rings, just without its label
+            label = ""
+        return Alarm(r["id"], r["kind"], datetime.fromtimestamp(r["due"]), label, r["status"])
 
     def alarms(self, statuses: tuple[str, ...] = ("pending", "ringing")) -> list[Alarm]:
         marks = ",".join("?" * len(statuses))
@@ -119,19 +139,17 @@ class ToolStore:
         rows = self.db.run(
             "SELECT * FROM events WHERE start >= ? AND start < ? ORDER BY start", (a.timestamp(), b.timestamp())
         )
-        return [
-            Event(r["id"], self._open("events", r["title"]), datetime.fromtimestamp(r["start"]),
-                  datetime.fromtimestamp(r["end"]), "local", r["apple_uid"])
-            for r in rows
-        ]
+        return self._readable("events", rows, lambda r: Event(
+            r["id"], self._open("events", r["title"]), datetime.fromtimestamp(r["start"]),
+            datetime.fromtimestamp(r["end"]), "local", r["apple_uid"]))
 
     def delete_event(self, event_id: int) -> bool:
         return bool(self.db.run("DELETE FROM events WHERE id = ? RETURNING id", (event_id,)))
 
     def unsynced_events(self) -> list[Event]:
         rows = self.db.run("SELECT * FROM events WHERE apple_uid IS NULL AND start >= ?", (time.time(),))
-        return [Event(r["id"], self._open("events", r["title"]), datetime.fromtimestamp(r["start"]),
-                      datetime.fromtimestamp(r["end"])) for r in rows]
+        return self._readable("events", rows, lambda r: Event(
+            r["id"], self._open("events", r["title"]), datetime.fromtimestamp(r["start"]), datetime.fromtimestamp(r["end"])))
 
     def set_event_apple(self, event_id: int, uid: str) -> None:
         self.db.run("UPDATE events SET apple_uid = ? WHERE id = ?", (uid, event_id))
@@ -144,8 +162,8 @@ class ToolStore:
 
     def notes(self, limit: int = 200) -> list[Note]:
         rows = self.db.run("SELECT * FROM notes ORDER BY created DESC LIMIT ?", (limit,))
-        return [Note(r["id"], self._open("notes", r["text"]), datetime.fromtimestamp(r["created"]), r["apple_id"])
-                for r in rows]
+        return self._readable("notes", rows, lambda r: Note(
+            r["id"], self._open("notes", r["text"]), datetime.fromtimestamp(r["created"]), r["apple_id"]))
 
     def delete_note(self, note_id: int) -> bool:
         return bool(self.db.run("DELETE FROM notes WHERE id = ? RETURNING id", (note_id,)))

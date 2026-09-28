@@ -190,3 +190,27 @@ def test_security_events_limit_is_bounded():
         d.add_security_event("x", str(i))
     assert len(d.security_events(-1)) == 0 and len(d.security_events(0)) == 0
     assert len(d.security_events(3)) == 3
+
+
+def test_rows_sealed_with_a_lost_key_are_skipped_not_fatal():
+    from datetime import datetime, timedelta
+
+    from jarvis.memory.store import MemoryStore
+    from jarvis.tools.store import ToolStore
+
+    db = Database(":memory:")
+    old = StaticKeyProvider()
+    ToolStore(db, old).add_note("from the old key")
+    ToolStore(db, old).add_event("old event", datetime.now() + timedelta(hours=1), datetime.now() + timedelta(hours=2))
+    ToolStore(db, old).add_alarm("alarm", datetime.now() + timedelta(hours=1), "old label")
+    MemoryStore(db, old).add_fact("old fact", "typed")
+    MemoryStore(db, old).add_turn("you", "old turn", "en")
+    new = StaticKeyProvider()  # e.g. the database copied to another Mac
+    tools, mem = ToolStore(db, new), MemoryStore(db, new)
+    tools.add_note("new note")
+    mem.add_fact("new fact", "typed")
+    assert [n.text for n in tools.notes()] == ["new note"]
+    assert tools.events_between(datetime.now(), datetime.now() + timedelta(days=1)) == []
+    [a] = tools.alarms()
+    assert a.label == ""  # it still rings
+    assert [f.text for f in mem.facts()] == ["new fact"] and mem.turns() == []
