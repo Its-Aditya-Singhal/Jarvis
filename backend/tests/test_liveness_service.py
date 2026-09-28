@@ -244,3 +244,35 @@ def test_face_once_waits_until_nobody_else_is_in_view(settings):
     while cam.stops == 0 and _time.monotonic() < end:
         _time.sleep(0.01)
     assert svc.auth_public()["face_once"] and cam.stops == 1
+
+
+def _stale_liveness(settings):
+    svc, engine, db = make_service(settings)
+    t = do_challenge(svc, engine, drive(svc, engine, 0.0, [face()] * 6))
+    svc.live.next_check_t = None  # no routine check in the way
+    t += 700  # the last liveness check is now older than 10 minutes
+    svc.live._last_blink = t
+    t = drive(svc, engine, t, [face()] * 3)
+    assert svc.trust().level == 2 and svc.trust().needs_fresh_liveness
+    from jarvis.tools.runner import ToolResult
+
+    ran = []
+    svc.request_sensitive("privacy.x", "x", "Do x?", lambda: ran.append(1) or ToolResult("x", True, "Done."))
+    p = svc.pending()
+    assert p is not None
+    t = drive(svc, engine, t, [face()] * 3)
+    assert svc.live.state == "challenge"  # the fresh check the confirmation asked for
+    return svc, engine, t, p, ran
+
+
+def test_fresh_liveness_check_before_a_deletion_keeps_the_confirmation_open(settings):
+    svc, engine, t, p, ran = _stale_liveness(settings)
+    assert svc.pending() is p  # not cancelled because the level is 0 while the check runs
+    do_challenge(svc, engine, t)
+    assert svc.confirm(p.id, True, "click")["ok"] and ran == [1]
+
+
+def test_confirmation_is_still_cancelled_when_the_owner_leaves_during_the_check(settings):
+    svc, engine, t, p, ran = _stale_liveness(settings)
+    drive(svc, engine, t, [None] * 150)  # nobody in view for over 10 s
+    assert svc.pending() is None and not ran

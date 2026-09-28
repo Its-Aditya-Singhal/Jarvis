@@ -1076,7 +1076,9 @@ class AssistantService:
         if now >= p.expires:
             self._finish_pending("expired")
             self.bus.log("Not confirmed in time — cancelled", "warn")
-        elif self.trust(now).level == 0:
+        elif self.trust(now).level == 0 and not (self.s.liveness_enabled and self.live.state == "challenge"):
+            # (during a liveness challenge the level is 0 until it passes: often the very check
+            # this confirmation asked for; a failed one, or the owner leaving, still cancels)
             self._finish_pending("cancelled")
             self.bus.log("Pending confirmation cancelled — owner no longer verified", "warn")
 
