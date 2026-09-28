@@ -39,8 +39,9 @@ export default function AppleCard() {
     try {
       if (next.calendar_sync && !next.calendar) {
         const cals = calendars ?? (await loadCalendars());
-        if (!cals?.length) {
-          setBusy(false);
+        if (!cals) return; // loadCalendars said why
+        if (!cals.length) {
+          setMsg({ text: "Apple Calendar has no calendars to sync with. Create one there first.", tone: "alert" });
           return;
         }
         next = { ...next, calendar: cals[0] };

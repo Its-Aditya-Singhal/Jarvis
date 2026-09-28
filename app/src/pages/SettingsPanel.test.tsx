@@ -128,3 +128,36 @@ describe("Settings", () => {
     expect(fake.called("PUT", "/api/mic")[0].body).toEqual({ device: "Microsoft Teams Audio" });
   });
 });
+
+describe("Settings errors", () => {
+  it("a failed refresh clears itself once the next one works", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let down = true;
+      fake.route("GET /api/settings", () => {
+        if (down) throw new Error("offline");
+        return SETTINGS;
+      });
+      render(<SettingsPanel />);
+      fake.setStatus(makeStatus({ setup_complete: true, auth: approvedAuth() }));
+      expect(await screen.findByText("Backend unreachable")).toBeInTheDocument();
+      down = false;
+      await vi.advanceTimersByTimeAsync(5100);
+      await vi.waitFor(() => expect(screen.queryByText("Backend unreachable")).not.toBeInTheDocument());
+      expect(screen.getByText("SECURITY")).toBeVisible();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("an action's error stays up after the reload that follows it", async () => {
+    const user = userEvent.setup();
+    fake.fail("PUT /api/settings/pref", 403, "level 2 required");
+    render(<SettingsPanel />);
+    fake.setStatus(makeStatus({ setup_complete: true, auth: approvedAuth() }));
+    await user.click(await screen.findByRole("button", { name: "Strict" }));
+    expect(await screen.findByText("level 2 required")).toBeInTheDocument();
+    await vi.waitFor(() => expect(fake.called("GET", "/api/settings").length).toBeGreaterThan(1));
+    expect(screen.getByText("level 2 required")).toBeInTheDocument();
+  });
+});

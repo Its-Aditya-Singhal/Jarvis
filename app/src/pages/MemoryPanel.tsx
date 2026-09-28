@@ -46,12 +46,17 @@ export default function MemoryPanel() {
   const [draft, setDraft] = useState("");
   const [editing, setEditing] = useState<{ id: number; text: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // kept apart from action errors, and cleared by the next successful load
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
 
   const load = () => {
     api<MemoryState>("/api/memory")
-      .then((d) => setData(d))
-      .catch((e) => setError(errText(e)));
+      .then((d) => {
+        setData(d);
+        setLoadError(null);
+      })
+      .catch((e) => setLoadError(errText(e)));
   };
   useEffect(() => {
     if (!approved) {
@@ -64,12 +69,20 @@ export default function MemoryPanel() {
 
   useEffect(() => {
     if (!approved) return;
+    let live = true; // a slower answer to an older search must not replace a newer one
     const id = window.setTimeout(() => {
       api<{ turns: HistoryTurn[] }>(`/api/history?q=${encodeURIComponent(query)}`)
-        .then((r) => setTurns(r.turns))
-        .catch((e) => setError(errText(e)));
+        .then((r) => {
+          if (!live) return;
+          setTurns(r.turns);
+          setLoadError(null);
+        })
+        .catch((e) => live && setLoadError(errText(e)));
     }, 250);
-    return () => window.clearTimeout(id);
+    return () => {
+      live = false;
+      window.clearTimeout(id);
+    };
   }, [approved, query, memoryVersion]);
 
   const act = async (fn: () => Promise<unknown>) => {
@@ -94,7 +107,7 @@ export default function MemoryPanel() {
   return (
     <div className="view">
       <h2 className="view-title">MEMORY</h2>
-      {error && <p className="error small">{error}</p>}
+      {(error ?? loadError) && <p className="error small">{error ?? loadError}</p>}
       <div className="cards">
         <div className="card memory-card">
           <div className="panel-title">REMEMBERED · {data?.facts.length ?? 0}</div>

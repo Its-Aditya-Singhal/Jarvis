@@ -23,13 +23,18 @@ export default function PrivacyPanel() {
   const approved = auth?.state === "approved";
   const [data, setData] = useState<PrivacyState | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // kept apart from action errors: the 5 s refresh clears its own error, never an action's
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [erase, setErase] = useState("");
 
   const load = () =>
     api<PrivacyState>("/api/privacy")
-      .then(setData)
-      .catch((e) => setError(errText(e)));
+      .then((d) => {
+        setData(d);
+        setLoadError(null);
+      })
+      .catch((e) => setLoadError(errText(e)));
   useEffect(() => {
     if (!approved) {
       setData(null);
@@ -55,12 +60,17 @@ export default function PrivacyPanel() {
     const stamp = new Date().toISOString().slice(0, 10);
     let path: string | null;
     if (inTauri) {
-      const { save } = await import("@tauri-apps/plugin-dialog");
-      path = await save({
-        title: "Export my data",
-        defaultPath: `assistant-export-${stamp}.json`,
-        filters: [{ name: "JSON", extensions: ["json"] }],
-      });
+      try {
+        const { save } = await import("@tauri-apps/plugin-dialog");
+        path = await save({
+          title: "Export my data",
+          defaultPath: `assistant-export-${stamp}.json`,
+          filters: [{ name: "JSON", extensions: ["json"] }],
+        });
+      } catch (e) {
+        setError(`The save dialog didn't open: ${e instanceof Error ? e.message : String(e)}`);
+        return;
+      }
     } else {
       path = window.prompt("Full path for the export file", `~/Downloads/assistant-export-${stamp}.json`);
     }
@@ -94,9 +104,9 @@ export default function PrivacyPanel() {
   return (
     <div className="view">
       <h2 className="view-title">PRIVACY</h2>
-      {error && <p className="error small">{error}</p>}
+      {(error ?? loadError) && <p className="error small">{error ?? loadError}</p>}
       {note && <p className="note small">{note}</p>}
-      {!data && !error && <p className="muted small">Loading…</p>}
+      {!data && !error && !loadError && <p className="muted small">Loading…</p>}
       <div className="cards" hidden={!data}>
         <div className="card wide-card">
           <div className="panel-title">WHAT I STORE ABOUT YOU</div>

@@ -40,13 +40,18 @@ export default function FilesCard() {
   const add = async () => {
     let picked: string | null;
     if (inTauri) {
-      const { open } = await import("@tauri-apps/plugin-dialog");
-      const r = await open({ directory: true, multiple: false, title: "Allow file search in…" });
-      picked = typeof r === "string" ? r : null;
+      try {
+        const { open } = await import("@tauri-apps/plugin-dialog");
+        const r = await open({ directory: true, multiple: false, title: "Allow file search in…" });
+        picked = typeof r === "string" ? r : null;
+      } catch (e) {
+        setError(`The folder picker didn't open: ${e instanceof Error ? e.message : String(e)}`);
+        return;
+      }
     } else {
       picked = window.prompt("Folder path to allow (e.g. ~/Projects)");
     }
-    if (picked) save([...folders, picked]);
+    if (picked && !folders.includes(picked)) save([...folders, picked]);
   };
 
   const home = (p: string) => p.replace(/^\/Users\/[^/]+/, "~");

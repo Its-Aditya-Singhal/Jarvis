@@ -55,13 +55,18 @@ export default function SettingsPanel() {
   const approved = auth?.state === "approved";
   const [data, setData] = useState<SettingsState | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // kept apart from action errors: the 5 s refresh clears its own error, never an action's
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const load = () =>
     api<SettingsState>("/api/settings")
-      .then(setData)
-      .catch((e) => setError(errText(e)));
+      .then((d) => {
+        setData(d);
+        setLoadError(null);
+      })
+      .catch((e) => setLoadError(errText(e)));
   useEffect(() => {
     if (approved) load();
     else setData(null);
@@ -110,9 +115,9 @@ export default function SettingsPanel() {
   return (
     <div className="view">
       <h2 className="view-title">SETTINGS</h2>
-      {error && <p className="error small">{error}</p>}
+      {(error ?? loadError) && <p className="error small">{error ?? loadError}</p>}
       {note && <p className="note small">{note}</p>}
-      {!data && !error && <p className="muted small">Loading…</p>}
+      {!data && !error && !loadError && <p className="muted small">Loading…</p>}
       <div className="cards" hidden={!data}>
         <IdentityCard status={status} run={run} />
         <div className="card">
