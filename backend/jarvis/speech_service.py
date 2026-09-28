@@ -32,7 +32,13 @@ from .speech.wake import find_wake
 
 log = logging.getLogger(__name__)
 
+Verdict = str | None | Callable[[], str]  # a voice verdict, or a function that judges the speaker
+
 PHRASE_MATCH_MIN = 0.55  # enrollment: spoken words vs displayed phrase
+SR = 16000
+# the name is among the first words, so longer speech is first checked on its start: talk in
+# the room, a call or a video is dropped after a short transcription instead of a full one
+WAKE_HEAD_S = 2.5
 UNAUTHORIZED_EVENT_GAP_S = 20.0
 STOP_WORDS = {"stop", "dismiss", "enough", "okay", "ok", "bas", "band", "ruko", "chup", "बस", "बंद", "रुको", "चुप"}
 YES_WORDS = {"yes", "yeah", "yep", "confirm", "confirmed", "sure", "haan", "han", "haa", "ha", "ji", "हाँ", "हां", "हा", "जी"}
@@ -118,11 +124,14 @@ class SpeechService:
         self.confirm_pending: Callable[[], bool] = lambda: False
         self.on_confirm: Callable[[bool, str | None], None] = lambda accept, verdict: None
         self.on_voice_mismatch: Callable[[], None] = lambda: None
+        # set by the assistant service: a harmless everyday command (brightness, a timer…) that
+        # runs even when the voice match fails, since the face check already passed
+        self.everyday: Callable[[str], bool] = lambda text: False
         self.ack: Callable[[], str] = lambda: "ping"  # ping | say
         # custom answer while nobody is verified (face-profile recovery); None = the default refusal
         self.unverified_reply: Callable[[str | None], str | None] = lambda verdict: None
         self.out = SpeechOutput(tts, bus, self.voice_gender, player=player)
-        self._q: queue.Queue[tuple[np.ndarray, str | None]] = queue.Queue(maxsize=3)
+        self._q: queue.Queue[tuple[np.ndarray, Verdict]] = queue.Queue(maxsize=3)
         self._stop = threading.Event()
         self._life = threading.Lock()  # start() vs stop()
         self._thread: threading.Thread | None = None
@@ -203,8 +212,9 @@ class SpeechService:
         return ok, t.text
 
     # -- conversation --------------------------------------------------------------
-    def submit(self, audio: np.ndarray, voice_verdict: str | None) -> None:
-        """Called from the voice loop for each utterance (non-blocking)."""
+    def submit(self, audio: np.ndarray, voice_verdict: Verdict) -> None:
+        """Called from the voice loop for each utterance (non-blocking). The verdict may be a
+        function: the speaker is then only judged if the utterance is addressed to the assistant."""
         if not self.stt.ready:
             return
         try:
@@ -222,10 +232,16 @@ class SpeechService:
             except Exception:
                 log.exception("speech turn failed")
 
-    def handle(self, audio: np.ndarray, verdict: str | None) -> None:
+    def handle(self, audio: np.ndarray, verdict: Verdict) -> None:
         assistant, owner = self.names()
         t0 = time.monotonic()
-        tr: Transcript = self.stt.transcribe(audio, prompt=name_prompt(assistant))
+        prompt = name_prompt(assistant)
+        screening = not (time.monotonic() < self._listen_until or self.alarm_ringing() or self.confirm_pending())
+        if screening and len(audio) > (WAKE_HEAD_S + 1.0) * SR:
+            head = self.stt.transcribe(audio[: int(WAKE_HEAD_S * SR)], prompt=prompt)
+            if not find_wake(assistant, head.text)[0]:
+                return  # not addressed to the assistant: the rest is never transcribed
+        tr: Transcript = self.stt.transcribe(audio, prompt=prompt)
         # debug-level only: transcripts must not reach logs in normal operation
         log.debug("transcript %r (%s, verdict=%s, %.2fs)", tr.text, tr.language, verdict, time.monotonic() - t0)
         if not tr.text:
@@ -241,6 +257,8 @@ class SpeechService:
             return  # not addressed to the assistant: discarded, never shown
         command = rest if found else tr.text
         command = command[:1].upper() + command[1:]
+        if callable(verdict):
+            verdict = verdict()  # addressed: now it's worth checking whose voice it is
 
         if not self.owner_verified():
             now = time.monotonic()
@@ -256,7 +274,7 @@ class SpeechService:
             self.bus.log("Voice command blocked — owner not verified", "alert")
             self.out.say("Authentication required. I only take commands from my verified owner.")
             return
-        if verdict == "rejected":
+        if verdict == "rejected" and not self.everyday(command):
             self.db.add_security_event(
                 "voice_mismatch_command", "Command spoken in a voice that is not the owner's", blocked=True
             )

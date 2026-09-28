@@ -19,16 +19,19 @@ class VoiceAuth:
     reject_threshold: float
     valid_s: float = 20.0
     min_quality: float = 0.3
+    # a clip shorter than this can't reject: a one-second "turn the volume up" carries too little
+    # of the speaker for a sure "not the owner", and it was the most common false refusal
+    min_reject_s: float = 1.5
     last: VoiceResult | None = None
     last_verified: VoiceResult | None = None
     rejected_since_verified: bool = False  # an unrecognised voice spoke after the owner's last match
 
-    def judge(self, similarity: float, quality: float, now: float) -> VoiceResult:
+    def judge(self, similarity: float, quality: float, now: float, speech_s: float | None = None) -> VoiceResult:
         if quality < self.min_quality:
             verdict = "uncertain"  # never reject someone because of a noisy room
         elif similarity >= self.threshold:
             verdict = "verified"
-        elif similarity < self.reject_threshold:
+        elif similarity < self.reject_threshold and (speech_s is None or speech_s >= self.min_reject_s):
             verdict = "rejected"
         else:
             verdict = "uncertain"

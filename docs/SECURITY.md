@@ -8,7 +8,7 @@ and where that stops.
 
 | Who | Example | What stops them |
 |---|---|---|
-| Someone else at your unlocked Mac | a flatmate says "FRIDAY, delete my notes" | an unknown face means level 0; another face in view caps you at level 1; a non-owner voice is refused and logged |
+| Someone else at your unlocked Mac | a flatmate says "FRIDAY, delete my notes" | an unknown face means level 0; another face in view caps you at level 1; a non-owner voice is refused and logged, except for everyday commands (see Levels) |
 | A photo, screen or looped video of you | your picture held up to the camera | the passive anti-spoof CNN, random liveness challenges (blink, turn, lean in), continuity and frozen-feed checks |
 | A recording of your voice | a clip played from a phone | acting needs level 2: face, liveness **and** voice together, so a recording alone does nothing |
 | Other programs on the Mac | a web page or local app calling the backend | the API binds to 127.0.0.1, needs a fresh random token each launch, rejects foreign Host and Origin headers (DNS rebinding) |
@@ -28,9 +28,17 @@ Every action is authorised from live evidence at the moment it runs (see
 | Level | Needs | Allows |
 |---|---|---|
 | L0 | nothing verified | nothing; the security log is hidden |
-| L1 READ | your face over several frames + passed liveness | questions, reading calendar, notes, files, memory |
-| L2 ACT | L1 + your voice verified in the last 60 s, no unknown voice since, nobody else in view | alarms, notes, opening apps, controlling the Mac, typing, Ask Claude/ChatGPT |
+| L1 READ | your face over several frames + passed liveness | questions, reading calendar, notes, files, memory; everyday commands (below) |
+| L2 ACT | L1 + your voice verified in the last 60 s, no unknown voice since, nobody else in view | notes, opening and quitting apps, cancelling alarms, settings, typing, Ask Claude/ChatGPT, generated AppleScript |
 | L3 CONFIRM | L2 + liveness in the last 10 min + an explicit yes (verified voice or a click) within 30 s | deleting notes, events, memories, moving files to the Trash, privacy actions |
+
+**Everyday commands need no voice match.** Timers, alarms, the stopwatch, brightness,
+volume, dark mode, music controls, screenshots and web searches are L1 when the instant
+pattern matcher understands them. They are harmless if someone else says them, and a
+short command like "decrease brightness" is too little audio for a reliable voice match,
+so requiring one refused the owner far too often. A voice that fails the match can
+still run these, and nothing else. The voice model also only runs on speech that starts
+with the assistant's name, and a clip shorter than 1.5 s is never judged "not the owner".
 
 **Typed commands (on by default).** With Settings → Commands on "Voice or typed",
 a command typed in the command bar, or a click on Confirm, counts like your voice

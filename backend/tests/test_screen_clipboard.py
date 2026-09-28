@@ -70,8 +70,9 @@ def rig(tmp_path):
 def test_new_tools_are_catalogued_with_levels():
     for t in NEW:
         assert t in TOOLS and t in LEVELS
-    assert LEVELS["clipboard.read"] == 1
-    assert all(LEVELS[t] == 2 for t in NEW if t != "clipboard.read")  # nothing here deletes anything
+    # everyday and reading: no voice match needed; the rest acts on apps or data (nothing here deletes)
+    everyday = {"clipboard.read", "screen.shot", "display.brightness", "display.dark_mode"}
+    assert all(LEVELS[t] == (1 if t in everyday else 2) for t in NEW)
 
 
 def test_screenshot_saves_to_the_desktop_silently(rig):

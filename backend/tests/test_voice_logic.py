@@ -85,6 +85,8 @@ def test_voice_auth_verdicts_and_expiry():
     assert a.judge(0.1, 0.9, 30).verdict == "rejected"
     assert a.judge(0.4, 0.9, 31).verdict == "uncertain"
     assert a.judge(0.1, 0.1, 32).verdict == "uncertain"  # noisy audio never rejects
+    assert a.judge(0.1, 0.9, 33, speech_s=1.0).verdict == "uncertain"  # nor does a one-second command
+    assert a.judge(0.1, 0.9, 34, speech_s=2.0).verdict == "rejected"
 
 
 def test_phase1_database_is_migrated(tmp_path):

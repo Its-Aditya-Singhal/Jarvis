@@ -138,8 +138,11 @@ def test_typed_commands_work_without_speaking_unless_switched_off(settings):
         assert r.status_code == 200 and all(a["ok"] for a in r.json()["actions"])
         assert any(a.kind == "timer" for a in h.svc.tools.store.alarms())
         h.svc.prefs.set("security.typed", "off")
-        r = h.post("/api/command", {"text": "set a timer for 7 minutes"}).json()
+        r = h.post("/api/command", {"text": "take a note buy milk"}).json()
         assert not r["actions"][0]["ok"] and "Typed commands are off" in r["reply"]
+        # everyday commands never needed the voice, so the setting doesn't stop them
+        r = h.post("/api/command", {"text": "set a timer for 7 minutes"}).json()
+        assert r["actions"][0]["ok"]
 
 
 def test_stranger_is_denied_and_logged(h):

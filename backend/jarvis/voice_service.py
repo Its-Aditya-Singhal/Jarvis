@@ -263,9 +263,17 @@ class VoiceService:
             if self.speech is not None:
                 self.speech.submit(utt.audio, None)
             return
+        if self.speech is None:
+            self._judge(utt, q, matcher)
+            return
+        # the speaker model runs only if the speech turns out to be addressed to the assistant:
+        # talk in the room, calls and videos are never embedded (it was a second model per sentence)
+        self.speech.submit(utt.audio, lambda: self._judge(utt, q, matcher))
+
+    def _judge(self, utt: Utterance, q: dict, matcher: TemplateMatcher) -> str:
         sim = matcher.similarity(self.engine.embed(utt.audio))
         now = time.monotonic()
-        res = self.auth.judge(sim, q["score"], now)
+        res = self.auth.judge(sim, q["score"], now, utt.speech_s)
         if res.verdict == "verified":
             self.bus.log("Voice verified — owner identified", "ok")
         elif res.verdict == "rejected":
@@ -280,5 +288,4 @@ class VoiceService:
         else:
             self.bus.log("Voice unclear — could not confirm speaker", "warn")
         self.bus.publish({"type": "voice", "verdict": res.verdict})
-        if self.speech is not None:
-            self.speech.submit(utt.audio, res.verdict)
+        return res.verdict

@@ -228,6 +228,12 @@ class Brain:
                         return name
         return None
 
+    def fast_actions(self, text: str) -> list[Action] | None:
+        """The actions of a command the pattern matcher understands (None: it needs the model)."""
+        text = self._unname(text)
+        fast = parse_fast(text, detect_language(text, "en"), self.clock(), self.is_app, self._last_app())
+        return None if fast is None else fast.actions
+
     def respond(self, text: str, stt_lang: str = "en") -> BrainResult:
         t0 = time.monotonic()
         gender = self.voice_gender()

@@ -214,6 +214,7 @@ class AssistantService:
             self.speech.on_voice_mismatch = lambda: self.record_sample(0, "voice_mismatch")
             self.speech.ack = lambda: self.prefs.get("voice.ack")
             self.speech.unverified_reply = self._unverified_reply
+            self.speech.everyday = self.everyday
         if (memory := self.memory) is not None and self.brain is not None:
             self.brain.recall = lambda text: memory.relevant(text) if self.prefs.get("memory.enabled") else []
         self.guard = guard or NetGuard()
@@ -913,6 +914,15 @@ class AssistantService:
             self.bus.log("Saved to memory", "ok")
             return {"ok": True, "id": fact.id if fact else None}
         return {"ok": True}
+
+    def everyday(self, text: str) -> bool:
+        """An everyday command (brightness, volume, a timer, music, a screenshot, a web search…):
+        understood without the language model and made only of tools that need no voice match."""
+        b = self.brain
+        if b is None or self.tools is None:
+            return False
+        actions = b.fast_actions(text)
+        return actions is not None and bool(actions) and all(LEVELS.get(a.tool, 3) <= 1 for a in actions)
 
     def _blocked_say(self, code: str, lang: str, source: str) -> str:
         if code == "voice_needed" and source == "voice":

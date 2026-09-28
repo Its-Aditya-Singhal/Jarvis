@@ -105,6 +105,33 @@ def test_command_needs_verified_owner_and_matching_voice(settings):
     assert seen[1]["type"] == "reply" and "language model" in said[-1]
 
 
+def test_long_background_speech_is_checked_on_its_start_and_never_voice_matched(settings):
+    sp, seen, said, _ = make(settings)
+    lengths, judged = [], []
+    transcribe = sp.stt.transcribe
+    sp.stt.transcribe = lambda audio, **kw: (lengths.append(len(audio)), transcribe(audio, **kw))[1]
+    sp.stt.text = "so anyway I was telling him about the weekend and then we went"
+    sp.handle(np.zeros(16000 * 10, np.float32), lambda: judged.append(1) or "verified")
+    assert lengths == [int(16000 * 2.5)] and judged == [] and seen == [] and said == []
+    # addressed: the whole utterance is transcribed and only then is the voice judged
+    sp.stt.text = "Friday, set a timer for five minutes and then remind me about the laundry"
+    sp.handle(np.zeros(16000 * 10, np.float32), lambda: judged.append(1) or "verified")
+    assert lengths[1:] == [int(16000 * 2.5), 16000 * 10] and judged == [1]
+
+
+def test_a_failed_voice_match_does_not_block_everyday_commands(settings):
+    sp, seen, said, _ = make(settings)
+    commands = []
+    sp.on_command = lambda text, lang: commands.append(text)
+    sp.everyday = lambda text: "brightness" in text
+    sp.stt.text = "Friday, decrease brightness"
+    sp.handle(AUDIO, "rejected")
+    assert commands == ["Decrease brightness"] and sp.db.events == []
+    sp.stt.text = "Friday, read my notes"
+    sp.handle(AUDIO, lambda: "rejected")
+    assert commands == ["Decrease brightness"] and sp.db.events == ["voice_mismatch_command"]
+
+
 def test_name_alone_opens_a_follow_up_window(settings):
     sp, seen, said, _ = make(settings)
     sp.stt.text = "Friday?"
