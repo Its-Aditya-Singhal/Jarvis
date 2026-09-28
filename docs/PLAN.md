@@ -10,10 +10,11 @@ the website gets its own design, related to the app but not a copy.
 
 ## Where to pick up
 - Work on `main`. Section A is done. Next: **B, on the Mac**, following `docs/MAC_TEST_CHECKLIST.md` (pin model checksums, `scripts/build_dmg.sh`, fresh-install test, every command), then tag v1.0.0.
+- 2026-09-28 (cloud): any command (generated AppleScript, the owner's option 1), delays ("close it after 10 seconds"), timer countdown on the main screen and the 8 GB context fix are on `main` with tests, but not yet built or run on a Mac. Next on the Mac: `scripts/eval_commands.py --scripts` on 7B and 3B, rebuild the .dmg, and the new lines in checklist section 6.
 - Open question from the owner: what Settings → Microphone says when JARVIS is started the usual way (checklist section 4).
 - Owner decisions before the tag: a licence for the code (no LICENSE file yet), and enabling GitHub Pages (Settings → Pages → Source: GitHub Actions).
 - Packaging was test-built on Linux only: the PyInstaller backend starts, loads the face, liveness and Kokoro models and restarts itself after a download. The macOS build, signing and TCC prompts are untested.
-- Rules: no paid APIs or services · no Claude/AI co-author trailers or credits in commits or files · commit after each fix · every command goes through the tool registry with an auth level (no shell from model text).
+- Rules: no paid APIs or services · no Claude/AI co-author trailers or credits in commits or files · commit after each fix · every command goes through the tool registry with an auth level (no shell from model text; generated AppleScript only through `tools/agent.py`'s checks).
 - Checks: `backend/.venv/bin/python -m pytest -q`, `ruff check .`, `mypy` (in `backend/`); `npm test`, `npm run lint` (in `app/`); `cargo clippy` (in `app/src-tauri/`).
 - Local run for UI checks: `npm run tauri dev` in `app/` (needs Ollama: `~/Developer/ollama/start.sh`).
 

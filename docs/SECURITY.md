@@ -12,7 +12,7 @@ and where that stops.
 | A photo, screen or looped video of you | your picture held up to the camera | the passive anti-spoof CNN, random liveness challenges (blink, turn, lean in), continuity and frozen-feed checks |
 | A recording of your voice | a clip played from a phone | acting needs level 2: face, liveness **and** voice together, so a recording alone does nothing |
 | Other programs on the Mac | a web page or local app calling the backend | the API binds to 127.0.0.1, needs a fresh random token each launch, rejects foreign Host and Origin headers (DNS rebinding) |
-| The language model itself | a prompt that makes it "decide" to delete files | the model only proposes structured intents; code validates each one, re-checks the live auth level before acting and composes the reply; there is no shell, web or messaging tool |
+| The language model itself | a prompt that makes it "decide" to delete files | the model only proposes structured intents; code validates each one, re-checks the live auth level before acting and composes the reply; there is no shell tool; generated AppleScript (below) is checked by code and changes need the owner's "yes" |
 | Someone who copies your disk | the app's data folder on a stolen backup | templates, memory, history, notes and events are sealed with AES-256-GCM; the key is in the macOS Keychain |
 | The network | a library phoning home | the offline guard refuses every non-loopback connection from the backend process and lists attempts |
 
@@ -73,6 +73,32 @@ single-use and bound to that plan.
   privacy actions, security-setting changes, face re-scans, factory resets
   and fusion retraining are also logged. Each event records the time, the
   outcome, and whether access was blocked.
+- **Any command (generated AppleScript).** For requests no built-in tool
+  covers, the local model writes an AppleScript. Code, not the model, decides
+  what happens to it (`jarvis/tools/agent.py`):
+  - *Blocked, never run:* `do shell script`, Terminal / iTerm / Script Editor /
+    Automator / Shortcuts, `run script` / `load script`, raw «event» codes, the
+    Objective-C bridge, JavaScript in web pages, writing files, deleting or
+    moving files through Finder or System Events, emptying the Trash,
+    passwords and the Keychain, administrator rights, and apps named
+    indirectly (`tell application someVariable`). A blocked script is logged
+    as a security event.
+  - *Read:* the script only asks apps for information, and both the model and
+    the code agree. It runs straight away (level 2).
+  - *Change:* everything else. The full script is shown in the confirmation
+    card and runs only after a level-3 "yes" or Confirm click.
+  - On an 8 GB Mac (the 3B model) every script needs confirmation; Settings can
+    make that the rule everywhere, or turn scripts off. The script is compiled
+    before it is shown (a compile error goes back to the model once), checked
+    again right before it runs, limited to 4,000 characters and 30 seconds,
+    and passed to `osascript` on stdin, never through a shell. macOS still asks
+    once per app it controls (Automation).
+  - Limit: a script that only uses allowed app commands can still do something
+    you didn't mean, such as sending a message to the wrong person. That is why
+    every change shows the script first: read it before you confirm.
+- **Delays** ("close it after 10 seconds") are checked when you ask: the delayed
+  actions need the level you have then. When they run, they stop if nobody is
+  verified any more (the Mac was locked, or you left with the camera on).
 - **Known gaps:** voice alone has no replay protection, so a recording of
   the owner's voice may pass voice verification. Acting on it still requires
   the live owner in front of the camera (L2 needs face, liveness and voice

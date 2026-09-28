@@ -5,7 +5,30 @@
 The first release: a packaged Mac app with a first-run download, a website and
 full documentation.
 
+### Fixed
+- On 8 GB Macs the language model's context (2K tokens) was smaller than the
+  command prompt (~3K), so Ollama cut off the prompt's rules and tool list.
+  Small Macs now use 5K, others 6K.
+- A number in a delay was taken as a volume level ("close it after 10 seconds"
+  set the volume to 10%). Volume or brightness actions the request never
+  mentions are now dropped.
+
 ### Added
+- **Any command**: anything no built-in tool covers ("add milk to my Reminders",
+  "play my workout playlist", "what's the title of this Safari tab") goes to the
+  local model, which writes an AppleScript for it. Scripts that only read run
+  straight away; anything that changes something shows the full script and waits
+  for your "yes". Shell commands, Terminal, other scripts, deleting or writing
+  files, passwords and admin rights are never run. On 8 GB Macs every script
+  asks first. Settings → Security → "Anything else": Ask before changes, Always
+  ask, or Off.
+- **Delays**: "open WhatsApp and close it after 10 seconds", "in 5 minutes open
+  Safari", "10 second baad band karo". Waiting actions count down on the main
+  screen and can be cancelled.
+- Running timers count down on the main screen, not only under Tools.
+- "close it" refers to the app just opened; lists of apps ("open Notes,
+  Calendar and Safari"); full / half / max volume and brightness; "Jarvis, …"
+  before a command.
 - **First-run model download**: the app lists the models it needs, downloads
   them (resumable, every file checked against its SHA-256, a disk-space check
   first), detects Ollama with install guidance, pulls the language models with

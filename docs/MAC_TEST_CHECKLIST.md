@@ -95,6 +95,15 @@ scripts/build_dmg.sh
 - [ ] Math and conversions, "days till …", time and date: instant
 - [ ] Remember / recall in three languages; forget needs a confirmation
 - [ ] A question to the model; compound request ("wake me at 7 and note to buy milk")
+- [ ] "open WhatsApp and close it after 10 seconds": opens, the countdown shows on
+      the main screen, it closes 10 s later; ✕ on a countdown cancels it
+- [ ] "set a timer for 1 minute": the countdown shows on the main screen
+- [ ] Any command: "add milk to my Reminders" shows the script and waits; Confirm
+      adds it (Automation prompt for Reminders). "what song is playing" answers
+      without asking (16 GB) or asks first (8 GB). "empty the trash" and "run
+      rm -rf" are refused
+- [ ] `backend/.venv/bin/python scripts/eval_commands.py --scripts` with Ollama
+      running: pass rate on qwen2.5:7b and qwen2.5:3b, scripts compile
 
 ## 7. App polish
 

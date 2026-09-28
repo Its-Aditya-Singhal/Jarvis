@@ -75,6 +75,19 @@ Say its name, then what you want, in English, हिंदी or Hinglish:
 - "FRIDAY, what's 18% of 2400?" / "how many days till Diwali?"
 - "FRIDAY, open Claude and ask it to build a website for my bakery." It opens a
   new chat with the prompt written in, and waits for you to send it.
+- "FRIDAY, open WhatsApp and close it after 10 seconds." / "in 5 minutes open
+  Safari" / "full volume" / "open Notes, Calendar and Safari"
+- **Anything else** a Mac app can do: "add milk to my Reminders", "play my
+  workout playlist", "how many unread emails do I have?", "turn on Do Not
+  Disturb". JARVIS writes an AppleScript for it. If it only reads, it answers
+  straight away; if it changes something, it shows you the script and waits for
+  "yes, go ahead" or Confirm. It never runs Terminal commands, deletes files or
+  touches passwords. The first time it controls an app, macOS asks you to allow
+  it (System Settings → Privacy & Security → Automation). On an 8 GB Mac it
+  always shows the script first, because the smaller model makes more mistakes.
+
+Running timers and delayed actions count down under the status badges; the ✕
+cancels one.
 
 Say just the name and it answers with a short ping; then say the command. You
 can also type commands in the command bar.
@@ -125,7 +138,8 @@ More in [SECURITY.md](SECURITY.md).
 ## Settings
 
 Identity (names, re-scan face, re-record voice), voice speed and style,
-microphone, security presets, performance mode (Fast / Balanced / Quality, or
+microphone, security presets (including "Anything else": ask before changes,
+always ask, or off), performance mode (Fast / Balanced / Quality, or
 Auto: Balanced on power, Fast on battery), language models, on-device models
 (add Whisper medium for Quality mode), memory, the fusion model, file-search
 folders and optional Apple Calendar / Notes sync.
