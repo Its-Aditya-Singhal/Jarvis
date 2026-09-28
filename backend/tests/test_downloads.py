@@ -19,6 +19,7 @@ class Files(BaseHTTPRequestHandler):
     cut_after: int | None = None  # drop the connection after this many bytes (once)
     ignore_range = False
     publish_sha = False
+    range_offset = 0  # answer a range this many bytes off from the one asked for
     requests: list[tuple[str, str | None]] = []
 
     def do_GET(self):
@@ -30,9 +31,12 @@ class Files(BaseHTTPRequestHandler):
         start = int(rng.split("=")[1].rstrip("-")) if rng and not self.ignore_range else 0
         if start >= len(data) and rng:
             self.send_response(416); self.end_headers(); return
+        start = max(0, start + type(self).range_offset) if start else 0
         body = data[start:]
         self.send_response(206 if start else 200)
         self.send_header("Content-Length", str(len(body)))
+        if start:
+            self.send_header("Content-Range", f"bytes {start}-{len(data) - 1}/{len(data)}")
         if self.publish_sha:
             self.send_header("X-Linked-Etag", f'"{hashlib.sha256(data).hexdigest()}"')
         self.end_headers()
@@ -51,6 +55,7 @@ class Files(BaseHTTPRequestHandler):
 @pytest.fixture
 def server():
     Files.blobs, Files.cut_after, Files.ignore_range, Files.publish_sha, Files.requests = {}, None, False, False, []
+    Files.range_offset = 0
     srv = ThreadingHTTPServer(("127.0.0.1", 0), Files)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     yield f"http://127.0.0.1:{srv.server_port}"
@@ -224,6 +229,8 @@ def test_the_shipped_manifest_is_well_formed():
             assert f.url.startswith("https://") and f.size > 0
             assert not f.sha256 or len(f.sha256) == 64
             assert ".." not in f.path and not f.path.startswith("/")
+            assert f.extract is None or (".." not in f.extract and not f.extract.startswith("/"))
+            assert all("/" not in m and ".." not in m for m in f.members)
     by = {p.id: p for p in packs}
     assert by["liveness"].files[0].sha256 == "87a9ac1dbb16a61eec212957e5095e62a8769c1e188af9b0198f253302c4afdb"
     mlx = ModelDownloader("/nonexistent", packs, platform_id="linux-x86_64")
@@ -234,3 +241,67 @@ def test_the_shipped_manifest_is_well_formed():
 def test_unknown_packs_are_refused(tmp_path):
     with pytest.raises(DownloadError):
         ModelDownloader(tmp_path, [], disk_free=lambda p: 10**12).start(["nope"])
+
+
+def test_a_resume_answered_with_another_range_is_not_spliced(server, tmp_path):
+    data = bytes(range(256)) * 4000
+    Files.blobs["/b.bin"] = data
+    (tmp_path / "a").mkdir()
+    (tmp_path / "a/b.bin.part").write_bytes(data[:5000])
+    Files.range_offset = 100  # a broken proxy or CDN: bytes 5100- for "bytes=5000-"
+    d = ModelDownloader(tmp_path, one(server, data, pinned=False), disk_free=lambda p: 10**12)
+    st = run(d)
+    assert st["state"] == "error" and "wrong place" in st["error"]
+    assert not (tmp_path / "a/b.bin.part").exists() and not (tmp_path / "a/b.bin").exists()
+    Files.range_offset = 0
+    assert run(d)["state"] == "done" and (tmp_path / "a/b.bin").read_bytes() == data
+
+
+def test_an_archive_left_unpacked_is_unpacked_without_downloading_again(server, tmp_path):
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("det.onnx", b"d" * 100)
+    data = buf.getvalue()
+    Files.blobs["/b.bin"] = data
+    (tmp_path / "a").mkdir()
+    (tmp_path / "a/b.bin").write_bytes(data)  # verified and moved into place, then the app quit mid-unpack
+    d = ModelDownloader(tmp_path, one(server, data, extract="models/pack", members=["det.onnx"]),
+                        disk_free=lambda p: 10**12)
+    assert d.needed() == ["p"]
+    assert run(d)["state"] == "done" and (tmp_path / "models/pack/det.onnx").read_bytes() == b"d" * 100
+    assert Files.requests == [] and not (tmp_path / "a/b.bin").exists()
+
+
+def test_a_damaged_leftover_archive_is_downloaded_again(server, tmp_path):
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("det.onnx", b"d" * 100)
+    data = buf.getvalue()
+    Files.blobs["/b.bin"] = data
+    (tmp_path / "a").mkdir()
+    (tmp_path / "a/b.bin").write_bytes(b"x" * len(data))
+    d = ModelDownloader(tmp_path, one(server, data, extract="models/pack", members=["det.onnx"]),
+                        disk_free=lambda p: 10**12)
+    assert run(d)["state"] == "done" and (tmp_path / "models/pack/det.onnx").exists()
+    assert [r[0] for r in Files.requests] == ["/b.bin"]
+
+
+def test_two_quick_starts_run_one_download(server, tmp_path):
+    data = b"q" * 5_000_000
+    Files.blobs["/b.bin"] = data
+    d = ModelDownloader(tmp_path, one(server, data), disk_free=lambda p: 10**12)
+    gate = threading.Barrier(8)
+    results = []
+
+    def press():
+        gate.wait()
+        results.append(d.start()["started"])
+
+    threads = [threading.Thread(target=press) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    d.wait(10)
+    assert results.count(True) == 1
+    assert d.status()["state"] == "done" and (tmp_path / "a/b.bin").read_bytes() == data

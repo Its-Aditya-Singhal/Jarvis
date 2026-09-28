@@ -199,6 +199,8 @@ class ModelDownloader:
             self.on_change()
             return {"started": False, "reason": msg}
         with self._lock:
+            if self.running:  # another start() got here first (a double press)
+                return {"started": False, "reason": "a download is already running"}
             self._cancel.clear()
             self._state, self._error, self._queued = "downloading", None, [p.id for p in packs]
             self._done_bytes, self._file_bytes, self._speed = 0, 0, 0.0
@@ -247,6 +249,9 @@ class ModelDownloader:
         with self._lock:
             self._file, self._state, self._file_bytes = f.path, "downloading", 0
         self.on_change()
+        if f.extract and self._archive_ok(f, dest):  # downloaded before, but the app quit while unpacking
+            self._unpack(f, dest)
+            return
         digest = hashlib.sha256()
         have = part.stat().st_size if part.is_file() else 0
         if f.sha256 and have > f.size:
@@ -266,6 +271,10 @@ class ModelDownloader:
                     raise DownloadError(f"Download of {Path(f.path).name} failed (HTTP {r.status_code}). Try again later.")
                 if r.status_code == 200 and have:  # the server ignored the range: start over
                     digest, have = hashlib.sha256(), 0
+                elif r.status_code == 206 and _range_start(r.headers) not in (None, have):
+                    part.unlink(missing_ok=True)  # appending another range would splice the file
+                    raise DownloadError(f"Download of {Path(f.path).name} resumed at the wrong place. "
+                                        "Press Resume to download it again.")
                 published = _published_sha(r.headers)
                 with part.open("ab" if have else "wb") as out:
                     for chunk in r.iter_bytes():  # as it arrives: a dropped connection keeps every byte received
@@ -291,6 +300,24 @@ class ModelDownloader:
         part.replace(dest)
         if f.extract:
             self._unpack(f, dest)
+
+    def _archive_ok(self, f: ModelFile, archive: Path) -> bool:
+        """A complete, verified archive already in place (only pinned files can be trusted)."""
+        if not (f.sha256 and archive.is_file() and archive.stat().st_size == f.size):
+            return False
+        with self._lock:
+            self._state = "verifying"
+        self.on_change()
+        digest = hashlib.sha256()
+        with archive.open("rb") as fh:
+            for chunk in iter(lambda: fh.read(CHUNK), b""):
+                digest.update(chunk)
+        if digest.hexdigest() == f.sha256:
+            with self._lock:
+                self._file_bytes = f.size
+            return True
+        archive.unlink()
+        return False
 
     def _unpack(self, f: ModelFile, archive: Path) -> None:
         with self._lock:
@@ -330,6 +357,12 @@ def _only_download_hosts(request: httpx.Request) -> None:
 
     if not (is_local(host) or host_matches(host, DOWNLOAD_DOMAINS)):
         raise DownloadError(f"refusing to download from {host}")
+
+
+def _range_start(headers: httpx.Headers) -> int | None:
+    """Where a 206 answer starts (``Content-Range: bytes 100-199/200``)."""
+    m = re.match(r"\s*bytes\s+(\d+)-", headers.get("content-range", ""))
+    return int(m.group(1)) if m else None
 
 
 def _published_sha(headers: httpx.Headers) -> str:
