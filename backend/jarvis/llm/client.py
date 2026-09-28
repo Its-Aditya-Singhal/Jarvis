@@ -59,9 +59,12 @@ class OllamaClient:
             raise LLMUnavailable(f"Ollama error {r.status_code}: {r.text[:200]}")
         content = r.json().get("message", {}).get("content", "")
         try:
-            return json.loads(content)
+            data = json.loads(content)
         except json.JSONDecodeError as exc:
             raise ValueError(f"model returned invalid JSON: {content[:200]}") from exc
+        if not isinstance(data, dict):  # "null" or a bare list would crash every caller's .get()
+            raise ValueError(f"model returned JSON that isn't an object: {content[:200]}")
+        return data
 
     def embed(self, model: str, texts: list[str], keep_alive: str = EMBED_KEEP_ALIVE) -> list[list[float]]:
         """Sentence embeddings (e.g. bge-m3), one vector per text."""

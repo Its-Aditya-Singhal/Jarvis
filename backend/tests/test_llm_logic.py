@@ -130,6 +130,15 @@ def test_invalid_json_is_retried_then_apologised(settings):
     assert b.respond("नमस्ते", stt_lang="hi").reply.endswith("पाया।")
 
 
+def test_json_that_isnt_an_object_is_treated_as_invalid(settings):
+    # "null" or a bare list used to crash the command with an AttributeError
+    b = make_brain(settings, mock_ollama(["null", {"actions": [], "reply": "Hi Aditya."}]))
+    assert b.respond("hey").reply == "Hi Aditya."
+    b = make_brain(settings, mock_ollama(["[1, 2]", "null"]))
+    r = b.respond("hey")
+    assert not r.ok and r.reply == "Sorry, I didn't catch that."
+
+
 def test_switch_model_only_to_installed(settings):
     b = make_brain(settings, mock_ollama([], models=("qwen2.5:7b", "llama3.2:3b")))
     b.set_model("llama3.2:3b")
