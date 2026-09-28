@@ -238,10 +238,15 @@ class ToolRunner:
 
     def _alarm_cancel(self, args: dict, hi: bool) -> ToolResult:
         pending = [a for a in self.store.alarms(("pending",))]
+        kind = str(args.get("kind") or "").strip().lower().rstrip("s")
         t = parse_local(args.get("time"))
         if t is not None:
             pending = [a for a in pending if a.kind == "alarm" and abs((a.due - t).total_seconds()) < 60]
+        elif kind in ("alarm", "timer"):  # "cancel the timer" leaves the alarms alone
+            pending = [a for a in pending if a.kind == kind]
         if not pending:
+            if kind == "timer" and t is None:
+                return ToolResult("alarm.cancel", False, "कोई टाइमर नहीं चल रहा।" if hi else "There's no timer running.")
             return ToolResult("alarm.cancel", False, "रद्द करने के लिए कोई अलार्म नहीं मिला।" if hi
                               else "There's no matching alarm or timer to cancel.")
         for a in pending:
@@ -254,7 +259,8 @@ class ToolRunner:
             a = pending[0]
             say = (f"Cancelled the {clock_phrase(a.due, False)} alarm." if a.kind == "alarm" else "Cancelled the timer.")
         else:
-            say = f"Cancelled {n} alarms and timers."
+            kinds = {a.kind for a in pending}
+            say = f"Cancelled {n} {'alarms and timers' if len(kinds) > 1 else kinds.pop() + 's'}."
         return ToolResult("alarm.cancel", True, say, {"ids": [a.id for a in pending]})
 
     # -- calendar ----------------------------------------------------------------------

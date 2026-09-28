@@ -93,14 +93,14 @@ llm  | alarm.set | set an alarm for an hour before sunrise
 llm  | alarm.set | wake me up at 7 every weekday
 
 # -- alarm list & cancel ---------------------------------------------------------------------
-fast | alarm.cancel() | cancel my alarms
-fast | alarm.cancel() | cancel all alarms
-fast | alarm.cancel() | delete the timer
-fast | alarm.cancel() | turn off my alarm
-fast | alarm.cancel() | stop the timer
+fast | alarm.cancel(kind=alarm) | cancel my alarms
+fast | alarm.cancel(kind=alarm) | cancel all alarms
+fast | alarm.cancel(kind=timer) | delete the timer
+fast | alarm.cancel(kind=alarm) | turn off my alarm
+fast | alarm.cancel(kind=timer) | stop the timer
 gap  | alarm.cancel() | cancel all alarms and timers
-fast | alarm.cancel() | alarm cancel kar do
-fast | alarm.cancel() | saare alarm band karo
+fast | alarm.cancel(kind=alarm) | alarm cancel kar do
+fast | alarm.cancel(kind=alarm) | saare alarm band karo
 fast | alarm.list() | what alarms do i have
 fast | alarm.list() | which alarms are set
 fast | alarm.list() | show my alarms
@@ -505,7 +505,7 @@ fast | app.close(name=safari) + system.lock() | close safari and lock the screen
 llm  | timer.set + timer.set | set a timer for 5 minutes and another for 10 minutes
 fast | app.open(name=safari) + web.open(target=youtube) | open safari then open youtube
 fast | timer.set(seconds=300) + app.open(name=spotify) | 5 minute ka timer laga do aur spotify kholo
-fast | alarm.set(time=2026-09-28T06:00) + alarm.cancel() | set an alarm for 6 am, then cancel my alarms
+fast | alarm.set(time=2026-09-28T06:00) + alarm.cancel(kind=alarm) | set an alarm for 6 am, then cancel my alarms
 llm  | alarm.set + notes.add | kal subah saat baje mujhe jagana aur doodh lene ka note bana do
 llm  | timer.set + notes.add | set a timer for 10 minutes and remind me to check the oven
 llm  | none | what time is it and what's the date

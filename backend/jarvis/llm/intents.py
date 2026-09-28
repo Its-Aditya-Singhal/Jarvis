@@ -29,7 +29,7 @@ from ..speech.text import has_devanagari
 TOOLS: dict[str, tuple[str, str]] = {
     "alarm.set": ("Set an alarm", "time: local ISO datetime like 2026-09-28T07:00; label: optional"),
     "timer.set": ("Start a countdown timer", "seconds: integer; label: optional"),
-    "alarm.cancel": ("Cancel alarms/timers", "time: optional local ISO datetime of the alarm; omit to cancel all"),
+    "alarm.cancel": ("Cancel alarms/timers", "kind: optional alarm | timer (only that kind); time: optional local ISO datetime of the alarm; omit both to cancel all"),
     "calendar.create": ("Add a calendar event", "title; start: local ISO datetime; end: optional"),
     "calendar.list": ("Read the calendar for a day", "date: ISO date"),
     "calendar.delete": ("Delete a calendar event", "title; date: optional ISO date"),
@@ -329,7 +329,12 @@ def describe(a: Action, language: str, now: datetime) -> str:
     if a.tool == "alarm.cancel":
         if t := parse_local(g.get("time")):
             return f"{clock_phrase(t, True)} का अलार्म रद्द करना" if hi else f"cancelling the {clock_phrase(t, False)} alarm"
-        return "अलार्म रद्द करना" if hi else "cancelling your alarms"
+        kind = str(g.get("kind") or "").lower()
+        if kind == "timer":
+            return "टाइमर रद्द करना" if hi else "cancelling your timer"
+        if kind == "alarm":
+            return "अलार्म रद्द करना" if hi else "cancelling your alarms"
+        return "अलार्म और टाइमर रद्द करना" if hi else "cancelling your alarms and timers"
     if a.tool == "calendar.delete" and text("title"):
         return f"“{text('title')}” हटाना" if hi else f"deleting “{text('title')}”"
     if a.tool == "notes.delete" and text("query"):

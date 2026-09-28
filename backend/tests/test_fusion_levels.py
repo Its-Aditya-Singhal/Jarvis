@@ -243,6 +243,21 @@ def test_alarm_cancel(runner):
     assert not r.run(Action("alarm.cancel", {}), "en").ok
 
 
+def test_cancelling_the_timer_leaves_alarms_alone(runner):
+    # "cancel the timer" used to cancel tomorrow's wake-up alarm as well
+    r, store, now = runner
+    store.add_alarm("alarm", now + timedelta(hours=20))
+    store.add_alarm("timer", now + timedelta(minutes=5))
+    res = r.run(Action("alarm.cancel", {"kind": "timer"}), "en")
+    assert res.ok and res.say == "Cancelled the timer."
+    assert [a.kind for a in store.alarms(("pending",))] == ["alarm"]
+    assert r.run(Action("alarm.cancel", {"kind": "timer"}), "en").say == "There's no timer running."
+    store.add_alarm("alarm", now + timedelta(hours=21))
+    store.add_alarm("timer", now + timedelta(minutes=5))
+    assert r.run(Action("alarm.cancel", {"kind": "alarms"}), "en").say == "Cancelled 2 alarms."
+    assert [a.kind for a in store.alarms(("pending",))] == ["timer"]
+
+
 def test_someone_else_talking_does_not_lock_the_owner_out_of_reading():
     from jarvis.auth.fusion.features import without_voice
 

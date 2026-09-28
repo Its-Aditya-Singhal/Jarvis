@@ -55,7 +55,8 @@ def test_other_tools_and_compounds():
     assert fast("take a note to call Dr. Mehta") == ([("notes.add", {"text": "Call Dr. Mehta"})], "")
     assert fast("What's on my calendar tomorrow?") == ([("calendar.list", {"date": "2026-09-28"})], "")
     assert fast("find files about lease") == ([("files.search", {"query": "lease"})], "")
-    assert fast("cancel my alarms") == ([("alarm.cancel", {})], "")
+    assert fast("cancel my alarms") == ([("alarm.cancel", {"kind": "alarm"})], "")
+    assert fast("cancel the timer") == ([("alarm.cancel", {"kind": "timer"})], "")
     assert fast("wake me up at 7 tomorrow and add a note to buy milk") == (
         [("alarm.set", {"time": "2026-09-28T07:00"}), ("notes.add", {"text": "Buy milk"})], "")
     assert fast("open notes and set a timer for 2 minutes") == (

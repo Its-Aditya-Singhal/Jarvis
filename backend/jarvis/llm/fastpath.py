@@ -257,7 +257,9 @@ def _one(t: str, now: datetime, is_app: Callable[[str], bool], hi: bool, orig: s
             return [Action("alarm.set", {"time": at.isoformat(timespec="minutes")})], ""
     if re.fullmatch(rf"{POLITE}(?:cancel|delete|remove|turn off|stop) (?:all )?(?:my |the )?(?:{ALARM}s?|{TIMER}s?)(?: and (?:{ALARM}s?|{TIMER}s?))?{TAIL}", t) \
             or re.fullmatch(rf"(?:saare |sab |mera |mere )?(?:{ALARM}|{TIMER}) (?:cancel|band|hata) (?:kar do|karo|do)", t):
-        return [Action("alarm.cancel", {})], ""
+        # "cancel the timer" must leave tomorrow's wake-up alarm alone
+        alarm, timer = re.search(rf"\b{ALARM}", t) is not None, re.search(rf"\b{TIMER}", t) is not None
+        return [Action("alarm.cancel", {"kind": "timer"} if timer and not alarm else {"kind": "alarm"} if alarm and not timer else {})], ""
 
     # web addresses lose their dots in _clean, so look for them in the original words
     if re.fullmatch(rf"{POLITE}(?:open|go to|visit|browse to) .+", t):
