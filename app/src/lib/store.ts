@@ -85,6 +85,10 @@ let state: AppState = {
 const withExpiry = (p: PendingConfirm | null | undefined) =>
   p ? { ...p, expiresAt: Date.now() + p.expires_s * 1000 } : null;
 
+/** The pending confirmation from a status snapshot, keeping the local countdown unless it changed. */
+const pendingFrom = (p: PendingConfirm | null | undefined) =>
+  p && p.id === state.confirm?.id ? state.confirm : withExpiry(p);
+
 let turnSeq = 0;
 const addTurn = (who: Turn["who"], text: string, actions?: PlannedAction[]) =>
   // at + seq keeps keys unique when two turns land in the same millisecond
@@ -124,7 +128,7 @@ function handle(e: BackendEvent) {
         status,
         auth: status.auth,
         ringing: status.ringing ?? [],
-        confirm: withExpiry(status.pending),
+        confirm: pendingFrom(status.pending),
         suggestions: status.suggestions ?? [],
       });
       break;
@@ -233,9 +237,13 @@ function handle(e: BackendEvent) {
 export async function refreshStatus() {
   try {
     const status = await api<Status>("/api/status");
-    // keep the local countdown unless the pending item changed
-    const confirm = status.pending?.id === state.confirm?.id ? state.confirm : withExpiry(status.pending);
-    set({ status, auth: status.auth, ringing: status.ringing ?? [], confirm, suggestions: status.suggestions ?? [] });
+    set({
+      status,
+      auth: status.auth,
+      ringing: status.ringing ?? [],
+      confirm: pendingFrom(status.pending),
+      suggestions: status.suggestions ?? [],
+    });
   } catch {
     /* backend still starting; the websocket will deliver status */
   }
@@ -262,8 +270,19 @@ export function startStore() {
   if (started) return;
   started = true;
   connectEvents(handle, (up) => {
-    set({ connected: up });
-    if (up) refreshStatus();
+    if (up) {
+      set({ connected: true });
+      refreshStatus();
+      return;
+    }
+    // the backend went away mid-turn: nothing is thinking, speaking or listening any more,
+    // and the last camera frame must not stay on screen as if the camera were live
+    micLevel = 0;
+    if (preview) {
+      preview = null;
+      previewListeners.forEach((l) => l());
+    }
+    set({ connected: false, thinking: false, speaking: false, assistantSpeaking: false, listeningUntil: 0 });
   });
   // camera status isn't pushed as an event; poll it cheaply
   window.setInterval(() => state.connected && refreshStatus(), 3000);

@@ -22,6 +22,7 @@ export class FakeBackend {
   calls: Call[] = [];
   status: Status = makeStatus();
   private onEvent: ((e: BackendEvent) => void) | null = null;
+  private onConnection: ((up: boolean) => void) | null = null;
 
   constructor(private real: Backend) {
     this.reset();
@@ -33,6 +34,7 @@ export class FakeBackend {
     this.calls = [];
     this.status = makeStatus();
     this.onEvent = null;
+    this.onConnection = null;
     this.route("GET /api/status", () => this.status);
   }
 
@@ -55,6 +57,11 @@ export class FakeBackend {
     act(() => this.onEvent?.(e));
   }
 
+  /** The websocket dropping (backend quit or crashed) or coming back. */
+  connection(up: boolean) {
+    act(() => this.onConnection?.(up));
+  }
+
   /** Push a status update, the way the backend does on connect. */
   setStatus(patch: Partial<Status>) {
     this.status = { ...this.status, ...patch };
@@ -72,9 +79,11 @@ export class FakeBackend {
 
   connectEvents = (onEvent: (e: BackendEvent) => void, onConnection: (up: boolean) => void) => {
     this.onEvent = onEvent;
+    this.onConnection = onConnection;
     onConnection(true);
     return () => {
       this.onEvent = null;
+      this.onConnection = null;
     };
   };
 }
