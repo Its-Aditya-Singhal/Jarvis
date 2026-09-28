@@ -40,7 +40,12 @@ SMALL_MAX_GB = 12.0  # 8 GB Macs (and anything below 12 GB) get the small profil
 def ram_gb() -> float:
     override = os.environ.get("JARVIS_RAM_GB")
     if override:
-        return float(override)
+        try:
+            gb = float(override)
+            if gb > 0:
+                return gb
+        except ValueError:
+            pass  # a typo must not stop the backend: use the real size
     try:
         out = subprocess.run(["sysctl", "-n", "hw.memsize"], capture_output=True, text=True, timeout=2).stdout
         return int(out.strip()) / 2**30

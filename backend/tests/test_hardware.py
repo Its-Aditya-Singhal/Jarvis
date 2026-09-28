@@ -19,3 +19,11 @@ def test_ram_can_be_overridden_for_testing(monkeypatch):
         assert Settings().llm_model == "qwen2.5:3b"
     finally:
         hardware.profile.cache_clear()
+
+
+def test_a_bad_ram_override_falls_back_to_the_real_size(monkeypatch):
+    for bad in ("eight", "", "0", "-4"):
+        monkeypatch.setenv("JARVIS_RAM_GB", bad)
+        assert hardware.ram_gb() > 0
+    monkeypatch.setenv("JARVIS_RAM_GB", "8")
+    assert hardware.ram_gb() == 8.0
