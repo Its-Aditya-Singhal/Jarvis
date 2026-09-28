@@ -288,7 +288,7 @@ class AssistantService:
         mode = MODES[name]
         changed = name != self._mode
         self._mode = name
-        self.s.process_fps = mode.face_fps
+        self.s.process_fps = min(mode.face_fps, profile().max_face_fps)
         notes = []
         b = self.brain
         if b is not None and hasattr(b, "override"):

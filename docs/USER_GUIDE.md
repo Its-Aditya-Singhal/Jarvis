@@ -42,6 +42,10 @@ If the disk is too full, it says how much space to free first.
 - Installed but not running: press **Start Ollama**.
 - Running: press **Download** next to `qwen2.5:7b` (about 4.7 GB). `bge-m3`
   (memory recall) and `qwen2.5:3b` (Fast mode, used on battery) are optional.
+  On a Mac with less than 12 GB of memory (an 8 GB MacBook Air, say), JARVIS asks
+  for `qwen2.5:3b` (about 1.9 GB) instead, and keeps its models lighter: a smaller
+  context, models released sooner, fewer threads, and no Whisper medium in Quality
+  mode. Everything together then uses about 4.5 GB while answering and about 2 GB idle.
 
 You can skip the language model and add it later in **Settings → On-device
 models**. Until then, instant commands (timers, alarms, apps, notes, math, the

@@ -28,10 +28,11 @@ class Profile:
     low_memory_pct: float  # system memory use at which the idle language model is unloaded
     idle_before_free_s: float  # ... once unused this long
     stt_medium: bool  # whether Quality mode may load Whisper medium (1.5 GB)
+    max_face_fps: float  # face analysis rate cap (each frame costs CPU)
 
 
-STANDARD = Profile("standard", "qwen2.5:7b", 4096, 2, "20m", "10m", 640, 8, 88.0, 120.0, True)
-SMALL = Profile("small", "qwen2.5:3b", 2048, 1, "5m", "2m", 480, 4, 80.0, 45.0, False)
+STANDARD = Profile("standard", "qwen2.5:7b", 4096, 2, "20m", "10m", 640, 8, 88.0, 120.0, True, 12.0)
+SMALL = Profile("small", "qwen2.5:3b", 2048, 1, "5m", "2m", 480, 4, 80.0, 45.0, False, 4.0)
 
 SMALL_MAX_GB = 12.0  # 8 GB Macs (and anything below 12 GB) get the small profile
 
