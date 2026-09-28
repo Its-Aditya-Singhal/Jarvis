@@ -78,6 +78,18 @@ def test_a_delay_can_be_cancelled(settings, monkeypatch):
     assert ran == [] and svc.delayed() == []
 
 
+def test_a_delay_firing_waits_for_a_running_command(settings, monkeypatch):
+    svc, _, ran = delayed_service(settings, monkeypatch, acts(("wait", {"seconds": 5}), ("app.close", {"name": "Slack"})))
+    svc.command("close slack in 5 seconds")
+    with svc._tools_lock:  # another command is running its tools
+        th = threading.Thread(target=Now.made[0].fire)
+        th.start()
+        th.join(0.2)
+        assert th.is_alive() and ran == []
+    th.join(2)
+    assert not th.is_alive() and ran == ["app.close"]
+
+
 def test_nobody_verified_when_it_fires_stops_it(settings, monkeypatch):
     svc, state, ran = delayed_service(settings, monkeypatch, acts(("wait", {"seconds": 5}), ("app.close", {"name": "Slack"})))
     svc.command("close slack in 5 seconds")

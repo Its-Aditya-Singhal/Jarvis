@@ -166,6 +166,9 @@ class AssistantService:
         self._lock = threading.Lock()
         self.brain: Brain | None = brain_factory(self) if brain_factory else None
         self._command_lock = threading.Lock()
+        # a delayed action firing while a command runs its tools: one at a time, so two confirmations
+        # can't be opened at once (the second silently replaced the first)
+        self._tools_lock = threading.Lock()
         # speech first: the voice pipeline hands it utterances and asks it about muting
         self.speech: SpeechService | None = speech_factory(self) if speech_factory else None
         self.voice: VoiceService | None = voice_factory(self) if voice_factory else None
@@ -866,7 +869,8 @@ class AssistantService:
             actions: list[dict[str, Any]] = [{"tool": a.tool, "args": a.args, "summary": a.summary} for a in r.actions]
             reply = r.reply
             if r.actions and self.tools is not None:
-                results = self._run_tools(r.actions, r.language, source)
+                with self._tools_lock:
+                    results = self._run_tools(r.actions, r.language, source)
                 for info, res in zip(actions, results):
                     info.update(ok=res.ok, result=res.say, data=res.data)
                 reply = " ".join(res.say for res in results)
@@ -994,7 +998,8 @@ class AssistantService:
                 return  # cancelled
         self.tools_changed()
         try:
-            results = self._run_tools(rest, lang, source, granted=level)
+            with self._tools_lock:
+                results = self._run_tools(rest, lang, source, granted=level)
         except Exception:
             log.exception("delayed actions failed")
             return
