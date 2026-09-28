@@ -64,6 +64,7 @@ echo "==> Disk image"
 mkdir -p "$DIST"
 DMG="$DIST/JARVIS-$VERSION-arm64.dmg"
 STAGE="$(mktemp -d)"
+trap 'rm -rf "$STAGE"' EXIT  # a failed hdiutil must not leave a copy of the app behind
 ditto "$APP" "$STAGE/JARVIS.app"
 ln -s /Applications "$STAGE/Applications"
 rm -f "$DMG"
