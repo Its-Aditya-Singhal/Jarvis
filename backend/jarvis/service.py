@@ -41,6 +41,7 @@ from .database.db import Database
 from .events import EventBus
 from .hardware import profile
 from .host import responsible_app
+from .llm.intents import wait_phrase
 from .memory.manager import Memory
 from .netguard import NetGuard
 from .perf import MODES, PerfMonitor, effective_mode
@@ -49,6 +50,7 @@ from .security.template_store import TemplateStore
 from .speech.stt import SpeechToText
 from .speech.text import to_latin
 from .speech_service import SpeechService
+from .tools.agent import ScriptAgent
 from .tools.runner import LEVELS, Plan, ToolResult, ToolRunner
 from .tools.scheduler import AlarmScheduler
 from .tools.store import Alarm
@@ -76,6 +78,7 @@ LOW_MEMORY_PCT = profile().low_memory_pct  # system memory use at which idle mod
 IDLE_BEFORE_FREE_S = profile().idle_before_free_s
 REENROLL_GRANT_S = 600.0  # after a confirmed face delete/redo, time to scan the new face
 RECOVERY_VOICE_S = 60.0  # face missing: a verified voice this recent may start a new scan
+MAX_DELAY_S = 6 * 3600  # "after N minutes": longer waits belong in an alarm
 
 # spoken when an action needs a higher level than the evidence allows
 BLOCKED_SAY = {
@@ -105,6 +108,16 @@ class Pending:
     say: str
     expires: float  # monotonic
     run: Callable[[], ToolResult] | None = None  # set for privacy/settings actions; tools use plan
+
+
+@dataclass
+class Delayed:
+    """Actions waiting for a spoken delay ("close it after 10 seconds")."""
+
+    id: str
+    due: float  # wall clock (time.time) for the countdown on screen
+    summary: str
+    timer: threading.Timer
 
 
 class AssistantService:
@@ -181,6 +194,11 @@ class AssistantService:
                 self.speech.dismiss_alarm = self.dismiss_alarms
         if self.brain is not None and self.tools is not None and (apps := self.tools.apps) is not None:
             self.brain.is_app = lambda name: apps.resolve(name) is not None
+        if (brain := self.brain) is not None and self.tools is not None:
+            self.tools.agent = ScriptAgent(lambda msgs, schema: brain.client.chat_json(
+                brain.model, msgs, schema, temperature=0.1, num_predict=700))
+        self._delayed: dict[str, Delayed] = {}
+        self._delayed_lock = threading.Lock()
         self.memory: Memory | None = memory_factory(self) if memory_factory else None
         if self.memory is not None:
             if self.tools is not None:
@@ -628,6 +646,7 @@ class AssistantService:
             self.brain.stop()
         if self.alarms is not None:
             self.alarms.stop()
+        self.cancel_delayed()
 
     # -- modes ---------------------------------------------------------------
     def begin_enrollment(self) -> None:
@@ -898,11 +917,13 @@ class AssistantService:
         en, hi = BLOCKED_SAY.get(code, (REASONS.get(code, "Not allowed right now."),) * 2)
         return hi if lang != "en" else en
 
-    def _run_tools(self, actions, lang: str, source: str = "voice") -> list[ToolResult]:
+    def _run_tools(self, actions, lang: str, source: str = "voice", granted: int = 0) -> list[ToolResult]:
+        """``granted``: the level the owner had when a delayed request was made (it still stops
+        if they are no longer verified at all)."""
         hi = lang != "en"
         results: list[ToolResult] = []
         did_level2 = False
-        for a in actions:
+        for i, a in enumerate(actions):
             need = LEVELS.get(a.tool, 3)
             trust = self.trust(screen=source == "typed")  # re-checked per action: the owner may have left meanwhile
             if trust.level == 0:
@@ -910,13 +931,19 @@ class AssistantService:
                                           else "Stopped: you're no longer verified."))
                 self.db.add_security_event("tool_blocked", f"{a.tool} blocked: owner no longer verified", blocked=True)
                 break
-            if need >= 2 and trust.level < 2:
+            if a.tool == "wait":
+                results.append(self._delay(a, list(actions[i + 1:]), lang, source, max(trust.level, granted)))
+                break  # the rest runs when the delay is over
+            if need >= 2 and max(trust.level, min(granted, 2)) < 2:
                 code = trust.blockers.get(2, "low_confidence")
                 results.append(ToolResult(a.tool, False, self._blocked_say(code, lang, source), {"blocked": code}))
                 self.db.add_security_event(
                     "tool_blocked", f"{a.tool} needs level {need}, have {trust.level}: {REASONS.get(code, code)}", blocked=True
                 )
                 self.bus.log(f"Tool {a.tool} blocked — {REASONS.get(code, code)}", "warn")
+                continue
+            if a.tool == "mac.do":
+                results.append(self._script(a, lang, trust))
                 continue
             if need == 3:
                 results.append(self._request_confirmation(a, lang, trust))
@@ -931,6 +958,99 @@ class AssistantService:
         if did_level2:
             self.record_sample(1, "owner_command")
         return results
+
+    # -- delays ("close it after 10 seconds") ------------------------------------------
+    def _delay(self, wait, rest: list, lang: str, source: str, level: int) -> ToolResult:
+        hi = lang != "en"
+        try:
+            secs = int(wait.args.get("seconds"))
+        except (TypeError, ValueError):
+            secs = 0
+        if not rest:
+            return ToolResult("wait", False, "किसके लिए रुकूँ, समझ नहीं आया।" if hi else "I didn't catch what to do after the wait.")
+        if not 1 <= secs <= MAX_DELAY_S:
+            return ToolResult("wait", False, "इतनी देर बाद के लिए अलार्म लगाइए।" if hi
+                              else "That delay is too long; set an alarm or a timer instead.")
+        need = max(min(LEVELS.get(a.tool, 3), 2) for a in rest)
+        if level < need:
+            code = self.trust(screen=source == "typed").blockers.get(need, "low_confidence")
+            return ToolResult("wait", False, self._blocked_say(code, lang, source), {"blocked": code})
+        what = ", ".join(a.summary or a.tool for a in rest)
+        did = secrets.token_hex(4)
+        timer = threading.Timer(secs, self._fire_delayed, args=(did, rest, lang, source, level))
+        timer.daemon = True
+        with self._delayed_lock:
+            self._delayed[did] = Delayed(did, time.time() + secs, what, timer)
+        timer.start()
+        self.tools_changed()
+        self.bus.log(f"Scheduled in {secs} s: {what}")
+        say = (f"{wait_phrase(secs, True)} बाद: {what}।" if hi else f"In {wait_phrase(secs, False)}: {what}.")
+        return ToolResult("wait", True, say, {"delayed": did, "seconds": secs})
+
+    def _fire_delayed(self, did: str, rest: list, lang: str, source: str, level: int) -> None:
+        with self._delayed_lock:
+            if self._delayed.pop(did, None) is None:
+                return  # cancelled
+        self.tools_changed()
+        try:
+            results = self._run_tools(rest, lang, source, granted=level)
+        except Exception:
+            log.exception("delayed actions failed")
+            return
+        actions = [{"tool": a.tool, "args": a.args, "summary": a.summary, "ok": r.ok, "result": r.say, "data": r.data}
+                   for a, r in zip(rest, results)]
+        text = " ".join(r.say for r in results)
+        if text:
+            self.bus.publish({"type": "reply", "text": text, "actions": actions})
+            self.bus.publish({"type": "say", "text": text})
+
+    def delayed(self) -> list[dict]:
+        with self._delayed_lock:
+            items = sorted(self._delayed.values(), key=lambda d: d.due)
+        return [{"id": d.id, "due": d.due, "summary": d.summary} for d in items]
+
+    def cancel_delayed(self, did: str | None = None) -> int:
+        with self._delayed_lock:
+            gone = [d for k, d in self._delayed.items() if did is None or k == did]
+            for d in gone:
+                self._delayed.pop(d.id, None)
+        for d in gone:
+            d.timer.cancel()
+        if gone:
+            self.tools_changed()
+        return len(gone)
+
+    # -- any command: generated AppleScript ------------------------------------------------
+    def scripts_always_ask(self) -> bool:
+        """8 GB Macs run the small model, which makes more mistakes: every script is shown first."""
+        return self.prefs.get("security.scripts") == "always" or profile().name == "small"
+
+    def _script(self, action, lang: str, trust: Trust) -> ToolResult:
+        hi = lang != "en"
+        assert self.tools is not None
+        if self.prefs.get("security.scripts") == "off":
+            return ToolResult("mac.do", False, "जनरेट की गई स्क्रिप्ट सेटिंग्स में बंद हैं।" if hi
+                              else "That isn't built in, and generated scripts are turned off in Settings → Commands.")
+        if self.pending() is not None:
+            return ToolResult("mac.do", False, "पहले पिछली पुष्टि पूरी कीजिए।" if hi else "Answer the waiting confirmation first, please.")
+        self.bus.publish({"type": "thinking", "active": True})
+        try:
+            plan = self.tools.plan(action, lang)
+        finally:
+            self.bus.publish({"type": "thinking", "active": False})
+        if isinstance(plan, ToolResult):
+            if plan.data.get("blocked") == "script":
+                self.db.add_security_event("tool_blocked", f"generated script refused: {plan.say}", blocked=True)
+            return plan
+        assert plan.script is not None
+        if plan.script.verdict == "read" and not self.scripts_always_ask():
+            res = self.tools.execute(plan)
+            self.bus.log(f"Script (read only): {'done' if res.ok else 'failed'}", "ok" if res.ok else "warn")
+            return res
+        what = plan.what[:1].lower() + plan.what[1:]
+        say = (f"यह स्क्रिप्ट चलाऊँ? {plan.what}। “हाँ, कर दो” बोलिए या Confirm दबाइए।" if hi
+               else f"Shall I run this script? It {what.rstrip('.')}. Say “yes, go ahead” or click Confirm.")
+        return self._open_pending(plan, lang, say, trust)
 
     # -- confirmations (level 3) ------------------------------------------------------
     def pending(self) -> Pending | None:
@@ -994,7 +1114,8 @@ class AssistantService:
         pid = secrets.token_hex(4)
         with self._pending_lock:
             self._pending = Pending(pid, plan, lang, say, self.clock() + ttl, run)
-        self.bus.publish({"type": "confirm", "id": pid, "tool": plan.tool, "text": say, "expires_s": ttl})
+        detail = plan.script.script if plan.script is not None else ""
+        self.bus.publish({"type": "confirm", "id": pid, "tool": plan.tool, "text": say, "expires_s": ttl, "detail": detail})
         self.bus.log(f"Waiting for confirmation: {plan.tool}")
         return ToolResult(plan.tool, True, say, {"pending": pid})
 
@@ -1463,7 +1584,8 @@ class AssistantService:
             ),
             # what is about to be deleted is shown to the verified owner only
             "pending": (
-                {"id": p.id, "tool": p.plan.tool, "text": p.say, "expires_s": round(p.expires - self.clock(), 1)}
+                {"id": p.id, "tool": p.plan.tool, "text": p.say, "expires_s": round(p.expires - self.clock(), 1),
+                 "detail": p.plan.script.script if p.plan.script is not None else ""}
                 if (p := self.pending()) is not None and auth.get("level", 0) >= 1
                 else None
             ),

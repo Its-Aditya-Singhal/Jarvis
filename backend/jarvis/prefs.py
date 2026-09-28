@@ -36,6 +36,9 @@ PREFS: dict[str, Pref] = {p.key: p for p in [
     Pref("security.typed", ("on", "off"), "on", True, ("Voice or typed", "Voice only")),
     Pref("security.camera", ("once", "always"), "once", True, ("Face once, then voice", "Face all the time")),
     Pref("security.liveness", ("normal", "frequent"), "normal", True, ("Every 5-15 min", "Every 2-5 min")),
+    # any command (generated AppleScript): what runs without asking (8 GB Macs always ask)
+    Pref("security.scripts", ("changes", "always", "off"), "changes", True,
+         ("Ask before changes", "Always ask", "Off")),
     # memory
     Pref("memory.enabled", (False, True), True, labels=("Paused", "On")),
     Pref("memory.suggestions", (False, True), True, labels=("Off", "On")),

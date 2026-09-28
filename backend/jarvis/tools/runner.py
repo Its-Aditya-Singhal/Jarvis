@@ -23,6 +23,7 @@ from rapidfuzz import fuzz
 
 from ..database.db import Database
 from ..llm.intents import Action, clock_phrase, day_phrase, parse_local
+from .agent import Script, ScriptAgent, ScriptError
 from .apple import AppleBridge, AppleError
 from .apps import AppIndex
 from .files import FileSearch, FolderError, Found
@@ -41,6 +42,8 @@ LEVELS = {
     "screen.shot": 2, "display.brightness": 2, "display.dark_mode": 2, "settings.open": 2,
     "clipboard.read": 1, "clipboard.note": 2, "text.type": 2, "ai.ask": 2,
     "files.recent": 1, "files.reveal": 2, "files.trash": 3,  # the Trash is recoverable, but still a deletion
+    "wait": 1,  # only delays the actions after it, which are checked when they run
+    "mac.do": 2,  # a generated script: runs directly only if it just reads, else it waits for confirmation
 }
 # the chat apps "ai.ask" can fill in: app name, website that pre-fills a prompt (None: it would send it), home page
 AI_SERVICES = {
@@ -70,6 +73,7 @@ class Plan:
     what: str  # e.g. the note's text or the event's title and time
     hi: bool
     path: str = ""  # files.trash: the exact file shown in the confirmation
+    script: Script | None = None  # mac.do: the generated script, shown in full in the confirmation
 
 
 def _quote(s: str, n: int = 60) -> str:
@@ -105,6 +109,7 @@ class ToolRunner:
         self.clock = clock
         self.memory: Any = None  # jarvis.memory.manager.Memory, set when memory is enabled
         self.last_files: list[Path] = []  # the latest search results: "show it in Finder", "trash it"
+        self.agent: ScriptAgent | None = None  # writes AppleScript for mac.do, set when the language model is on
 
     # -- Apple sync settings --------------------------------------------------------
     @property
@@ -143,6 +148,8 @@ class ToolRunner:
         hi = plan.hi
         if plan.tool == "files.trash":
             return self._files_trash(plan)
+        if plan.tool == "mac.do":
+            return self._run_script(plan)
         if plan.tool == "notes.delete":
             done = self.store.delete_note(plan.item_id)
         elif plan.tool == "memory.forget" and self.memory is not None:
@@ -157,6 +164,38 @@ class ToolRunner:
         # copies synced to Apple's apps are left alone: this app never deletes there
         say = f"{plan.what} हटा दिया है।" if hi else f"Deleted {plan.what}."
         return ToolResult(plan.tool, True, say, {"id": plan.item_id})
+
+    # -- any command: a generated AppleScript ------------------------------------------------
+    def _plan_mac_do(self, args: dict, hi: bool) -> Plan | ToolResult:
+        """Write and check the script; the caller runs it (reads) or asks first (changes)."""
+        task = " ".join(str(args.get("task") or "").split())[:400]
+        if self.agent is None:
+            return ToolResult("mac.do", False, "यह काम अभी नहीं हो सकता।" if hi else "I can't do that without the language model.")
+        try:
+            s = self.agent.write(task)
+        except ScriptError as exc:
+            return ToolResult("mac.do", False, f"यह नहीं हो पाया: {exc}।" if hi else f"I can't do that: {exc}.")
+        if s.verdict == "blocked":
+            log.warning("generated script blocked (%s) for task %r", s.reason, task)
+            return ToolResult("mac.do", False, ("सुरक्षा के लिए यह स्क्रिप्ट नहीं चलाऊँगी।" if hi
+                                                else f"I won't run that: the script {s.reason}, which isn't allowed."),
+                              {"blocked": "script", "script": s.script})
+        return Plan("mac.do", 0, s.summary, hi, script=s)
+
+    def _run_script(self, plan: Plan) -> ToolResult:
+        hi, s = plan.hi, plan.script
+        if self.agent is None or s is None:
+            return ToolResult("mac.do", False, "यह काम अभी नहीं हो सकता।" if hi else "I can't do that right now.")
+        try:
+            out = self.agent.run(s)
+        except ScriptError as exc:
+            return ToolResult("mac.do", False, f"नहीं हो पाया: {exc}।" if hi else f"That didn't work: {exc}.",
+                              {"script": s.script})
+        if out:
+            say = out if out[-1:] in ".!?।" else out + ("।" if hi else ".")
+        else:
+            say = "हो गया।" if hi else "Done."
+        return ToolResult("mac.do", True, say, {"script": s.script, "output": out})
 
     # -- alarms & timers ---------------------------------------------------------------
     def _alarm_set(self, args: dict, hi: bool) -> ToolResult:
