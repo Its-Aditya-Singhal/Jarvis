@@ -104,9 +104,15 @@ input { user-select: text; }
 .sensor .camera { margin: 0 12px; aspect-ratio: 4 / 3; border-radius: 4px; }
 
 .center { min-width: 0; min-height: 0; display: flex; }
-.core { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-.core-orb { width: min(62vh, 100%); aspect-ratio: 1; }
-.core-text { text-align: center; margin-top: -8px; min-height: 120px; }
+/* centred while it fits; taller content (a confirmation with its script, the conversation) scrolls
+   from the top instead of being cut off below the window. The empty ::before/::after take the
+   free space, so there's no "justify-content: center" pushing the top out of reach */
+.core { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; overflow-y: auto; padding-bottom: 12px; }
+.core::before, .core::after { content: ""; margin: auto 0; }
+.core-orb { width: min(62vh, 100%); aspect-ratio: 1; flex: none; transition: width 0.4s ease; }
+/* something to read or answer: a smaller orb keeps it (and the command box) in view */
+.core:has(.confirm, .conversation, .challenge) .core-orb { width: min(34vh, 100%); }
+.core-text { text-align: center; margin-top: -8px; min-height: 120px; flex: none; width: 100%; }
 .core-text h1 {
   font-family: var(--mono); font-weight: 600; font-size: 26px; letter-spacing: 0.3em; margin: 0 0 10px;
   color: var(--accent); text-shadow: 0 0 18px rgba(0, 212, 255, 0.55); transition: color 0.4s;
@@ -189,7 +195,11 @@ input { user-select: text; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* ---- setup ---- */
-.setup { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; min-height: 0; }
+/* same centring as .core: scrolls from the top when a step is taller than the window,
+   and the top padding keeps the step numbers clear of the card */
+.setup { flex: 1; display: flex; flex-direction: column; align-items: center; padding: 64px 24px 24px; min-height: 0; overflow-y: auto; }
+.setup::before, .setup::after { content: ""; margin: auto 0; }
+.setup > * { flex: none; }
 .setup-steps { position: absolute; top: 24px; display: flex; gap: 10px; font-family: var(--mono); font-size: 11px; color: var(--off); letter-spacing: 0.15em; }
 .setup-steps span { padding: 4px 8px; border-bottom: 2px solid transparent; }
 .setup-steps span.active { color: var(--accent); border-bottom-color: var(--accent); }
@@ -274,7 +284,7 @@ input { user-select: text; }
 .factors span { display: flex; align-items: center; gap: 6px; }
 .card-btn { margin-top: 12px; }
 .overlay { position: fixed; inset: 0; z-index: 50; background: rgba(1, 5, 10, 0.82); backdrop-filter: blur(6px); display: grid; place-items: center; padding: 24px; animation: fadein 0.3s; }
-.overlay-card { width: min(980px, 100%); background: var(--bg-2); border: 1px solid var(--line-strong); border-radius: 8px; padding: 32px; }
+.overlay-card { width: min(980px, 100%); max-height: 100%; overflow-y: auto; background: var(--bg-2); border: 1px solid var(--line-strong); border-radius: 8px; padding: 32px; }
 
 /* liveness challenge */
 .challenge { margin: 14px auto 0; padding: 12px 22px 10px; width: 320px; border: 1px solid rgba(168, 120, 255, 0.45); border-radius: 10px; background: rgba(168, 120, 255, 0.07); box-shadow: 0 0 24px rgba(168, 120, 255, 0.15) inset; }

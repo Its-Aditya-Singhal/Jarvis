@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ApiError, post } from "../lib/backend";
 import { useStore } from "../lib/store";
 
@@ -8,6 +8,15 @@ export default function ConfirmCard() {
   const [now, setNow] = useState(() => Date.now());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const card = useRef<HTMLDivElement>(null);
+  // a new confirmation below the fold (under a long conversation) is brought into view
+  const id = confirm?.id;
+  useEffect(() => {
+    if (!id) return;
+    // after the rest of the screen (timers, the reply) has settled
+    const t = window.setTimeout(() => card.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }), 300);
+    return () => window.clearTimeout(t);
+  }, [id]);
   useEffect(() => {
     if (!confirm) return;
     setError(null);
@@ -34,7 +43,7 @@ export default function ConfirmCard() {
   };
 
   return (
-    <div className="confirm">
+    <div className="confirm" ref={card}>
       <div className="confirm-head">
         <span>
           LEVEL 3 ·{" "}

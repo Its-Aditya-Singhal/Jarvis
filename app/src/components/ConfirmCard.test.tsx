@@ -94,3 +94,12 @@ describe("ConfirmCard", () => {
     }
   });
 });
+
+it("a new confirmation is scrolled into view", async () => {
+  const scroll = vi.spyOn(Element.prototype, "scrollIntoView");
+  render(<ConfirmCard />);
+  fake.emit({ type: "auth", ...approvedAuth() });
+  fake.emit({ type: "confirm", ...pending });
+  await waitFor(() => expect(scroll).toHaveBeenCalledWith({ block: "nearest", behavior: "smooth" }));
+  expect(scroll.mock.contexts[0]).toHaveClass("confirm");
+});
