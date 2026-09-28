@@ -36,10 +36,22 @@ export default function ConfirmCard() {
   return (
     <div className="confirm">
       <div className="confirm-head">
-        <span>LEVEL 3 · {/^(notes|calendar|memory)\./.test(confirm.tool) ? "CONFIRM DELETION" : "CONFIRM"}</span>
+        <span>
+          LEVEL 3 ·{" "}
+          {/^(notes|calendar|memory)\./.test(confirm.tool)
+            ? "CONFIRM DELETION"
+            : confirm.tool === "mac.do"
+              ? "CONFIRM SCRIPT"
+              : "CONFIRM"}
+        </span>
         <span>{Math.ceil(left)} s</span>
       </div>
       <div className="confirm-text">{confirm.text}</div>
+      {confirm.detail && (
+        <pre className="confirm-script" aria-label="The script that will run">
+          {confirm.detail}
+        </pre>
+      )}
       <div className="confirm-bar">
         <i style={{ width: `${(left / total) * 100}%` }} />
       </div>

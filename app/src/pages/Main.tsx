@@ -7,6 +7,7 @@ import CommandPalette, { PaletteItem } from "../components/CommandPalette";
 import AboutPanel from "./AboutPanel";
 import VoiceEnroll from "../components/VoiceEnroll";
 import ConfirmCard from "../components/ConfirmCard";
+import ActiveTimers from "../components/ActiveTimers";
 import HealthCard from "../components/HealthCard";
 import TrustCard from "../components/TrustCard";
 import ToolsPanel from "./ToolsPanel";
@@ -132,6 +133,7 @@ function Core() {
         <p>{sub}</p>
         {state === "liveness" && auth?.liveness?.challenge && <ChallengeCard c={auth.liveness.challenge} />}
         <FactorBadges />
+        {state === "approved" && <ActiveTimers />}
         {/* replies already appear in the conversation strip */}
         {!(state === "approved" && conversation.some((t) => t.who === "assistant" && t.text === speech?.text)) && (
           <p className={`speech ${showSpeech || assistantSpeaking ? "show" : ""}`}>{speech?.text}</p>
@@ -426,7 +428,7 @@ const EVENT_TITLE: Record<string, string> = {
   voice_mismatch_command: "COMMAND IN UNKNOWN VOICE",
   camera_frozen: "CAMERA FEED FROZEN",
   tool_blocked: "ACTION BLOCKED — LEVEL TOO LOW",
-  sensitive_action: "DELETION CONFIRMED",
+  sensitive_action: "ACTION CONFIRMED",
   fusion_retrained: "FUSION MODEL RETRAINED",
   fusion_reset: "FUSION MODEL RESET",
   privacy_action: "PRIVACY ACTION CONFIRMED",

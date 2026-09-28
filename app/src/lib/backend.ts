@@ -121,6 +121,8 @@ export interface PendingConfirm {
   tool: string;
   text: string;
   expires_s: number;
+  /** mac.do: the full generated AppleScript, shown before it runs */
+  detail?: string;
 }
 
 export interface FusionInfo {

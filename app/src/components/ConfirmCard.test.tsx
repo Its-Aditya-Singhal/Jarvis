@@ -49,6 +49,15 @@ describe("ConfirmCard", () => {
     expect(screen.getByText(/LEVEL 3 · CONFIRM$/)).toBeInTheDocument();
   });
 
+  it("shows the whole generated script before it runs", () => {
+    render(<ConfirmCard />);
+    fake.emit({ type: "auth", ...approvedAuth() });
+    const script = 'tell application "Reminders"\n\tmake new reminder with properties {name:"Buy milk"}\nend tell';
+    fake.emit({ type: "confirm", ...pending, tool: "mac.do", text: "Shall I run this script?", detail: script });
+    expect(screen.getByText(/CONFIRM SCRIPT/)).toBeInTheDocument();
+    expect(screen.getByLabelText("The script that will run").textContent).toBe(script);
+  });
+
   it("sends the answer and shows the backend's refusal", async () => {
     fake.route("POST /api/confirm/ab12", () => ({ ok: false, reply: "Finish the liveness check first, then confirm." }));
     render(<ConfirmCard />);

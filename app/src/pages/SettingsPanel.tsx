@@ -142,6 +142,7 @@ export default function SettingsPanel() {
           {ctl("security.voice", "Voice match")}
           {ctl("security.camera", "Camera")}
           {ctl("security.typed", "Commands")}
+          {ctl("security.scripts", "Anything else (generated AppleScript)")}
           {ctl("security.away_lock_s", "Lock when I step away (camera on)")}
           {ctl("security.liveness", "Random liveness checks")}
           <p className="muted small">

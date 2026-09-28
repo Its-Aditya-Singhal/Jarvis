@@ -310,3 +310,27 @@ def test_model_download_endpoints_and_restart(settings, tmp_path):
         assert client.post("/api/models/download", headers=H).status_code == 403
         assert client.post("/api/models/ollama/pull", headers=H, json={"model": "qwen2.5:7b"}).status_code == 403
         assert client.get("/api/models", headers=H).status_code == 200  # reading what's installed is fine
+
+
+def test_delayed_actions_are_listed_and_cancelled_at_level_2(settings, monkeypatch):
+    from test_command_service import fake_trust
+    from test_delays import Now
+
+    from jarvis.llm.intents import Action
+
+    Now.made = []
+    monkeypatch.setattr("jarvis.service.threading.Timer", Now)
+    client, svc = _client(settings, tools=True)
+    with client:
+        state = {"level": 2}
+        svc.trust = lambda now=None, screen=False: fake_trust(state)
+        close = Action("app.close", {"name": "Slack"}, "closing Slack")
+        svc._run_tools([Action("wait", {"seconds": 60}), close], "en")
+        [d] = client.get("/api/tools", headers=H).json()["delayed"]
+        assert d["summary"] == "closing Slack" and "T" in d["due"]
+        state["level"] = 1
+        assert client.post(f"/api/delayed/{d['id']}/cancel", headers=H).status_code == 403
+        state["level"] = 2
+        assert client.post(f"/api/delayed/{d['id']}/cancel", headers=H).status_code == 200
+        assert client.post(f"/api/delayed/{d['id']}/cancel", headers=H).status_code == 404
+        assert client.get("/api/tools", headers=H).json()["delayed"] == [] and Now.made[0].cancelled

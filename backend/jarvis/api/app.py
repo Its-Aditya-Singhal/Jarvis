@@ -582,7 +582,20 @@ def create_app(
                 {"id": n.id, "text": n.text, "created": n.created.isoformat(timespec="minutes"), "apple": n.apple_id is not None}
                 for n in t.store.notes(30)
             ],
+            # "close it after 10 seconds": waiting actions, due as an ISO time like the alarms
+            "delayed": [
+                {"id": d["id"], "due": datetime.fromtimestamp(d["due"]).isoformat(timespec="seconds"), "summary": d["summary"]}
+                for d in svc.delayed()
+            ],
         }
+
+    # cancelling only stops something; the same level as cancelling an alarm
+    @app.post("/api/delayed/{delayed_id}/cancel", dependencies=auth + [Depends(require_level2)])
+    def delayed_cancel(delayed_id: str):
+        if not svc.cancel_delayed(delayed_id):
+            raise HTTPException(404, "nothing waiting with that id")
+        bus.log("Delayed action cancelled")
+        return {"ok": True}
 
     # the same level as the alarm.cancel tool (tools.runner.LEVELS)
     @app.post("/api/alarms/{alarm_id}/cancel", dependencies=auth + [Depends(require_level2)])
