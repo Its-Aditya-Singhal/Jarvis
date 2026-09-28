@@ -100,3 +100,44 @@ def test_first_run_setup_pulls_only_the_assistants_models():
     setup.wait(5)
     d = setup.detect()
     assert d["ready"] and d["pull"]["state"] == "done" and d["pull"]["completed"] == 100
+
+
+def test_callers_at_the_same_moment_start_one_server(tmp_path, slow_ollama):
+    import threading
+
+    s = srv.OllamaServer("127.0.0.1:9", None, tmp_path / "logs")
+    gate = threading.Barrier(5)
+
+    def ask():
+        gate.wait()
+        s.ensure(wait_s=0.3)
+
+    threads = [threading.Thread(target=ask) for _ in range(5)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert _until(slow_ollama.exists)
+    time.sleep(0.2)
+    pids = [int(p) for p in slow_ollama.read_text().split()]
+    s.stop()
+    assert len(pids) == 1, "startup, the Models screen and a pull each started their own `ollama serve`"
+
+
+def test_a_pull_that_fails_unexpectedly_reports_an_error():
+    from jarvis.llm.setup import OllamaSetup
+
+    class Server:
+        error = None
+        def reachable(self): return True
+        def ensure(self, wait_s=15.0): return True
+
+    class Client:
+        def models(self): return []
+        def pull(self, model, progress): raise KeyError("total")  # anything the pull loop didn't expect
+
+    setup = OllamaSetup(Server(), Client(), lambda: [{"name": "qwen2.5:7b", "purpose": "", "required": True}])  # type: ignore[arg-type]
+    assert setup.pull("qwen2.5:7b")["started"]
+    setup.wait(5)
+    pull = setup.detect()["pull"]
+    assert pull["state"] == "error" and "Download again" in pull["error"]

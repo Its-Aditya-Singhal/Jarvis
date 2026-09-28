@@ -85,8 +85,9 @@ class OllamaSetup:
             self.client.pull(model, progress)
             with self._lock:
                 self._pull.update(state="done", status="success")
-        except (LLMUnavailable, ValueError) as exc:
+        except Exception as exc:  # anything: the screen must never show "downloading" forever
             log.warning("ollama pull %s failed: %s", model, exc)
+            msg = str(exc) if isinstance(exc, LLMUnavailable | ValueError) else f"Download failed ({type(exc).__name__})"
             with self._lock:
-                self._pull.update(state="error", error=f"{exc}. Press Download again to resume.")
+                self._pull.update(state="error", error=f"{msg.rstrip('.')}. Press Download again to resume.")
         self.on_change()

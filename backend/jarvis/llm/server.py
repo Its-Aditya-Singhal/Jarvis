@@ -12,6 +12,7 @@ import logging
 import os
 import shutil
 import subprocess
+import threading
 import time
 from pathlib import Path
 
@@ -38,6 +39,8 @@ class OllamaServer:
         self.log_dir = log_dir
         self._proc: subprocess.Popen | None = None
         self.error: str | None = None
+        # startup, the Models screen and a model pull can all ask at once: only one may start a server
+        self._starting = threading.Lock()
 
     @property
     def url(self) -> str:
@@ -52,6 +55,13 @@ class OllamaServer:
     def ensure(self, wait_s: float = 15.0) -> bool:
         """Make sure a server answers on ``host``; start one if needed."""
         if self.reachable():
+            return True
+        with self._starting:
+            return self._ensure(wait_s)
+
+    def _ensure(self, wait_s: float) -> bool:
+        if self.reachable():  # another caller started it while this one waited
+            self.error = None
             return True
         if self._proc is not None and self._proc.poll() is None:
             return self._wait(wait_s)  # ours is still starting up: never start a second one
