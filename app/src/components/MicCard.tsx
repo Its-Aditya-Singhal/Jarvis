@@ -35,15 +35,17 @@ function LevelBar({ on }: { on: boolean }) {
 export default function MicCard() {
   const [mic, setMic] = useState<MicState | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // the 3 s poll clears only its own error: an action's error (e.g. "level 2 required") stays up
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const load = () =>
     api<MicState>("/api/mic")
       .then((m) => {
         setMic(m);
-        setError(null);
+        setLoadError(null);
       })
-      .catch((e) => setError(errText(e)));
+      .catch((e) => setLoadError(errText(e)));
   useEffect(() => {
     load();
     const id = window.setInterval(load, 3000); // plugging a mic in, granting permission…
@@ -115,7 +117,7 @@ export default function MicCard() {
           {mic ? PERMISSION[mic.permission] : "—"}
         </b>
       </div>
-      {error && <p className="error small">{error}</p>}
+      {(error ?? loadError) && <p className="error small">{error ?? loadError}</p>}
       <button className="btn ghost card-btn" disabled={busy} onClick={() => act(() => post("/api/mic/retry"))}>
         RETRY MICROPHONE
       </button>

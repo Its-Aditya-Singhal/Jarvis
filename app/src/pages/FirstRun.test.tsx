@@ -106,3 +106,22 @@ describe("First-run model download", () => {
     expect(screen.getByRole("progressbar", { name: "Downloading qwen2.5:7b" })).toHaveAttribute("aria-valuenow", "25");
   });
 });
+
+it("a moment without the backend doesn't leave an error under the download for good", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    let n = 0;
+    fake.route("GET /api/models", () => {
+      if (++n === 2) throw new Error("blip");
+      return models();
+    });
+    render(<App />);
+    fake.setStatus({ models_needed: true });
+    await vi.advanceTimersByTimeAsync(1100);
+    expect(await screen.findByText("Backend unreachable")).toBeInTheDocument();
+    await vi.advanceTimersByTimeAsync(1100);
+    await vi.waitFor(() => expect(screen.queryByText("Backend unreachable")).not.toBeInTheDocument());
+  } finally {
+    vi.useRealTimers();
+  }
+});

@@ -161,3 +161,17 @@ describe("Settings errors", () => {
     expect(screen.getByText("level 2 required")).toBeInTheDocument();
   });
 });
+
+it("a refused microphone change stays explained after the card refreshes", async () => {
+  const user = userEvent.setup();
+  fake.fail("PUT /api/mic", 403, "needs level 2: voice not verified recently");
+  render(<SettingsPanel />);
+  fake.setStatus(makeStatus({ setup_complete: true, auth: approvedAuth() }));
+  const mic = await screen.findByText("LISTENING").then(() => card("MICROPHONE"));
+  await user.selectOptions(within(mic).getByRole("combobox", { name: "Microphone" }), "Microsoft Teams Audio");
+  expect(await within(mic).findByText("needs level 2: voice not verified recently")).toBeInTheDocument();
+  const before = fake.called("GET", "/api/mic").length;
+  await vi.waitFor(() => expect(fake.called("GET", "/api/mic").length).toBeGreaterThan(before), { timeout: 2000 });
+  await new Promise((r) => setTimeout(r, 50));
+  expect(within(mic).getByText("needs level 2: voice not verified recently")).toBeInTheDocument();
+});

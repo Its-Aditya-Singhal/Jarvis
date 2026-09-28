@@ -58,6 +58,8 @@ function PackRow({ p, active, queued, onGet, busy }: { p: ModelPack; active: boo
 export default function ModelDownloads({ firstRun = false }: { firstRun?: boolean }) {
   const [m, setM] = useState<ModelsState | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // the 1 s poll's own error: cleared by the next answer, so a blip doesn't stay up for good
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [restarting, setRestarting] = useState(false);
   const [fetched, setFetched] = useState(false); // something new arrived: a restart loads it
@@ -67,11 +69,12 @@ export default function ModelDownloads({ firstRun = false }: { firstRun?: boolea
     api<ModelsState>("/api/models")
       .then((s) => {
         setM(s);
+        setLoadError(null);
         const running = s.files.state === "downloading" || s.files.state === "verifying" || s.files.state === "unpacking";
         if (wasRunning.current && s.files.state === "done") setFetched(true);
         wasRunning.current = running;
       })
-      .catch((e) => setError(errText(e)));
+      .catch((e) => setLoadError(errText(e)));
   useEffect(() => {
     load();
     const id = window.setInterval(load, 1000);
@@ -103,7 +106,7 @@ export default function ModelDownloads({ firstRun = false }: { firstRun?: boolea
   };
 
   if (!m) {
-    return error ? <p className="error small">{error}</p> : <p className="muted small">Checking the models on this Mac…</p>;
+    return loadError ? <p className="error small">{loadError}</p> : <p className="muted small">Checking the models on this Mac…</p>;
   }
   const f = m.files;
   const o = m.ollama;
@@ -151,7 +154,7 @@ export default function ModelDownloads({ firstRun = false }: { firstRun?: boolea
       )}
       {f.state === "error" && f.error && <p className="error small">{f.error}</p>}
       {f.state === "cancelled" && <p className="muted small">Paused. What arrived is kept: press Resume to continue.</p>}
-      {error && <p className="error small">{error}</p>}
+      {(error ?? loadError) && <p className="error small">{error ?? loadError}</p>}
 
       <div className="row">
         {running ? (
