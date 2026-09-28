@@ -220,7 +220,7 @@ class ToolRunner:
     # -- alarms & timers ---------------------------------------------------------------
     def _alarm_set(self, args: dict, hi: bool) -> ToolResult:
         now = self.clock()
-        t = parse_local(args.get("time"))
+        t = parse_local(args.get("time"), need_time=True)
         if t is None:
             return ToolResult("alarm.set", False, "अलार्म का समय समझ नहीं आया।" if hi else "I couldn't work out the alarm time.")
         if t <= now:
@@ -262,7 +262,7 @@ class ToolRunner:
     def _alarm_cancel(self, args: dict, hi: bool) -> ToolResult:
         pending = [a for a in self.store.alarms(("pending",))]
         kind = str(args.get("kind") or "").strip().lower().rstrip("s")
-        t = parse_local(args.get("time"))
+        t = parse_local(args.get("time"), need_time=True)
         if t is not None:
             pending = [a for a in pending if a.kind == "alarm" and abs((a.due - t).total_seconds()) < 60]
         elif kind in ("alarm", "timer"):  # "cancel the timer" leaves the alarms alone
@@ -289,7 +289,7 @@ class ToolRunner:
     # -- calendar ----------------------------------------------------------------------
     def _calendar_create(self, args: dict, hi: bool) -> ToolResult:
         now = self.clock()
-        start = parse_local(args.get("start"))
+        start = parse_local(args.get("start"), need_time=True)
         title = " ".join(str(args.get("title") or "").split())[:120]
         if start is None or not title:
             return ToolResult("calendar.create", False, "इवेंट का नाम या समय समझ नहीं आया।" if hi else "I couldn't work out the event's title or time.")

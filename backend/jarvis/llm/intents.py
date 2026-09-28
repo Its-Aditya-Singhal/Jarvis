@@ -265,11 +265,20 @@ def whole_seconds(value: Any) -> int | None:
 
 
 # -- spoken descriptions (code, not model) --------------------------------------
-def parse_local(value: Any) -> datetime | None:
+_ISO = re.compile(r"\s*(\d{4})-(\d{1,2})-(\d{1,2})(?:[T ](\d{1,2})(?::(\d{2}))?)?")
+
+
+def parse_local(value: Any, need_time: bool = False) -> datetime | None:
+    """A model's local ISO value; seconds and any offset are dropped. "2026-09-28T7:00" is
+    accepted too. ``need_time``: a bare date is refused (an alarm "2026-09-29" isn't midnight)."""
     if not isinstance(value, str):
         return None
+    m = _ISO.match(value)
+    if m is None or need_time and m.group(4) is None:
+        return None
+    y, mo, d, h, mi = (int(g) if g else 0 for g in m.groups())
     try:
-        return datetime.fromisoformat(value.strip()[:16])  # drop seconds / any offset
+        return datetime(y, mo, d, h, mi)
     except ValueError:
         return None
 
@@ -304,7 +313,7 @@ def describe(a: Action, language: str, now: datetime) -> str:
     hi = language != "en"
     g = a.args
     text = lambda k: str(g.get(k) or "").strip()
-    if a.tool == "alarm.set" and (t := parse_local(g.get("time"))):
+    if a.tool == "alarm.set" and (t := parse_local(g.get("time"), need_time=True)):
         return (f"{day_phrase(t.date(), now.date(), True)} {clock_phrase(t, True)} का अलार्म" if hi
                 else f"an alarm for {clock_phrase(t, False)} {day_phrase(t.date(), now.date(), False)}")
     if a.tool == "timer.set" and (secs := whole_seconds(g.get("seconds"))):
@@ -314,7 +323,7 @@ def describe(a: Action, language: str, now: datetime) -> str:
             return f"{amount} का टाइमर" if hi else f"a {amount} timer"
         # 90 s is "1 minute 30 seconds", not a "1-minute" timer
         return f"{wait_phrase(secs, True)} का टाइमर" if hi else f"a timer for {wait_phrase(secs, False)}"
-    if a.tool == "calendar.create" and (t := parse_local(g.get("start"))):
+    if a.tool == "calendar.create" and (t := parse_local(g.get("start"), need_time=True)):
         title = text("title") or ("इवेंट" if hi else "event")
         return (f"{day_phrase(t.date(), now.date(), True)} {clock_phrase(t, True)} “{title}”" if hi
                 else f"“{title}” {day_phrase(t.date(), now.date(), False)} at {clock_phrase(t, False)}")
@@ -327,7 +336,7 @@ def describe(a: Action, language: str, now: datetime) -> str:
     if a.tool == "notes.search" and text("query"):
         return f"नोट्स में “{text('query')}” ढूँढना" if hi else f"a notes search for “{text('query')}”"
     if a.tool == "alarm.cancel":
-        if t := parse_local(g.get("time")):
+        if t := parse_local(g.get("time"), need_time=True):
             return f"{clock_phrase(t, True)} का अलार्म रद्द करना" if hi else f"cancelling the {clock_phrase(t, False)} alarm"
         kind = str(g.get("kind") or "").lower()
         if kind == "timer":

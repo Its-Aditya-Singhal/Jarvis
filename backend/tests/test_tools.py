@@ -83,11 +83,13 @@ def test_alarm_and_timer(env):
     assert r.ok and r.say == "Alarm set for 7:00 AM tomorrow."
     assert not run(runner, "alarm.set", time="2026-09-27T07:00").ok  # already passed
     assert not run(runner, "alarm.set", time="soon").ok
+    assert not run(runner, "alarm.set", time="2026-09-29").ok  # a bare date used to become a midnight alarm
+    assert run(runner, "alarm.set", time="2026-09-28T7:05").data["time"] == "2026-09-28T07:05"  # unpadded hour
     r = run(runner, "timer.set", "hinglish", seconds=600)
     assert r.ok and r.say == "10 मिनट का टाइमर शुरू कर दिया है।"
     assert not run(runner, "timer.set", seconds=-5).ok
     assert run(runner, "timer.set", seconds=25 * 3600).say == "Timers can run for up to a day; set an alarm for that instead."
-    assert [a.kind for a in store.alarms()] == ["timer", "alarm"]
+    assert [a.kind for a in store.alarms()] == ["timer", "alarm", "alarm"]
 
 
 def test_calendar_with_and_without_apple_sync(env):
