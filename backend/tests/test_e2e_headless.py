@@ -330,6 +330,7 @@ def test_face_verification_starts_before_the_slow_models_finish_loading(settings
 
     from jarvis.fakes import FACES
 
+    settings.llm_preload = True  # the slow part: loading the model at launch
     app, rig = build(settings)
     svc = app.state.svc
     svc.store.save("face", np.stack([FACES["owner"]] * 8))

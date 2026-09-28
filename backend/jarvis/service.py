@@ -892,7 +892,7 @@ class AssistantService:
         if m is None:
             return
         try:
-            m.log_turn(text, reply, lang)
+            m.log_turn(text, reply, lang, embed=chat)  # commands: no recall model load
             if chat and self.suggestions_on() and m.sounds_personal(text):
                 for sug in m.suggest(text):
                     self.bus.publish({"type": "memory_suggestion", "id": sug.id, "text": sug.text})

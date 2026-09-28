@@ -95,6 +95,9 @@ class Settings(BaseSettings):
     ollama_host: str = "127.0.0.1:11434"
     ollama_models_dir: Path | None = _default_ollama_models_dir()  # None = Ollama's own default
     llm_autostart: bool = True  # start `ollama serve` if no server is running
+    # load the language model at launch; off: it loads on the first request that needs it (most
+    # everyday commands never do) and unloads after its keep-alive, so it doesn't hold memory all day
+    llm_preload: bool = False
     llm_timeout_s: float = 90.0
 
     # Memory

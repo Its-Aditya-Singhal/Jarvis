@@ -97,11 +97,12 @@ class Brain:
             return False
         if self.model not in self.installed_models():
             return False
-        try:
-            self.client.warm(self.model)
-            self.prime()
-        except LLMUnavailable:
-            return False
+        if self.s.llm_preload:
+            try:
+                self.client.warm(self.model)
+                self.prime()
+            except LLMUnavailable:
+                return False
         self.tidy()
         return True
 

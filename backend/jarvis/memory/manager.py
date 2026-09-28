@@ -148,18 +148,17 @@ class Memory:
         return self.embed_error is None
 
     def start(self) -> None:
-        """Purge expired history and index anything stored without an embedding."""
+        """Purge expired history and index remembered facts stored without an embedding."""
         self.purge()
-        vecs = self.embed(["warm up"])
-        if vecs is None:
+        missing = [f for f in self.facts() if f.embedding is None]
+        if not missing:
+            return  # nothing to index: don't load the recall model at launch
+        if self.embed(["warm up"]) is None:
             log.info("memory recall without embeddings: %s", self.embed_error)
             return
-        for f in self.facts():
+        for f in missing:
             if f.embedding is None and (v := self.embed([f.text])):
                 self.store.set_fact_embedding(f.id, v[0])
-        for t in self.store.turns(limit=500):
-            if t.embedding is None and t.role == "you" and (v := self.embed([t.text])):
-                self.store.set_turn_embedding(t.id, v[0])
         self._invalidate()
 
     # -- facts --------------------------------------------------------------------
@@ -277,12 +276,14 @@ class Memory:
             self.on_change()
         return n
 
-    def log_turn(self, you: str, reply: str, lang: str) -> None:
-        """Keep one exchange (text only). Called after the reply is sent."""
+    def log_turn(self, you: str, reply: str, lang: str, embed: bool = True) -> None:
+        """Keep one exchange (text only). Called after the reply is sent. ``embed`` False (an
+        everyday command): stored without an embedding, so the recall model isn't loaded just
+        for "turn the volume up"; history search finds it by its words."""
         if self.retention == "off" or not you.strip():
             return
         self._maybe_purge()
-        vec = self.embed([you])
+        vec = self.embed([you]) if embed else None
         self.store.add_turn("you", you, lang, vec[0] if vec else None)
         if reply.strip():
             self.store.add_turn("assistant", reply, lang)

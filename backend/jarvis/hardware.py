@@ -21,7 +21,9 @@ class Profile:
     llm_model: str  # default language model (the owner can still choose another)
     num_ctx: int  # the language model's context: its memory grows with it; the command prompt alone is ~3K tokens
     num_parallel: int  # requests Ollama serves at once: each keeps its own context memory
-    chat_keep_alive: str  # how long Ollama keeps the language model loaded after a request
+    # how long Ollama keeps the language model loaded after a request: short, because everyday
+    # commands never need it and a loaded model holds gigabytes of memory
+    chat_keep_alive: str
     embed_keep_alive: str  # ... and the memory-recall model
     face_det_size: int  # face detector input: a laptop camera's face is large, 480 finds it
     threads: int  # CPU threads per on-device model (speech, voice, face)
@@ -31,8 +33,8 @@ class Profile:
     max_face_fps: float  # face analysis rate cap (each frame costs CPU)
 
 
-STANDARD = Profile("standard", "qwen2.5:7b", 6144, 2, "20m", "10m", 640, 8, 88.0, 120.0, True, 12.0)
-SMALL = Profile("small", "qwen2.5:3b", 5120, 1, "5m", "2m", 480, 4, 80.0, 45.0, False, 4.0)
+STANDARD = Profile("standard", "qwen2.5:7b", 6144, 2, "3m", "1m", 640, 8, 88.0, 120.0, True, 12.0)
+SMALL = Profile("small", "qwen2.5:3b", 5120, 1, "90s", "30s", 480, 4, 80.0, 45.0, False, 4.0)
 
 SMALL_MAX_GB = 12.0  # 8 GB Macs (and anything below 12 GB) get the small profile
 
