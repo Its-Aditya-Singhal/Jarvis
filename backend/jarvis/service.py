@@ -801,7 +801,8 @@ class AssistantService:
 
         self._expire_pending(now)
         if self.prefs.get("security.camera") == "once" and self._face_session is None \
-                and self.effective_state() == "approved" and self.trust(now).level >= 1:
+                and self.effective_state() == "approved" and not self.auth.snapshot().bystander \
+                and self.trust(now).level >= 1:  # the owner alone in view: the camera then stops watching
             self._close_camera_after_face(usable, sims)
             return
         changed = self.effective_state() != prev_effective
@@ -1201,6 +1202,7 @@ class AssistantService:
         return ToolResult(f"privacy.{action}", True, say, data)
 
     def _grant_reenroll(self, kind: str) -> ToolResult:
+        self.end_face_session("Face re-scan")  # face once: the scan needs the camera back on
         self._reenroll = (kind, self.clock() + REENROLL_GRANT_S)
         self.bus.publish({"type": "face_reenroll", "kind": kind})
         return self._done("reenroll_face", "Okay — look at the camera and follow the prompts to re-scan your face.",
@@ -1245,7 +1247,10 @@ class AssistantService:
         return "I need to recognise your voice first. Please say that again, a little longer."
 
     def _stop_face(self) -> None:
-        self._face_session = None
+        if self._face_session is not None:
+            # face once had switched the camera off; the next scan (or setup) needs it
+            self._face_session = None
+            self.camera.start()
         with self._lock:
             self.enrollment = None
             self.verifier = None
@@ -1279,11 +1284,13 @@ class AssistantService:
         """Back to the camera: the next command needs a fresh face check."""
         if self._face_session is None:
             return
-        self._face_session = None
         self.bus.log(f"{reason} — face check needed again", "warn")
         self.camera.start()
+        # fresh face state first, then drop the launch result: in between, the stale
+        # "approved" left from launch must not count
         if self.mode == "verifying" or (self.setup_complete and self.face_enrolled):
             self.begin_verification()
+        self._face_session = None
         self._push_state()
 
     def _delete_face(self) -> ToolResult:

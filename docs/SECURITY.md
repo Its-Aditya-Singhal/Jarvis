@@ -39,10 +39,12 @@ without voice evidence. "Voice only" restores the rule that L2 needs your voice.
 Anyone at your unlocked keyboard can then act as you, so lock the Mac when you leave.
 
 **Camera: face once (the default).** The face check with liveness runs when
-JARVIS starts. Once it passes, the camera switches off until JARVIS restarts, the
-screen is locked through JARVIS, or Settings → Camera is set to "Face all the time".
+JARVIS starts. Once it passes with nobody else in view, the camera switches off until
+JARVIS restarts, the screen is locked through JARVIS, a face re-scan is confirmed, or
+Settings → Camera is set to "Face all the time".
 Until then, L1 stands on that launch check, and L2 and L3 still need your verified
-voice within the last 60 s. The trade-off: with the camera off, JARVIS can't see
+voice within the last 60 s, or a typed command or Confirm click while typed commands
+are on. The trade-off: with the camera off, JARVIS can't see
 you walk away or someone else step into view, so those locks apply only with
 "Face all the time".
 

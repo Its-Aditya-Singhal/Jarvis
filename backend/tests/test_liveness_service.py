@@ -189,3 +189,58 @@ def test_face_once_ends_when_the_camera_is_set_to_stay_on(settings):
     assert cam.starts == 1 and not svc.auth_public()["face_once"]
     t = drive(svc, engine, t, [[face(emb=STRANGER)]] * 8)  # watched again: a stranger alone is denied
     assert svc.trust().level == 0
+
+
+def _face_once(settings):
+    svc, engine, db = make_service(settings, camera="once")
+    cam = svc.camera = CountingCamera()
+    t = do_challenge(svc, engine, drive(svc, engine, 0.0, [face()] * 6))
+    assert svc.auth_public()["face_once"]
+    return svc, engine, db, cam, t
+
+
+def test_face_once_rescan_turns_the_camera_back_on(settings):
+    svc, engine, db, cam, t = _face_once(settings)
+    svc._grant_reenroll("redo")  # confirmed in Settings → Identity → Re-scan face
+    assert cam.starts == 1 and not svc.auth_public()["face_once"]
+    ok, _ = svc.face_enroll_allowed()
+    assert ok and svc.mode == "verifying"
+    # the launch check no longer counts: a stranger now at the camera is not the owner
+    drive(svc, engine, t, [[face(emb=STRANGER)]] * 8)
+    assert svc.trust().level == 0
+
+
+def test_face_once_delete_face_and_factory_reset_turn_the_camera_back_on(settings):
+    svc, engine, db, cam, t = _face_once(settings)
+    svc._delete_face()
+    assert cam.starts == 1 and svc.mode == "idle" and not svc.auth_public()["face_once"]
+    svc2, engine2, db2, cam2, t2 = _face_once(settings)
+    svc2._factory_reset()
+    assert cam2.starts == 1
+
+
+def test_face_once_waits_until_nobody_else_is_in_view(settings):
+    svc, engine, db = make_service(settings, camera="once")
+    cam = svc.camera = CountingCamera()
+    both = lambda **kw: [face(**kw), face(emb=STRANGER, width=90)]
+    t = drive(svc, engine, 0.0, [both()] * 6)
+    for _ in range(10):  # the challenge, with someone else in view throughout
+        if svc.live.state != "challenge":
+            break
+        step = svc.live.session.step
+        if step == "blink":
+            seq = [both(eye=e) for e in (0.35, 0.35, 0.35, 0.2, 0.35, 0.35, 0.2, 0.35)]
+        elif step == "closer":
+            seq = [both(width=160 * (1 + 0.1 * i)) for i in range(5)]
+        else:
+            sign = 1 if step == "turn_left" else -1
+            seq = [both(yaw=sign * 7 * i) for i in range(5)]
+        t = drive(svc, engine, t, seq)
+    assert svc.effective_state() == "approved"
+    assert not svc.auth_public()["face_once"] and cam.stops == 0  # still watching
+    t = drive(svc, engine, t, [face()] * 4)  # the other person leaves
+    import time as _time
+    end = _time.monotonic() + 2
+    while cam.stops == 0 and _time.monotonic() < end:
+        _time.sleep(0.01)
+    assert svc.auth_public()["face_once"] and cam.stops == 1
