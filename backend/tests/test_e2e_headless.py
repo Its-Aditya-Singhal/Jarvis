@@ -15,9 +15,11 @@ H = {"Authorization": "Bearer test-token"}
 
 
 class Harness:
-    def __init__(self, settings, ollama=None):
+    def __init__(self, settings, ollama=None, camera="always"):
         self.app, self.rig = build(settings, ollama=ollama)
         self.svc = self.app.state.svc
+        # most of these tests watch the camera the whole time (strangers, walking away)
+        self.svc.prefs.set("security.camera", camera)
         self.scene = self.rig.scene
         self.svc._loop = lambda: None  # the test drives the face loop, on its own clock
         self.skew = 0.0

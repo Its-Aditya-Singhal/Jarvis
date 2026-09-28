@@ -71,7 +71,10 @@ scripts/build_dmg.sh
 - [ ] Unlock: face → liveness challenge → L1; speak → L2
 - [ ] A photo or phone screen of you: SPOOF DETECTED, logged
 - [ ] Someone else in view: capped at L1; a stranger alone: AUTHENTICATION DENIED
-- [ ] Walk away: locks after the chosen time; come back: unlocks
+- [ ] Face once (default): after the unlock the camera light goes off and the
+      preview says FACE VERIFIED · CAMERA OFF; voice commands still work
+- [ ] Settings → Camera → Face all the time: the camera comes back on
+- [ ] Walk away (Face all the time): locks after the chosen time; come back: unlocks
 - [ ] Wake word with your chosen name, in English and Hindi
 
 ## 6. Every command (say each once)

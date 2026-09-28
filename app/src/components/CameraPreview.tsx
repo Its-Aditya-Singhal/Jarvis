@@ -2,9 +2,20 @@ import { usePreview, useStore } from "../lib/store";
 
 /** Low-res mirrored camera view with face brackets. Nothing is stored. */
 export default function CameraPreview({ round = false, className = "" }: { round?: boolean; className?: string }) {
-  const { status } = useStore();
+  const { status, auth } = useStore();
   const preview = usePreview();
   const cam = status?.camera;
+
+  if (auth?.face_once) {
+    return (
+      <div className={`camera ${round ? "round" : ""} ${className}`}>
+        <div className="camera-empty camera-off">
+          <span className="camera-off-title">FACE VERIFIED · CAMERA OFF</span>
+          <span>Your voice keeps you signed in until JARVIS restarts.</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`camera ${round ? "round" : ""} ${className}`}>

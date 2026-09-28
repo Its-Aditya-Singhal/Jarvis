@@ -162,6 +162,8 @@ input { user-select: text; }
 .scanline { position: absolute; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, transparent, var(--accent), transparent); opacity: 0.6; animation: scan 2.6s linear infinite; }
 @keyframes scan { from { top: 0; } to { top: 100%; } }
 .camera-empty { height: 100%; min-height: 120px; display: flex; align-items: center; justify-content: center; text-align: center; padding: 16px; color: var(--muted); font-size: 12px; }
+.camera-off { flex-direction: column; gap: 6px; }
+.camera-off-title { font-family: var(--mono); font-size: 10px; letter-spacing: 0.22em; color: var(--ok); }
 
 /* ---- views ---- */
 .view { flex: 1; padding: 8px 8px 0; overflow-y: auto; }

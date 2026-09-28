@@ -94,6 +94,7 @@ export interface AuthPublic {
   state: AuthState;
   reason: string;
   faces: number;
+  face_once?: boolean; // face checked at launch, camera off, voice from here on
   face_confidence?: number | null; // only present while the owner is verified
   bystander?: boolean;
   voice?: VoicePublic;

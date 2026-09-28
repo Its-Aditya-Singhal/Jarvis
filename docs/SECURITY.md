@@ -32,6 +32,14 @@ Every action is authorised from live evidence at the moment it runs (see
 | L2 ACT | L1 + your voice verified in the last 60 s, no unknown voice since, nobody else in view | alarms, notes, opening apps, controlling the Mac, typing, Ask Claude/ChatGPT |
 | L3 CONFIRM | L2 + liveness in the last 10 min + an explicit yes (verified voice or a click) within 30 s | deleting notes, events, memories, moving files to the Trash, privacy actions |
 
+**Camera: face once (the default).** The face check with liveness runs when
+JARVIS starts. Once it passes, the camera switches off until JARVIS restarts, the
+screen is locked through JARVIS, or Settings → Camera is set to "Face all the time".
+Until then, L1 stands on that launch check, and L2 and L3 still need your verified
+voice within the last 60 s. The trade-off: with the camera off, JARVIS can't see
+you walk away or someone else step into view, so those locks apply only with
+"Face all the time".
+
 Level-3 tools are never run directly: the runner plans them, shows exactly what
 will be affected, and executes only after the confirmation. A confirmation is
 single-use and bound to that plan.

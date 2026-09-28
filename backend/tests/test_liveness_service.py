@@ -49,12 +49,13 @@ def face(yaw=0.0, width=160.0, eye=0.35, live=0.95, emb=OWNER):
     )
 
 
-def make_service(settings):
+def make_service(settings, camera="always"):
     store = TemplateStore(settings.templates_dir, StaticKeyProvider())
     store.save("face", np.stack([OWNER] * 3))
     db = Database(settings.db_path)
     engine = ScriptedEngine()
     svc = AssistantService(settings, db, store, EventBus(), engine, NoisyCamera())
+    svc.prefs.set("security.camera", camera)
     assert svc.begin_verification()
     return svc, engine, db
 
@@ -145,3 +146,46 @@ def test_fusion_veto_shows_as_scanning(settings):
     pub = svc.auth_public()
     assert pub["state"] == "scanning" and pub["level"] == 0 and not svc.owner_verified()
     assert pub["reason"] == "Combined confidence is too low"
+
+
+class CountingCamera(NoisyCamera):
+    def __init__(self):
+        self.starts, self.stops = 0, 0
+
+    def start(self):
+        self.starts += 1
+
+    def stop(self):
+        self.stops += 1
+
+
+def test_face_once_switches_the_camera_off_after_the_launch_check(settings):
+    import time as _time
+
+    svc, engine, db = make_service(settings, camera="once")
+    cam = svc.camera = CountingCamera()
+    t = drive(svc, engine, 0.0, [face()] * 6)
+    assert svc.auth_public()["level"] == 0  # the face alone isn't enough: liveness first
+    t = do_challenge(svc, engine, t)
+    end = _time.monotonic() + 2
+    while cam.stops == 0 and _time.monotonic() < end:  # stopped from a background thread
+        _time.sleep(0.01)
+    assert cam.stops == 1
+    pub = svc.auth_public()
+    assert pub["face_once"] and pub["state"] == "approved" and pub["level"] == 2
+    # the camera is off: later frames aren't analysed, and nothing seen changes the level
+    engine.face = [face(), face(emb=STRANGER, width=120)]
+    t = drive(svc, engine, t + 600, [[face(emb=STRANGER)]] * 20)
+    assert svc.trust().level == 2
+    assert any(e["kind"] == "face_session" for e in db.security_events())
+
+
+def test_face_once_ends_when_the_camera_is_set_to_stay_on(settings):
+    svc, engine, db = make_service(settings, camera="once")
+    cam = svc.camera = CountingCamera()
+    t = do_challenge(svc, engine, drive(svc, engine, 0.0, [face()] * 6))
+    assert svc.auth_public()["face_once"]
+    svc.set_pref("security.camera", "always")
+    assert cam.starts == 1 and not svc.auth_public()["face_once"]
+    t = drive(svc, engine, t, [[face(emb=STRANGER)]] * 8)  # watched again: a stranger alone is denied
+    assert svc.trust().level == 0

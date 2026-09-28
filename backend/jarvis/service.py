@@ -69,6 +69,7 @@ def notify(title: str, text: str) -> None:
 
 FACE = "face"
 MIN_OWNER_SAMPLES = 10  # before a personal retrain makes sense
+PREVIEW_FPS = 12.0  # the on-screen camera view: smooth, independent of the (slower) face analysis
 IDLE_FPS = 2.0  # nobody in view for a while: look less often (the owner is picked up within 0.5 s)
 NO_FACE_IDLE_S = 10.0
 LOW_MEMORY_PCT = profile().low_memory_pct  # system memory use at which idle models are unloaded
@@ -138,6 +139,9 @@ class AssistantService:
         self.frozen = FrozenFeedDetector()
         self._frozen = False
         self._unlocked = False  # greeted in this presence session
+        # "Face once" mode: what the face check at launch established; the camera is off after it
+        self._face_session: dict | None = None
+        self._boxes: list[list[float]] = []  # face boxes of the last analysed frame, for the preview
         self._stop = threading.Event()
         self._life = threading.Lock()  # start() vs stop(): nothing is switched on once stopping
         self._thread: threading.Thread | None = None
@@ -238,6 +242,8 @@ class AssistantService:
         if key.startswith("security."):
             self._apply_security_settings()
             self.db.add_security_event("settings_changed", f"{key} set to {v}")
+            if key == "security.camera" and v == "always":
+                self.end_face_session("Camera set to stay on")
         elif key.startswith("voice."):
             self._apply_voice_settings()
         elif key == "perf.mode":
@@ -357,6 +363,12 @@ class AssistantService:
         snap = a.snapshot()
         ev.others = max(0, snap.faces - 1)
         ev.bystander = snap.bystander
+        if (fs := self._face_session) is not None and self.mode == "verifying":
+            # the camera is off: the face and liveness evidence is the launch check's
+            ev.face_sim, ev.face_age_s, ev.face_quality = fs["sim"], 0.0, fs["quality"]
+            if self.s.liveness_enabled:
+                ev.liveness, ev.live_score, ev.live_age_s = "passed", fs["live_score"], 0.0
+            ev.others, ev.bystander = 0, False
         v = self.voice
         if v is not None and v.mode == "verifying":
             if v.auth.last is not None:
@@ -426,6 +438,8 @@ class AssistantService:
         """
         if self.mode != "verifying":
             return "no_profile"
+        if self._face_session is not None:
+            return "approved"
         face = self.auth.state
         if not self.s.liveness_enabled:
             return face
@@ -508,6 +522,7 @@ class AssistantService:
                 self.voice.begin_verification()  # face profile deleted: the voice can unlock a re-scan
             self._thread = threading.Thread(target=self._loop, name="face-loop", daemon=True)
             self._thread.start()
+            threading.Thread(target=self._preview_loop, name="preview", daemon=True).start()
 
         if not self._unless_stopping(begin_seeing):
             return
@@ -662,11 +677,22 @@ class AssistantService:
                 log.exception("face loop tick failed")
             self._stop.wait(max(0.0, period - (time.monotonic() - t0)))
 
+    def _preview_loop(self) -> None:
+        """The camera view on screen, at its own steady rate with the latest face boxes, so
+        it stays smooth however long each face analysis takes."""
+        period = 1.0 / PREVIEW_FPS
+        while not self._stop.wait(period):
+            frame = self.camera.latest()
+            if frame is not None and self.bus.has_subscribers:
+                try:
+                    self._push_preview(frame, self._boxes)
+                except Exception:
+                    log.exception("preview failed")
+
     def _tick(self, now: float) -> None:
         frame = self.camera.latest()
-        if frame is None or not self.engine.ready or self.mode == "idle":
-            if self.mode == "idle" and frame is not None and self.bus.has_subscribers:
-                self._push_preview(frame, [])
+        if frame is None or not self.engine.ready or self.mode == "idle" or self._face_session is not None:
+            self._boxes = []  # (face once: the camera is off; nothing to analyse until the session ends)
             return
         if self.mode == "verifying":
             frozen = self.frozen.update(frame, now)
@@ -679,8 +705,8 @@ class AssistantService:
         faces = self.engine.analyze(frame)
         if faces:
             self._last_face_t = time.monotonic()
-        if self.bus.has_subscribers:
-            self._push_preview(frame, faces)
+        h, w = frame.shape[:2]
+        self._boxes = [[float(v) for v in (f.bbox / np.array([w, h, w, h]))] for f in faces]
         if self.mode == "enrolling":
             self._tick_enrollment(faces, now)
         elif self.mode == "verifying":
@@ -746,6 +772,10 @@ class AssistantService:
                 self._handle_liveness(kind, detail, sims)
 
         self._expire_pending(now)
+        if self.prefs.get("security.camera") == "once" and self._face_session is None \
+                and self.effective_state() == "approved" and self.trust(now).level >= 1:
+            self._close_camera_after_face(usable, sims)
+            return
         changed = self.effective_state() != prev_effective
         # challenges push faster so the countdown and hints stay live
         interval = 0.25 if self.live.state == "challenge" else 1.0
@@ -885,6 +915,8 @@ class AssistantService:
             self.bus.log(f"Tool {a.tool}: {'done' if res.ok else 'failed'}", "ok" if res.ok else "warn")
             results.append(res)
             did_level2 |= res.ok and need >= 2
+            if res.ok and a.tool == "system.lock":
+                self.end_face_session("Screen locked")
         if did_level2:
             self.record_sample(1, "owner_command")
         return results
@@ -1081,6 +1113,7 @@ class AssistantService:
         return "I need to recognise your voice first. Please say that again, a little longer."
 
     def _stop_face(self) -> None:
+        self._face_session = None
         with self._lock:
             self.enrollment = None
             self.verifier = None
@@ -1090,6 +1123,36 @@ class AssistantService:
             self.mode = "idle"
         if self.brain is not None:
             self.brain.clear()
+
+    def _close_camera_after_face(self, usable: list[FaceObservation], sims: list[float]) -> None:
+        """Face once mode: the owner's face and liveness are proven for this launch. Keep that
+        result, switch the camera off, and let the voice carry every later command."""
+        best = usable[int(np.argmax(sims))] if sims else None
+        self._face_session = {
+            "sim": self.auth.smoothed,
+            "quality": self._face_quality,
+            "live_score": self.live.live_score if self.s.liveness_enabled else None,
+            "confidence_sim": self.auth.snapshot().confidence_sim,
+            "t": self.clock(),
+        }
+        self._boxes = []
+        threading.Thread(target=self.camera.stop, name="camera-off", daemon=True).start()
+        self.db.add_security_event("face_session", "Face verified at launch; camera off, voice from here on")
+        self.bus.log("Face verified — camera off until JARVIS restarts; your voice keeps you signed in", "ok")
+        if best is not None and not self._unlocked:
+            self._greet()
+        self._push_state()
+
+    def end_face_session(self, reason: str) -> None:
+        """Back to the camera: the next command needs a fresh face check."""
+        if self._face_session is None:
+            return
+        self._face_session = None
+        self.bus.log(f"{reason} — face check needed again", "warn")
+        self.camera.start()
+        if self.mode == "verifying" or (self.setup_complete and self.face_enrolled):
+            self.begin_verification()
+        self._push_state()
 
     def _delete_face(self) -> ToolResult:
         self._stop_face()
@@ -1255,7 +1318,11 @@ class AssistantService:
             # the fusion score vetoed the match
             state, reason = "scanning", REASONS[trust.blockers.get(1, "low_confidence")]
         owner = trust.level >= 1
-        out = {"state": state, "reason": reason, "faces": snap.faces, "level": trust.level}
+        fs = self._face_session
+        if fs is not None and state == "approved":
+            reason = "Face verified at launch · camera off · voice from here on"
+        out = {"state": state, "reason": reason, "faces": snap.faces, "level": trust.level,
+               "face_once": fs is not None}
         if owner:
             out["trust"] = {
                 "level": trust.level,
@@ -1270,10 +1337,9 @@ class AssistantService:
             }
         if owner:
             # values are only revealed to the verified owner
+            csim = fs["confidence_sim"] if fs is not None else snap.confidence_sim
             out["face_confidence"] = (
-                None
-                if snap.confidence_sim is None
-                else round(confidence(snap.confidence_sim, self.s.face_threshold), 3)
+                None if csim is None else round(confidence(csim, self.s.face_threshold), 3)
             )
             out["bystander"] = snap.bystander
         if self.s.liveness_enabled:
@@ -1288,14 +1354,13 @@ class AssistantService:
         self._last_state_push = time.monotonic()
         self.bus.publish({"type": "auth", **self.auth_public()})
 
-    def _push_preview(self, frame: np.ndarray, faces: list[FaceObservation]) -> None:
+    def _push_preview(self, frame: np.ndarray, boxes: list[list[float]]) -> None:
         h, w = frame.shape[:2]
         scale = self.s.preview_width / w
         small = cv2.resize(frame, (self.s.preview_width, int(h * scale)))
         ok, jpg = cv2.imencode(".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, 60])
         if not ok:
             return
-        boxes = [[float(v) for v in (f.bbox / np.array([w, h, w, h]))] for f in faces]
         self.bus.publish(
             {
                 "type": "preview",

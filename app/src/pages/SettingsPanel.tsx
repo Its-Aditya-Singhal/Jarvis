@@ -140,7 +140,8 @@ export default function SettingsPanel() {
           <div className="panel-title">SECURITY</div>
           {ctl("security.face", "Face match")}
           {ctl("security.voice", "Voice match")}
-          {ctl("security.away_lock_s", "Lock when I step away")}
+          {ctl("security.camera", "Camera")}
+          {ctl("security.away_lock_s", "Lock when I step away (camera on)")}
           {ctl("security.liveness", "Random liveness checks")}
           <p className="muted small">
             Only safe presets are offered. Tightening needs level 2; loosening also needs a level-3 confirmation.
