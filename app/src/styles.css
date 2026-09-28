@@ -518,3 +518,5 @@ kbd { font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em; color: 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }
+/* a floating confirmation covers the bottom of a view: leave room to scroll past it */
+.center:has(.confirm-float .confirm) .view { padding-bottom: 320px; }
