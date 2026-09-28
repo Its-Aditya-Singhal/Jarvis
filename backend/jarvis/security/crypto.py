@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import base64
 import os
+import threading
 from typing import Protocol
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -35,8 +36,18 @@ class KeychainKeyProvider:
         self.account = account
         self._key: bytes | None = None
         self._denied = False
+        # the first get_key() may create the key: two threads racing there (a template and a
+        # database row saved together) would each store a different key, and data sealed
+        # with the one overwritten in the Keychain could never be decrypted again
+        self._lock = threading.Lock()
 
     def get_key(self) -> bytes:
+        if self._key is not None:
+            return self._key
+        with self._lock:
+            return self._get_key()
+
+    def _get_key(self) -> bytes:
         import keyring
         from keyring.errors import KeyringLocked
 
@@ -68,11 +79,12 @@ class KeychainKeyProvider:
         import keyring
         from keyring.errors import PasswordDeleteError
 
-        self._key = None
-        try:
-            keyring.delete_password(self.service, self.account)
-        except PasswordDeleteError:
-            pass
+        with self._lock:
+            self._key = None
+            try:
+                keyring.delete_password(self.service, self.account)
+            except PasswordDeleteError:
+                pass
 
 
 class StaticKeyProvider:

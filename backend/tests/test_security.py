@@ -1,3 +1,5 @@
+import base64
+
 import numpy as np
 import pytest
 from cryptography.exceptions import InvalidTag
@@ -121,3 +123,31 @@ def test_keychain_denial_is_not_asked_again(monkeypatch):
             keys.get_key()
     assert fake.reads == 1
     assert fake.store == {}  # a denial never creates a replacement key
+
+
+def test_first_key_is_created_once_when_two_threads_need_it(monkeypatch):
+    import threading
+    import time
+
+    import keyring
+
+    from jarvis.security.crypto import KeychainKeyProvider
+
+    fake = _FakeKeyring()
+
+    def slow_get(service, account):
+        value = fake.get_password(service, account)
+        time.sleep(0.05)  # the Keychain answers slowly (and may show a prompt)
+        return value
+
+    monkeypatch.setattr(keyring, "get_password", slow_get)
+    monkeypatch.setattr(keyring, "set_password", fake.set_password)
+    keys = KeychainKeyProvider("svc")
+    got = []
+    threads = [threading.Thread(target=lambda: got.append(keys.get_key())) for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    stored = base64.b64decode(fake.store[("svc", "template-key")])
+    assert len(set(got)) == 1 and got[0] == stored  # everything sealed now stays readable
