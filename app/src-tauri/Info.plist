@@ -6,6 +6,13 @@
   <string>The camera is used locally to verify that you are the owner. No images leave this Mac.</string>
   <key>NSMicrophoneUsageDescription</key>
   <string>The microphone is used locally for voice commands and voice verification.</string>
+  <!-- file search (Spotlight, names only) in the folders chosen in Settings -->
+  <key>NSDesktopFolderUsageDescription</key>
+  <string>File search looks up file names on your Desktop when you ask for a file. Nothing leaves this Mac.</string>
+  <key>NSDocumentsFolderUsageDescription</key>
+  <string>File search looks up file names in Documents when you ask for a file. Nothing leaves this Mac.</string>
+  <key>NSDownloadsFolderUsageDescription</key>
+  <string>File search looks up file names in Downloads when you ask for a file. Nothing leaves this Mac.</string>
   <key>NSAppleEventsUsageDescription</key>
   <string>Voice commands control other apps on this Mac, such as switching dark mode, typing dictated text and playing music.</string>
 </dict>
