@@ -151,3 +151,42 @@ def test_first_key_is_created_once_when_two_threads_need_it(monkeypatch):
         t.join()
     stored = base64.b64decode(fake.store[("svc", "template-key")])
     assert len(set(got)) == 1 and got[0] == stored  # everything sealed now stays readable
+
+
+def test_has_key_survives_a_locked_keychain(monkeypatch):
+    import keyring
+
+    from jarvis.security.crypto import KeychainKeyProvider
+
+    fake = _FakeKeyring(deny=True)
+    monkeypatch.setattr(keyring, "get_password", fake.get_password)
+    assert KeychainKeyProvider("svc").has_key() is True
+
+
+def test_template_files_are_never_readable_by_others(tmp_path, monkeypatch):
+    import os
+    import stat
+
+    store = TemplateStore(tmp_path / "templates", StaticKeyProvider())
+    seen = []
+    real_replace = type(tmp_path).replace
+
+    def spy(self, target):  # the temporary file, just before it is moved into place
+        seen.append(stat.S_IMODE(os.stat(self).st_mode))
+        return real_replace(self, target)
+
+    monkeypatch.setattr(type(tmp_path), "replace", spy)
+    (tmp_path / "templates").mkdir()
+    (tmp_path / "templates" / "face.tmp").write_bytes(b"leftover")
+    store.save("face", np.ones((2, 4), np.float32))
+    assert seen == [0o600]
+    assert not (tmp_path / "templates" / "face.tmp").exists()
+    np.testing.assert_array_equal(store.load("face"), np.ones((2, 4), np.float32))
+
+
+def test_security_events_limit_is_bounded():
+    d = Database(":memory:")
+    for i in range(5):
+        d.add_security_event("x", str(i))
+    assert len(d.security_events(-1)) == 0 and len(d.security_events(0)) == 0
+    assert len(d.security_events(3)) == 3

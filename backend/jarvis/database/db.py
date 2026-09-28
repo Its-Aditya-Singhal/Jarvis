@@ -116,6 +116,7 @@ class Database:
             return int(cur.lastrowid or 0)
 
     def security_events(self, limit: int = 100) -> list[dict[str, Any]]:
+        limit = max(0, min(int(limit), MAX_SECURITY_EVENTS))  # SQLite reads LIMIT -1 as "everything"
         with self._lock:
             rows = self._conn.execute(
                 "SELECT * FROM security_events ORDER BY id DESC LIMIT ?", (limit,)

@@ -865,7 +865,7 @@ def create_app(
         return r
 
     @app.get("/api/security/events", dependencies=auth + [Depends(require_owner)])
-    def security_events(limit: int = 50):
+    def security_events(limit: int = Query(default=50, ge=1, le=5000)):
         return [
             {
                 "id": e["id"],

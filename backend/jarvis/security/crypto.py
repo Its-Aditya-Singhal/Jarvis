@@ -70,10 +70,14 @@ class KeychainKeyProvider:
 
     def has_key(self) -> bool:
         import keyring
+        from keyring.errors import KeyringError
 
         if self._key is not None or self._denied:
             return True
-        return keyring.get_password(self.service, self.account) is not None
+        try:
+            return keyring.get_password(self.service, self.account) is not None
+        except KeyringError:  # locked or denied: the privacy page must still open
+            return True
 
     def delete_key(self) -> None:
         import keyring

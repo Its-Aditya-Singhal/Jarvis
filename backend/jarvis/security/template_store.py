@@ -23,14 +23,23 @@ class TemplateStore:
         return self._path(modality).exists()
 
     def save(self, modality: str, embeddings: np.ndarray) -> None:
-        self.directory.mkdir(parents=True, exist_ok=True)
+        self.directory.mkdir(mode=0o700, parents=True, exist_ok=True)
         buf = io.BytesIO()
         np.save(buf, np.asarray(embeddings, dtype=np.float32), allow_pickle=False)
         blob = seal(self.keys.get_key(), buf.getvalue(), modality.encode())
         tmp = self._path(modality).with_suffix(".tmp")
-        tmp.write_bytes(blob)
-        os.chmod(tmp, 0o600)
-        tmp.replace(self._path(modality))
+        tmp.unlink(missing_ok=True)  # a leftover (or a planted link) is never written through
+        # owner-only from the moment it exists, then moved into place in one step
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write(blob)
+                f.flush()
+                os.fsync(f.fileno())
+            tmp.replace(self._path(modality))
+        except BaseException:
+            tmp.unlink(missing_ok=True)
+            raise
 
     def load(self, modality: str) -> np.ndarray | None:
         path = self._path(modality)
