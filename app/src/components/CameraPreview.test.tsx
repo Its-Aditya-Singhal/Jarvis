@@ -32,3 +32,27 @@ it("camera frames re-render only the camera view, not the rest of the app", () =
   expect(barRenders).toBe(before);
   expect(screen.getByAltText("Camera preview")).toHaveAttribute("src", "data:image/jpeg;base64,frame9");
 });
+
+it("drops the last frame once the camera stops or the backend goes away", () => {
+  render(<CameraPreview />);
+  fake.setStatus({});
+  fake.emit({ type: "preview", jpeg: "frame", boxes: [] });
+  expect(screen.getByAltText("Camera preview")).toBeInTheDocument();
+
+  fake.setStatus({ camera: { status: "off", error: null } });
+  expect(screen.queryByAltText("Camera preview")).not.toBeInTheDocument();
+  expect(screen.getByText("Camera off")).toBeInTheDocument();
+
+  fake.setStatus({ camera: { status: "active", error: null } });
+  fake.emit({ type: "preview", jpeg: "frame2", boxes: [] });
+  expect(screen.getByAltText("Camera preview")).toHaveAttribute("src", "data:image/jpeg;base64,frame2");
+  fake.connection(false);
+  expect(screen.queryByAltText("Camera preview")).not.toBeInTheDocument();
+});
+
+it("the face-once card uses the assistant's own name", () => {
+  render(<CameraPreview />);
+  fake.setStatus({ assistant_name: "FRIDAY" });
+  fake.emit({ type: "auth", state: "approved", reason: "", faces: 1, face_once: true });
+  expect(screen.getByText(/until FRIDAY restarts/)).toBeInTheDocument();
+});
