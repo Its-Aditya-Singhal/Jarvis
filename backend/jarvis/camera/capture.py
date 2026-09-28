@@ -43,23 +43,35 @@ class Camera:
         self._frame_t = 0.0
         self._lock = threading.Lock()
         self._stop = threading.Event()
+        self._life = threading.Lock()  # start() vs stop()
         self._thread: threading.Thread | None = None
 
     def start(self) -> None:
-        if self._thread and self._thread.is_alive():
-            return
-        self._stop.clear()
-        self.status = "starting"
-        self._thread = threading.Thread(target=self._run, name="camera", daemon=True)
-        self._thread.start()
+        with self._life:
+            if self._thread and self._thread.is_alive():
+                if not self._stop.is_set():
+                    return  # already running
+                # still shutting down (stop() timed out, or it runs on another thread):
+                # wait for it, or the old thread would exit and leave the camera off
+                self._thread.join(timeout=3)
+                if self._thread.is_alive():
+                    log.warning("previous camera thread still running; starting a new one")
+            stop = self._stop = threading.Event()
+            self.status = "starting"
+            self._thread = threading.Thread(target=self._run, args=(stop,), name="camera", daemon=True)
+            self._thread.start()
 
     def stop(self) -> None:
-        self._stop.set()
-        if self._thread:
-            self._thread.join(timeout=2)
-        self.status = "off"
-        with self._lock:
-            self._frame = None
+        with self._life:
+            self._stop.set()
+            thread = self._thread
+        if thread:
+            thread.join(timeout=2)
+        with self._life:
+            if self._thread is thread:  # not restarted meanwhile
+                self.status = "off"
+                with self._lock:
+                    self._frame = None
 
     def latest(self, max_age_s: float = 1.0) -> np.ndarray | None:
         with self._lock:
@@ -78,10 +90,11 @@ class Camera:
         cap.set(cv2.CAP_PROP_FPS, 15)  # analysis runs at 4-12 fps; fewer frames = less CPU and power
         return cap
 
-    def _run(self) -> None:
+    def _run(self, stop: threading.Event) -> None:
+        # each thread has its own stop event: a restart can't revive a thread being stopped
         cap = None
         failures = 0
-        while not self._stop.is_set():
+        while not stop.is_set():
             if cap is None:
                 cap = self._open()
                 if cap is None:
@@ -89,7 +102,7 @@ class Camera:
                     self.error = (
                         "Camera unavailable. Check System Settings → Privacy & Security → Camera."
                     )
-                    self._stop.wait(3.0)
+                    stop.wait(3.0)
                     continue
             ok, frame = cap.read()
             if not ok or frame is None:
@@ -101,9 +114,11 @@ class Camera:
                 time.sleep(0.03)
                 continue
             failures = 0
-            self.status = "active"
-            self.error = None
             with self._lock:
+                if stop.is_set():
+                    break  # stopped while reading: this frame must not reappear after stop()
+                self.status = "active"
+                self.error = None
                 self._frame = frame
                 self._frame_t = time.monotonic()
         if cap is not None:
