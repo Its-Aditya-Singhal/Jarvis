@@ -112,6 +112,17 @@ def test_volume_media_battery_lock(runner):
     assert calls[-1] == ["pmset", "displaysleepnow"]
 
 
+def test_volume_arguments_the_model_writes_as_text(runner):
+    r, (m, calls, _, _) = runner
+    # "mute": "false" used to mute (a non-empty string is true); "+10" and 50.0 used to be ignored
+    assert r.run(Action("system.volume", {"mute": "false"}), "en").say == "Sound is back on."
+    assert calls[-1][-1] == "set volume without output muted"
+    assert r.run(Action("system.volume", {"change": "+10"}), "en").say == "Volume set to 50%."
+    assert r.run(Action("system.volume", {"level": 30.0}), "en").say == "Volume set to 30%."
+    assert r.run(Action("system.volume", {"level": "25%"}), "en").say == "Volume set to 25%."
+    assert r.run(Action("system.volume", {"level": "loud"}), "en").say == "Volume is at 40%."
+
+
 def test_alarm_list(runner):
     r, _ = runner
     assert r.run(Action("alarm.list", {}), "en").say == "You have no alarms or timers set."

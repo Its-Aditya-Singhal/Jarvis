@@ -81,6 +81,26 @@ def _quote(s: str, n: int = 60) -> str:
     return f"“{s if len(s) <= n else s[: n - 1] + '…'}”"
 
 
+def _number(v: Any) -> int | None:
+    """A model's level or step: 50, 50.0, "50", "+10", "-10", "50%" -> an integer; else None."""
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, (int, float)):
+        return round(v) if v == v and abs(v) < 1e6 else None
+    m = re.fullmatch(r"\s*([+-]?\d{1,6}(?:\.\d+)?)\s*%?\s*", str(v))
+    return round(float(m.group(1))) if m else None
+
+
+def _flag(v: Any) -> bool | None:
+    """true / "true" / "on" / 1 -> True; false / "false" / "off" / 0 -> False; else None."""
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, (int, float)):
+        return bool(v)
+    return {"true": True, "on": True, "yes": True, "1": True,
+            "false": False, "off": False, "no": False, "0": False}.get(str(v).strip().lower())
+
+
 def _join(items: list[str], hi: bool) -> str:
     if len(items) <= 1:
         return "".join(items)
@@ -496,15 +516,14 @@ class ToolRunner:
 
     def _system_volume(self, args: dict, hi: bool) -> ToolResult:
         cur, muted = self.mac.volume()
-        if "mute" in args:
-            on = bool(args["mute"])
+        if (on := _flag(args.get("mute"))) is not None:  # "false" (a string) used to mute
             self.mac.mute(on)
             say = ("आवाज़ बंद कर दी है।" if on else "आवाज़ चालू कर दी है।") if hi else ("Muted." if on else "Sound is back on.")
             return ToolResult("system.volume", True, say, {"muted": on})
-        if "level" in args and str(args["level"]).lstrip("-").isdigit():
-            level = int(args["level"])
-        elif "change" in args and str(args["change"]).lstrip("-").isdigit():
-            level = cur + int(args["change"])
+        if (n := _number(args.get("level"))) is not None:
+            level = n
+        elif (n := _number(args.get("change"))) is not None:
+            level = cur + n
         else:
             return ToolResult("system.volume", True, f"आवाज़ {cur}% पर है।" if hi else f"Volume is at {cur}%"
                               + (", muted." if muted else "."), {"level": cur, "muted": muted})
@@ -558,10 +577,10 @@ class ToolRunner:
         if cur is None:
             return ToolResult("display.brightness", False, "इस स्क्रीन की ब्राइटनेस मैं नहीं बदल सकता।" if hi
                               else "I can't control this screen's brightness.")
-        if "level" in args and str(args["level"]).lstrip("-").isdigit():
-            level = int(args["level"])
-        elif "change" in args and str(args["change"]).lstrip("-").isdigit():
-            level = cur + int(args["change"])
+        if (n := _number(args.get("level"))) is not None:
+            level = n
+        elif (n := _number(args.get("change"))) is not None:
+            level = cur + n
         else:
             return ToolResult("display.brightness", True, f"ब्राइटनेस {cur}% पर है।" if hi else f"Brightness is at {cur}%.",
                               {"level": cur})
@@ -573,10 +592,8 @@ class ToolRunner:
 
     def _display_dark_mode(self, args: dict, hi: bool) -> ToolResult:
         cur = self.mac.dark_mode()
-        want = args.get("on")
-        if isinstance(want, str):
-            want = {"true": True, "on": True, "false": False, "off": False}.get(want.lower())
-        on = (not cur) if want is None else bool(want)
+        want = _flag(args["on"]) if args.get("on") is not None else None
+        on = (not cur) if want is None else want
         if on != cur:
             self.mac.set_dark_mode(on)
         if hi:
