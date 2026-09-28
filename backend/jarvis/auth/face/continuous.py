@@ -38,6 +38,7 @@ class ContinuousFaceAuth:
     absence_lock_s: float = 8.0
     min_frames: int = 3
     hold_margin: float = 0.07  # hysteresis: stay approved slightly below threshold
+    foreign_frames: int = 2  # consecutive frames of only unrecognised faces that end an approval
 
     state: str = "scanning"
     last_verified_t: float | None = None
@@ -47,6 +48,7 @@ class ContinuousFaceAuth:
     _faces: int = 0
     _reason: str = "Looking for you"
     _smoothed: float | None = None
+    _foreign: int = 0  # consecutive frames whose best face is clearly not the owner
 
     def reset(self) -> None:
         self.state = "scanning"
@@ -54,6 +56,7 @@ class ContinuousFaceAuth:
         self.last_owner_seen_t = None
         self._scores.clear()
         self._smoothed = None
+        self._foreign = 0
         self._reason = "Looking for you"
 
     def update(self, frame: FrameResult, now: float) -> list[tuple[str, str]]:
@@ -82,7 +85,10 @@ class ContinuousFaceAuth:
         else:
             best = max(sims)
             owner_here = best >= self.threshold
-            self._bystander = owner_here and any(s < self.reject_threshold for s in sims)
+            # anyone else in view who isn't clearly the owner (a lookalike scores between the
+            # two thresholds and counts too)
+            self._bystander = owner_here and len(sims) > 1 and sorted(sims)[-2] < self.threshold
+            self._foreign = self._foreign + 1 if best < self.reject_threshold else 0
             self._scores.append(best)
             while len(self._scores) > self.window:
                 self._scores.popleft()
@@ -92,7 +98,15 @@ class ContinuousFaceAuth:
 
             if owner_here:
                 self.last_owner_seen_t = now
-            if enough and med >= self.threshold:
+            if self.state == "approved" and self._foreign >= self.foreign_frames:
+                # someone else took the owner's place: the window still holds the owner's
+                # frames, but they must not keep (or renew) the approval
+                self.state = "scanning"
+                self._scores.clear()
+                self._scores.append(best)
+                self._smoothed = best
+                self._reason = "Verifying identity"
+            elif enough and med >= self.threshold and owner_here:
                 self.state = "approved"
                 self.last_verified_t = now
                 self._reason = "Owner verified"

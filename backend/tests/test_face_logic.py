@@ -134,3 +134,40 @@ def test_enrollment_rejects_multiple_faces_and_low_quality():
     assert not s.update([_obs(), _obs()], 1)
     assert not s.update([_obs(quality=0.1)], 2)
     assert s.update([_obs()], 3)
+
+
+def test_stranger_in_the_owners_seat_is_never_approved_by_the_owners_old_frames():
+    a = _auth()
+    _feed(a, [0.7], 0.0, 5)
+    renewed = a.last_verified_t
+    states = []
+    for i in range(3):
+        a.update(FrameResult([0.05]), 2.0 + i * 0.2)
+        states.append(a.state)
+        assert a.last_verified_t == renewed  # the stranger's frames never renew the approval
+    assert states[1:] == ["scanning", "scanning"]  # two clearly foreign frames end it
+
+
+def test_one_blurred_frame_keeps_the_owner_approved():
+    a = _auth()
+    _feed(a, [0.7], 0.0, 5)
+    a.update(FrameResult([0.1]), 1.2)
+    assert a.state == "approved"
+    a.update(FrameResult([0.7]), 1.4)
+    assert a.state == "approved" and a.last_verified_t == 1.4
+
+
+def test_approval_needs_the_owner_in_the_current_frame():
+    a = _auth()
+    _feed(a, [0.7], 0.0, 2)
+    a.update(FrameResult([0.3]), 0.5)  # median [0.7, 0.7, 0.3] is high, but this face isn't the owner
+    assert a.state != "approved"
+
+
+def test_a_lookalike_next_to_the_owner_counts_as_a_bystander():
+    a = _auth()
+    _feed(a, [0.7], 0.0, 4)
+    events = _feed(a, [0.7, 0.35], 1.0, 3)  # between the reject and accept thresholds
+    assert "bystander" in [k for k, _ in events] and a.snapshot().bystander
+    _feed(a, [0.7], 2.0, 2)
+    assert not a.snapshot().bystander
