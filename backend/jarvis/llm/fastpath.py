@@ -52,7 +52,11 @@ def _num(s: str) -> int | None:
 
 
 def _clean(text: str) -> str:
-    t = to_latin(text).replace("’", "'")
+    t = re.sub(r"^\s*(?:(?:hey|ok|okay|hi)[\s,]+)?jarvis\b[\s,:!.]*", "", text, flags=re.I)  # "Jarvis, open Safari"
+    # a list "open notes, calendar and safari" (the comma is lost below): make it "…notes and calendar…"
+    if re.match(r"\s*(?:please\s+)?(?:open|launch|start|close|quit)\b", t, re.I):
+        t = re.sub(r",\s+(?!(?:and|then|aur|phir)\b)(?=[^\W\d])", " and ", t, flags=re.I)
+    t = to_latin(t).replace("’", "'")
     t = re.sub(r"\b(\d+)\s*(am|pm)\b", r"\1 \2", t)
     t = re.sub(r"\b(a m|a\.m)\b", "am", t)
     t = re.sub(r"\b(p m|p\.m)\b", "pm", t)
@@ -203,6 +207,18 @@ def _files(t: str) -> Parsed | None:
 # -- single commands -------------------------------------------------------------------
 Parsed = tuple[list[Action], str]  # actions, direct reply (for questions)
 
+_LEVEL = {"full": 100, "max": 100, "maximum": 100, "highest": 100, "poori": 100, "puri": 100, "poora": 100, "pura": 100,
+          "half": 50, "aadhi": 50, "adhi": 50, "min": 0, "minimum": 0, "lowest": 0}
+_LEVEL_RE = "(" + "|".join(sorted(_LEVEL, key=len, reverse=True)) + ")"
+
+
+def _level_word(t: str, what: str) -> int | None:
+    """'full volume', 'volume to max', 'set brightness to half', 'awaaz poori kar do' -> 100 / 50 / 0."""
+    m = (re.fullmatch(rf"{POLITE}(?:set |turn |put |make )?(?:the )?(?:{what}) (?:to |at |on |up to )?(?:the )?{_LEVEL_RE}(?: level)?"
+                      rf"(?: (?:karo|kar do|kardo|kr do|please))?{TAIL}", t)
+         or re.fullmatch(rf"{POLITE}(?:set |turn |put |make )?(?:it )?(?:to )?{_LEVEL_RE} (?:{what})(?: please)?", t))
+    return _LEVEL[m.group(1)] if m else None
+
 
 def _restore(orig: str, cap: str) -> str | None:
     """The captured words with their original spelling and case (None for
@@ -284,6 +300,8 @@ def _one(t: str, now: datetime, is_app: Callable[[str], bool], hi: bool, orig: s
     m = re.fullmatch(rf"{POLITE}(?:set (?:the )?(?:volume|sound) (?:to|at)|volume|volume to) {N}(?: ?%| percent)?{TAIL}", t)
     if m and (n := _num(m.group(1))) is not None and 0 <= n <= 100:
         return [Action("system.volume", {"level": n})], ""
+    if (n := _level_word(t, r"volume|sound|awaaz|aawaz|awaz")) is not None:
+        return [Action("system.volume", {"level": n})], ""
     up = rf"(?:{POLITE}(?:turn|crank) (?:it|the volume|the sound|volume) up(?: a bit| a little)?|(?:increase|raise) {VOL}|{VOL} (?:up|badhao|badha do|tez karo|zyada karo)|louder|a bit louder)"
     down = rf"(?:{POLITE}turn (?:it|the volume|the sound|volume) down(?: a bit| a little)?|(?:decrease|lower|reduce) {VOL}|{VOL} (?:down|kam karo|kam kar do|dheere karo|ghatao)|(?:be )?quieter|(?:a bit )?softer)"
     if re.fullmatch(up, t):
@@ -323,8 +341,10 @@ def _one(t: str, now: datetime, is_app: Callable[[str], bool], hi: bool, orig: s
     m = re.fullmatch(rf"{POLITE}(?:set (?:the )?(?:screen )?brightness (?:to|at)|brightness(?: to)?) {N}(?: ?%| percent)?{TAIL}", t)
     if m and (n := _num(m.group(1))) is not None and 0 <= n <= 100:
         return [Action("display.brightness", {"level": n})], ""
-    if re.fullmatch(rf"{POLITE}(?:full|max|maximum) brightness|{POLITE}(?:turn|crank) (?:the )?brightness (?:all the way )?up (?:all the way|to (?:the )?max)", t):
+    if re.fullmatch(rf"{POLITE}(?:turn|crank) (?:the )?brightness (?:all the way )?up (?:all the way|to (?:the )?max)", t):
         return [Action("display.brightness", {"level": 100})], ""
+    if (n := _level_word(t, r"(?:screen )?brightness|roshni")) is not None:
+        return [Action("display.brightness", {"level": n})], ""
     if re.fullmatch(rf"{POLITE}(?:turn (?:the )?brightness up(?: a bit| a little)?|(?:increase|raise) {BRIGHT}|{BRIGHT} (?:up|badhao|badha do|tez karo|zyada karo)"
                     rf"|make (?:the |my )?(?:screen|display) brighter|brighter(?: screen)?|screen (?:ko )?bright karo)", t):
         return [Action("display.brightness", {"change": 10})], ""
@@ -428,7 +448,44 @@ def _ask_ai(t: str, orig: str) -> Action | None:
     return Action("ai.ask", {"service": "chatgpt" if "g" in who.replace("cloud", "") else "claude", "prompt": prompt})
 
 
-def parse_fast(text: str, language: str, now: datetime, is_app: Callable[[str], bool] = lambda n: False) -> Intent | None:
+# "close it after 10 seconds", "in 5 minutes open Safari", "10 second baad band karo"
+_DUR = rf"((?:{N_ANY}|half an?|an?) (?:{HOUR}|{MIN}|{SEC})(?:(?: and | aur |, | ){N_ANY} (?:{MIN}|{SEC}))?)"
+_DELAY = [
+    (rf"(.+?),? (?:after|in|within) {_DUR}(?: from now)?", 1, 2),
+    (rf"(?:after|in|wait) {_DUR},? (?:and |then )?(.+)", 2, 1),
+    (rf"{_DUR} (?:ke )?baad (.+)", 2, 1),
+    (rf"(.+?) {_DUR} (?:ke )?baad", 1, 2),
+]
+MAX_WAIT_S = 6 * 3600
+_IT = r"(?:it|that|this|that app|this app|the app|ise|isko|usko|use|usse|isse|woh|wo|ye|yeh)"
+_OPEN = r"(?:open|launch|start|run|close|quit|exit|kill|shut down|shut)"
+
+
+def _delayed(p: str) -> tuple[int, str] | None:
+    """A part that is 'X after <duration>' -> (seconds, X)."""
+    m = re.fullmatch(rf"(.+?) {_DUR} (?:ke )?baad (.+)", p)  # "whatsapp 10 second baad band karo"
+    if m and (secs := _duration(m.group(2))) and secs <= MAX_WAIT_S:
+        return secs, f"{m.group(1)} {m.group(3)}"
+    for pat, what, dur in _DELAY:
+        m = re.fullmatch(pat, p)
+        if m and (secs := _duration(m.group(dur).strip())) and secs <= MAX_WAIT_S:
+            rest = m.group(what).strip()
+            if rest and not re.fullmatch(rf"{POLITE}(?:remind me|wake me(?: up)?|set (?:a |an )?(?:{TIMER}|{ALARM}))(?: .*)?", rest):
+                return secs, rest
+    return None
+
+
+def _resolve_it(p: str, last: str | None) -> str:
+    """'close it' -> 'close whatsapp' when an app was just named ('open whatsapp and close it')."""
+    if not last:
+        return p
+    p = re.sub(rf"^({POLITE}{_OPEN}) {_IT}\b", rf"\1 {last}", p)
+    return re.sub(rf"^{_IT}(?: app)? (?=(?:ko )?(?:band|bandh|kholo|khol|open|close)\b)", f"{last} ", p)
+
+
+def parse_fast(text: str, language: str, now: datetime, is_app: Callable[[str], bool] = lambda n: False,
+               last_app: str | None = None) -> Intent | None:
+    """``last_app``: the app the previous command opened or closed ("close it" refers to it)."""
     t = _clean(text)
     if not t:
         return None
@@ -446,8 +503,9 @@ def parse_fast(text: str, language: str, now: datetime, is_app: Callable[[str], 
     parts = [p.strip() for p in re.split(joiner, t) if p.strip()]
     actions: list[Action] = []
     reply = ""
+    verb = ""  # "open notes and calendar": the bare "calendar" borrows "open"
     for p in parts:
-        r = _one(p, now, is_app, hi, text)
+        r = _part(p, now, is_app, hi, text, last_app, verb)
         if r is None:
             return None  # any part the patterns don't cover -> the LLM handles the whole request
         acts, say = r
@@ -455,9 +513,29 @@ def parse_fast(text: str, language: str, now: datetime, is_app: Callable[[str], 
             return None
         actions += acts
         reply = say
+        for a in acts:
+            if a.tool in ("app.open", "app.close"):
+                last_app = str(a.args.get("name") or "") or last_app
+        if (v := re.match(rf"{POLITE}({_OPEN})\b", p)) is not None:
+            verb = v.group(1)
     for a in actions:
         a.summary = describe(a, language, now)
     return Intent(language, actions, reply)
+
+
+def _part(p: str, now: datetime, is_app: Callable[[str], bool], hi: bool, orig: str, last_app: str | None,
+          verb: str) -> Parsed | None:
+    p = _resolve_it(p, last_app)
+    if verb and (is_app(p) or p in FOLDERS or p in SITES) and (r := _one(f"{verb} {p}", now, is_app, hi, orig)):
+        return r
+    if (r := _one(p, now, is_app, hi, orig)) is not None:
+        return r
+    if (d := _delayed(p)) is not None:
+        secs, rest = d
+        r = _part(rest, now, is_app, hi, orig, last_app, verb)
+        if r is not None and r[0] and not r[1]:
+            return [Action("wait", {"seconds": secs}), *r[0]], ""
+    return None
 
 
 __all__ = ["parse_fast", "day_phrase"]

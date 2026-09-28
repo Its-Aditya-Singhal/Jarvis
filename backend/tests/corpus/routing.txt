@@ -225,8 +225,8 @@ fast | system.volume(mute=false) | turn the sound back on
 fast | system.volume(mute=false) | volume chalu karo
 fast | system.volume() | what's the volume
 fast | system.volume() | volume kitni hai
-gap  | system.volume(level=50) | volume half
-gap  | system.volume(level=100) | max volume
+fast | system.volume(level=50) | volume half
+fast | system.volume(level=100) | max volume
 gap  | system.volume(change=-10) | too loud
 llm  | system.volume | make it a little quieter than it was yesterday
 
@@ -521,11 +521,73 @@ llm  | none | explain recursion in one line
 llm  | none | तुम कौन हो
 llm  | none | aaj mausam kaisa hai
 llm  | none | mujhe ek joke sunao
-llm  | none | Send an email to my boss saying I'm late
+llm  | mac.do | Send an email to my boss saying I'm late
 llm  | none | order a pizza
 llm  | none | delete all my files
 llm  | none | run rm -rf on my home folder
 llm  | none | transfer money to Rahul
-llm  | none | call mom
-llm  | none | message Priya that I'm running late
+llm  | mac.do | call mom on FaceTime
+llm  | mac.do | message Priya that I'm running late
 llm  | none | buy the cheapest flight to Goa
+
+# -- real commands from the owner's Mac (2026-09-28): delays, "it", levels, lists of apps -------
+fast | app.open(name=whatsapp) + wait(seconds=10) + app.close(name=whatsapp) | open whatsapp and close it after 10 seconds
+fast | app.open(name=whatsapp) + wait(seconds=10) + app.close(name=whatsapp) | Open WhatsApp, and close it after 10 seconds.
+fast | app.open(name=safari) + wait(seconds=300) + app.close(name=safari) | open safari and quit it in 5 minutes
+fast | app.open(name=spotify) + wait(seconds=30) + app.close(name=spotify) | open spotify then close it after thirty seconds
+fast | wait(seconds=10) + app.close(name=whatsapp) | close whatsapp after 10 seconds
+fast | wait(seconds=60) + app.open(name=notes) | in 1 minute open notes
+fast | wait(seconds=120) + app.open(name=music) | after 2 minutes open music
+fast | wait(seconds=5) + system.lock() | lock the screen in 5 seconds
+fast | wait(seconds=600) + media.control(action=pause) | pause the music after 10 minutes
+fast | wait(seconds=1800) + system.volume(mute=true) | mute in half an hour
+fast | wait(seconds=90) + app.close(name=slack) | quit slack in a minute and 30 seconds
+fast | wait(seconds=10) + app.close(name=whatsapp) | whatsapp 10 second baad band karo
+fast | wait(seconds=300) + app.close(name=safari) | 5 minute baad safari band karo
+fast | app.open(name=notes) + app.open(name=calendar) | open notes and calendar
+fast | app.open(name=notes) + app.open(name=calendar) + app.open(name=safari) | open notes, calendar and safari
+fast | app.close(name=slack) + app.close(name=spotify) | close slack and spotify
+fast | app.open(name=notes) + folder.open(name=downloads) | open notes and downloads
+fast | app.open(name=safari) + app.close(name=safari) | open safari and then close it
+fast | system.volume(level=100) | volume full
+fast | system.volume(level=100) | full volume
+fast | system.volume(level=100) | set the volume to max
+fast | system.volume(level=100) | turn the volume up to maximum
+fast | system.volume(level=50) | set volume to half
+fast | system.volume(level=50) | half volume
+fast | system.volume(level=0) | volume to minimum
+fast | system.volume(level=100) | awaaz poori kar do
+fast | display.brightness(level=100) | brightness full
+fast | display.brightness(level=100) | set brightness to max
+fast | display.brightness(level=50) | half brightness
+fast | display.brightness(level=50) | set the screen brightness to half
+fast | display.brightness(level=0) | brightness to minimum
+fast | app.open(name=safari) | Jarvis, open Safari
+fast | app.open(name=safari) | hey jarvis open safari
+fast | timer.set(seconds=60) | Jarvis set a timer for 1 minute
+fast | reply=time | jarvis what time is it
+fast | timer.set(seconds=120) + app.open(name=music) | set a timer for 2 minutes and open music
+fast | app.close(name=whatsapp) | close whatsapp
+fast | app.close(name=whatsapp) | quit WhatsApp
+fast | app.close(name=whatsapp) | whatsapp band karo
+fast | folder.open(name=documents) | open documents folder
+fast | folder.open(name=documents) | open my documents folder
+fast | system.volume(level=30) + display.brightness(level=70) | set volume to 30 and brightness to 70
+fast | media.control(action=play) + system.volume(level=40) | play music and set volume to 40
+fast | app.open(name=google chrome) + wait(seconds=15) + app.close(name=google chrome) | open google chrome and close it after 15 seconds
+llm  | app.open + wait + app.close | open whatsapp, wait ten seconds, then shut it
+fast | app.open(name=music) + wait(seconds=60) + system.volume(change=-10) | open music and after a minute turn the volume down
+llm  | wait + app.close | once 10 seconds have passed close whatsapp
+llm  | mac.do | add milk to my reminders
+llm  | mac.do | what song is playing right now
+llm  | mac.do | play my workout playlist
+llm  | mac.do | turn on do not disturb
+llm  | mac.do | create a folder called Projects on my desktop
+llm  | mac.do | what's the title of the tab open in safari
+llm  | mac.do | how many unread emails do I have
+llm  | mac.do | turn off wifi
+llm  | mac.do | minimise all windows
+llm  | mac.do | reminder list mein doodh add kar do
+llm  | none | empty the trash
+llm  | none | show me my saved passwords
+llm  | none | install homebrew for me

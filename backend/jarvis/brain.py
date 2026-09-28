@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import threading
 import time
 from collections.abc import Callable
@@ -201,13 +202,39 @@ class Brain:
             return "माफ़ कीजिए, मैं समझ नहीं " + ("पाया।" if gender == "male" else "पाई।")
         return "Sorry, I didn't catch that."
 
+    def _unname(self, text: str) -> str:
+        """'Friday, open Safari' -> 'open Safari' (the assistant's own name isn't part of the request)."""
+        name = self.names()[0].strip()
+        if not name:
+            return text
+        rest = re.sub(rf"^\s*(?:(?:hey|ok|okay|hi)[\s,]+)?{re.escape(name)}\b[\s,:!.]*", "", text, flags=re.I)
+        return rest if rest.strip() else text
+
+    def _last_app(self) -> str | None:
+        """The app the latest recent command opened or closed ("close it" refers to it)."""
+        cutoff = time.monotonic() - HISTORY_TTL_S
+        with self._lock:
+            records = [h[3] for h in self._history if h[0] >= cutoff]
+        for record in reversed(records):
+            try:
+                acts = json.loads(record).get("actions") or []
+            except (ValueError, AttributeError):
+                continue
+            for a in reversed(acts):
+                if isinstance(a, dict) and a.get("tool") in ("app.open", "app.close") and isinstance(a.get("args"), dict):
+                    name = str(a["args"].get("name") or "").strip()
+                    if name:
+                        return name
+        return None
+
     def respond(self, text: str, stt_lang: str = "en") -> BrainResult:
         t0 = time.monotonic()
         gender = self.voice_gender()
         lang = detect_language(text, stt_lang)
         hindi = lang != "en"
         now = self.clock()
-        fast = parse_fast(text, lang, now, self.is_app)
+        text = self._unname(text)
+        fast = parse_fast(text, lang, now, self.is_app, self._last_app())
         if fast is not None:
             # simple command: no model call at all
             record = json.dumps({"actions": [{"tool": a.tool, "args": a.args} for a in fast.actions], "reply": fast.reply},
@@ -223,7 +250,7 @@ class Brain:
                 data = self.client.chat_json(self.model, msgs, SCHEMA)
             except ValueError:  # malformed JSON: one retry
                 data = self.client.chat_json(self.model, msgs, SCHEMA)
-            intent: Intent = parse_intent(data, lang, now)
+            intent: Intent = parse_intent(data, lang, now, text)
         except LLMUnavailable as exc:
             self._status = None
             log.warning("llm unavailable: %s", exc)

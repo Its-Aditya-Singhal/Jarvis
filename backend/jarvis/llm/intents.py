@@ -61,6 +61,10 @@ TOOLS: dict[str, tuple[str, str]] = {
                      "kind: pdf|image|screenshot|document|spreadsheet|presentation|video|audio|archive|any; when: optional today|yesterday|this week|last week|this month|last N days|ISO date; folder: optional downloads|desktop|documents; query: optional words from the file name"),
     "files.reveal": ("Show a file in Finder", "same args as files.recent (the newest match); no args = the file just found"),
     "files.trash": ("Move one file to the Trash", "same args as files.recent (the newest match); no args = the file just found"),
+    "wait": ("Wait before doing the actions that follow it (\"close it after 10 seconds\": wait, then app.close)", "seconds: integer"),
+    "mac.do": ("Anything else a Mac app can do that no tool above covers (Reminders, Music playlists, Messages, Mail, Safari tabs, "
+               "Finder windows, Wi-Fi, Do Not Disturb…). JARVIS writes an AppleScript for it and asks the user before changing anything",
+               "task: the request in plain English, complete and self-contained"),
 }
 
 SCHEMA: dict[str, Any] = {
@@ -118,7 +122,9 @@ Rules:
 - Only include actions requested in the LATEST message. Earlier messages are context only (for follow-ups like "another one at 7:30"); never repeat their actions.
 - Split requests joined by "and", "then", "aur", "phir" into separate actions, one per tool use.
 - Never say that you did, set, saved or opened anything.
-- Only use the listed tools. For anything else (messages, email, web, purchases, deleting several files or folders, running code) return no actions and say briefly that you can't do that. files.trash moves exactly one file to the Trash after the user confirms.
+- Prefer the specific tools above. For any other request to DO something on the Mac, use mac.do with the task in plain English ("send an iMessage to Mom saying I'm on my way", "add milk to my Reminders"). Never use mac.do for questions you can answer yourself, for purchases, passwords, deleting files or folders, or running terminal code: for those return no actions and say briefly that you can't do that. files.trash moves exactly one file to the Trash after the user confirms.
+- A delay ("after 10 seconds", "in 5 minutes", "10 second baad") is a wait action placed before the actions it delays. "it" means the thing named just before.
+- Only use system.volume when the user talks about volume or sound, and display.brightness only for brightness. A number that belongs to a delay or a timer is never a volume or brightness level.
 - For live information (weather, news, prices, scores) say you have no internet access (but web.open can open a website or search for the user).
 - The header's Now is the real current local date and time. Answer time, date and day questions from it directly; never tell the user to check a clock.
 - A line "[Remembered: ...]" before the user's words lists facts the user earlier asked you to remember, in their own words ("my", "I" = the user). Use them to answer questions; never call memory.remember for them again.
@@ -159,7 +165,13 @@ FEWSHOT: list[tuple[str, str, dict]] = [
     ("en", "Could you tell me what time it is?", {"actions": [], "reply": "It's 8:00 PM."}),
     ("en", "Who wrote Hamlet?", {"actions": [], "reply": "Hamlet was written by William Shakespeare."}),
     ("hi", "आज मौसम कैसा है?", {"actions": [], "reply": "मेरे पास इंटरनेट नहीं है, इसलिए अभी के मौसम की जानकारी नहीं है।"}),
-    ("en", "Send a WhatsApp message to Rahul", {"actions": [], "reply": "Sorry, I can't send messages."}),
+    ("en", "Open WhatsApp and close it after 10 seconds",
+     {"actions": [{"tool": "app.open", "args": {"name": "WhatsApp"}}, {"tool": "wait", "args": {"seconds": 10}},
+                  {"tool": "app.close", "args": {"name": "WhatsApp"}}], "reply": ""}),
+    ("en", "Add buy milk to my reminders and play my workout playlist",
+     {"actions": [{"tool": "mac.do", "args": {"task": "Add a reminder 'Buy milk' in the Reminders app"}},
+                  {"tool": "mac.do", "args": {"task": "Play the playlist named 'Workout' in the Music app"}}], "reply": ""}),
+    ("en", "Buy me a new phone on Amazon", {"actions": [], "reply": "Sorry, I can't make purchases."}),
 ]
 
 
@@ -194,16 +206,37 @@ class Intent:
     reply: str = ""
 
 
-def parse_intent(data: dict[str, Any], language: str, now: datetime) -> Intent:
-    """Validate the model's JSON; unknown tools are dropped, not trusted."""
-    actions = []
+# a small model sometimes adds actions nobody asked for (a delay's "10" became "volume 10%"):
+# these tools need a word about them in the request
+_GROUNDS = {
+    "system.volume": r"volume|sound|loud|quiet|soft|mute|audio|awaa?z|aawaz|dheer|tez|speaker",
+    "display.brightness": r"bright|dim|dark|roshni|screen|display",
+    "system.lock": r"lock",
+    "screen.shot": r"screen ?shot|screen ?grab|capture|screen",
+}
+
+
+def grounded(tool: str, text: str) -> bool:
+    """Does the request mention what this tool acts on? (Always true for other tools and Devanagari.)"""
+    pat = _GROUNDS.get(tool)
+    return pat is None or not text or has_devanagari(text) or re.search(pat, text.lower()) is not None
+
+
+def parse_intent(data: dict[str, Any], language: str, now: datetime, text: str = "") -> Intent:
+    """Validate the model's JSON; unknown tools are dropped, not trusted, and so are tools
+    the request never mentioned (``grounded``)."""
+    actions: list[Action] = []
     for a in data.get("actions") or []:
-        if not isinstance(a, dict) or a.get("tool") not in TOOLS:
+        if not isinstance(a, dict) or a.get("tool") not in TOOLS or not grounded(a["tool"], text):
             continue
         args: dict[str, Any] = a["args"] if isinstance(a.get("args"), dict) else {}
+        if a["tool"] == "wait" and (actions and actions[-1].tool == "wait" or not str(args.get("seconds", "")).isdigit()):
+            continue
         act = Action(a["tool"], args)
         act.summary = describe(act, language, now)
         actions.append(act)
+    while actions and actions[-1].tool == "wait":  # a delay before nothing
+        actions.pop()
     reply = " ".join(str(data.get("reply") or "").split())
     return Intent(language, actions, reply)
 
@@ -231,6 +264,17 @@ def clock_phrase(t: datetime, hindi: bool) -> str:
     h = t.hour
     part = "सुबह" if 4 <= h < 12 else "दोपहर" if h < 16 else "शाम" if h < 20 else "रात"
     return f"{part} {h % 12 or 12}:{t.minute:02d} बजे"
+
+
+def wait_phrase(secs: int, hindi: bool) -> str:
+    """90 -> '1 minute 30 seconds' / '1 मिनट 30 सेकंड'."""
+    h, rem = divmod(secs, 3600)
+    m, s = divmod(rem, 60)
+    if hindi:
+        units = [(h, "घंटे"), (m, "मिनट"), (s, "सेकंड")]
+        return " ".join(f"{n} {u}" for n, u in units if n) or "0 सेकंड"
+    units_en = [(h, "hour"), (m, "minute"), (s, "second")]
+    return " ".join(f"{n} {u}{'s' if n != 1 else ''}" for n, u in units_en if n) or "0 seconds"
 
 
 def describe(a: Action, language: str, now: datetime) -> str:
@@ -293,6 +337,10 @@ def describe(a: Action, language: str, now: datetime) -> str:
         if not any(text(k) for k in ("kind", "when", "folder", "query")) and a.tool != "files.recent":
             return ("वह फ़ाइल " + verb[0]) if hi else verb[1].replace("your latest", "that file")
         return f"{kind} {verb[0]}" if hi else f"{verb[1]} {kind}"
+    if a.tool == "wait" and str(g.get("seconds", "")).isdigit():
+        return f"{wait_phrase(int(g['seconds']), hi)} रुकना" if hi else f"waiting {wait_phrase(int(g['seconds']), False)}"
+    if a.tool == "mac.do" and text("task"):
+        return f"“{text('task')}”" if hi else f"doing “{text('task')}”"
     if a.tool == "files.search" and text("query"):
         return f"फ़ाइलों में “{text('query')}” ढूँढना" if hi else f"a file search for “{text('query')}”"
     generic = {"alarm.set": "अलार्म", "timer.set": "टाइमर", "calendar.create": "कैलेंडर इवेंट"}
