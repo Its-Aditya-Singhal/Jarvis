@@ -140,7 +140,9 @@ def _scan(script: str) -> tuple[str, str]:
 
     Comments and ``¬`` continuations could otherwise split a command's words
     (``do shell (* x *) script``); quoted text is data, not a command (a reminder
-    called "delete the tab")."""
+    called "delete the tab"). ``|…|`` identifiers are names, but they may hold quote
+    marks: read as code they would open a fake string that hides the commands after it
+    (``set |a"b| to 1`` … ``do shell script`` … ``set |"c| to 2``)."""
     raw: list[str] = []
     code: list[str] = []
     i, n = 0, len(script)
@@ -171,6 +173,13 @@ def _scan(script: str) -> tuple[str, str]:
             while i < n and script[i] in " \t\r\n":
                 i += 1
             emit(" ")
+        elif ch == "|":  # an identifier: kept as code, its quote and comment marks made harmless
+            j = i + 1
+            while j < n and script[j] != "|":
+                j += 2 if script[j] == "\\" else 1
+            ident = script[i:j + 1]
+            emit(ident, re.sub(r'["¬#()*-]', " ", ident))
+            i = j + 1
         elif ch == '"':
             j = i + 1
             while j < n and script[j] != '"':
@@ -186,7 +195,7 @@ def _scan(script: str) -> tuple[str, str]:
 def _local_name(target: str) -> bool:
     """`set x to …` / `copy … to x` only store a result in a variable when the target is a bare name."""
     t = target.strip()
-    return re.fullmatch(r"(?:my\s+)?[A-Za-z_]\w*|\{[A-Za-z_\w,\s]*\}", t) is not None and t.lower() not in (
+    return re.fullmatch(r"(?:my\s+)?(?:[A-Za-z_]\w*|\|[^|\n]*\|)|\{[A-Za-z_\w,\s]*\}", t) is not None and t.lower() not in (
         "volume", "clipboard", "the clipboard")
 
 
@@ -197,10 +206,12 @@ def classify(script: str) -> tuple[str, str]:
     if len(script) > MAX_SCRIPT:
         return "blocked", "the script is too long"
     raw, code = _scan(script)
+    # text glued from pieces ("/Applications/Utilities/Term" & "inal.app") is checked as one piece too
+    joined = re.sub(r'"\s*&\s*"', "", raw)
     for pat, why in _BLOCKED:
         # app names, paths and secrets live in quotes; commands in the code ("write to Mom" in a message is fine)
-        where = raw if why in _IN_QUOTES else code
-        if re.search(pat, where, re.I):
+        wheres = (raw, joined) if why in _IN_QUOTES else (code,)
+        if any(re.search(pat, where, re.I) for where in wheres):
             return "blocked", why
     if re.search(_FILE_TARGET, raw, re.I) and re.search(_FILE_DESTRUCTIVE, code, re.I):
         return "blocked", "deletes or moves files"

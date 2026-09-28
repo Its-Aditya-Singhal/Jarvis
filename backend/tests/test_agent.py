@@ -98,6 +98,21 @@ def test_comments_and_strings_dont_hide_or_invent_commands():
     assert classify('tell application "Notes" ¬\n\tto make new note with properties {body:"x"}')[0] == "change"
 
 
+def test_quote_marks_in_pipe_names_cant_hide_commands():
+    # a quote inside |…| used to start a fake string that swallowed the shell command, which then
+    # classified as a plain read and ran without asking
+    hidden = 'set x to |q"|\ndo shell script "rm -rf ~/Documents"\nset y to |"q|'
+    assert classify(hidden) == ("blocked", "runs a shell command")
+    assert classify('set |a--b| to 1\ndo shell script "ls"')[0] == "blocked"
+    assert classify('set |my list| to {}\nreturn |my list|') == ("read", "")
+
+
+def test_names_glued_from_pieces_are_still_caught():
+    assert classify('tell application "Finder" to open POSIX file ("/Applications/Utilities/Term" & "inal.app")')[0] == "blocked"
+    assert classify('set p to "/Users/a/Downloads/setup.com" & "mand"\ntell application "Finder" to open POSIX file p')[0] == "blocked"
+    assert classify('tell application "Notes" to return "Buy " & "milk"') == ("read", "")
+
+
 # -- writing -----------------------------------------------------------------------------------
 class FakeModel:
     def __init__(self, *answers):
