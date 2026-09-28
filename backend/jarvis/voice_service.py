@@ -132,13 +132,15 @@ class VoiceService:
     # -- modes -------------------------------------------------------------------
     def begin_enrollment(self, needs_owner: bool) -> None:
         assistant, owner = self.names()
+        session = VoiceEnrollmentSession(phrases(assistant, owner))
         with self._lock:
-            self.enrollment = VoiceEnrollmentSession(phrases(assistant, owner))
+            self.enrollment = session
             self.enrollment_needs_owner = needs_owner
             self.mode = "enrolling"
         self.segmenter.reset()
         self.mic.drain()
-        self.bus.publish({"type": "voice_enroll", **self.enrollment.snapshot()})
+        # the session itself: a cancel from another thread may already have cleared self.enrollment
+        self.bus.publish({"type": "voice_enroll", **session.snapshot()})
         self.bus.log("Voice enrollment started")
 
     def cancel_enrollment(self, reason: str = "Voice enrollment cancelled") -> None:
