@@ -24,6 +24,13 @@ export function backendInfo(): Promise<BackendInfo> {
   return infoPromise;
 }
 
+/** Why the shell couldn't start (or keep running) the backend, asked afresh each time. */
+export async function backendError(): Promise<string | null> {
+  if (!inTauri) return null;
+  const info = await invoke<BackendInfo>("backend_info");
+  return info.error ?? null;
+}
+
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message);
@@ -66,11 +73,27 @@ export function connectEvents(
   let retry: number | undefined;
 
   const open = async () => {
-    const { port, token } = await backendInfo();
+    let info: BackendInfo;
+    try {
+      info = await backendInfo();
+    } catch {
+      infoPromise = null; // ask the shell again next time
+      if (!closed) retry = window.setTimeout(open, 1000);
+      return;
+    }
     if (closed) return;
+    const { port, token } = info;
     ws = new WebSocket(`ws://127.0.0.1:${port}/ws${token ? `?token=${token}` : ""}`);
     ws.onopen = () => onConnection(true);
-    ws.onmessage = (m) => onEvent(JSON.parse(m.data));
+    ws.onmessage = (m) => {
+      let e: BackendEvent;
+      try {
+        e = JSON.parse(m.data);
+      } catch {
+        return; // a malformed frame must not take the event stream down
+      }
+      onEvent(e);
+    };
     ws.onclose = () => {
       onConnection(false);
       if (!closed) retry = window.setTimeout(open, 1000);

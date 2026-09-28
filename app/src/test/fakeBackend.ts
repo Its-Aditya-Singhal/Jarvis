@@ -21,6 +21,8 @@ export class FakeBackend {
   routes = new Map<string, Handler>();
   calls: Call[] = [];
   status: Status = makeStatus();
+  /** what the desktop shell reports about starting the backend */
+  shellError: string | null = null;
   private onEvent: ((e: BackendEvent) => void) | null = null;
   private onConnection: ((up: boolean) => void) | null = null;
 
@@ -33,6 +35,7 @@ export class FakeBackend {
     this.routes.clear();
     this.calls = [];
     this.status = makeStatus();
+    this.shellError = null;
     this.onEvent = null;
     this.onConnection = null;
     this.route("GET /api/status", () => this.status);
@@ -94,6 +97,7 @@ export function withFakeBackend(real: Backend) {
     ...real,
     fake,
     backendInfo: async () => ({ port: 0, token: "" }),
+    backendError: async () => fake.shellError,
     api: fake.api,
     post: (path: string, body?: unknown) =>
       fake.api(path, { method: "POST", body: body === undefined ? undefined : JSON.stringify(body) }),
