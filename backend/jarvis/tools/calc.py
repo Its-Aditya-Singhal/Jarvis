@@ -96,6 +96,20 @@ def _plain(x: float) -> str:
     return str(int(x)) if float(x).is_integer() else repr(float(x))
 
 
+_BIG_NAMES = [(10**30, "nonillion"), (10**27, "octillion"), (10**24, "septillion"), (10**21, "sextillion"),
+           (10**18, "quintillion"), (10**15, "quadrillion")]
+
+
+def _spoken_big(x: float) -> str:
+    """1e20 -> '100 quintillion'; beyond the named scales, or tiny, '1.23 times 10 to the power of -5'
+    (the speech engine read '1e+20' out letter by letter)."""
+    for size, name in _BIG_NAMES:
+        if abs(x) >= size and abs(x) < size * 1000:
+            return f"{float(f'{x / size:.4g}'):g} {name}"
+    mant, exp = f"{x:.2e}".split("e")
+    return f"{float(mant):g} times 10 to the power of {int(exp)}"
+
+
 def fmt(x: float, places: int = 4) -> tuple[str, bool]:
     """A number for speaking, and whether it was rounded."""
     if isinstance(x, float):
@@ -103,9 +117,12 @@ def fmt(x: float, places: int = 4) -> tuple[str, bool]:
     if isinstance(x, int) or float(x).is_integer():
         if abs(x) < 1e15:
             return f"{int(x):,}", False
-        return f"{x:.4g}", True
-    if abs(x) >= 1e15 or abs(x) < 1e-4:
-        return f"{x:.4g}", True
+        return _spoken_big(x), True
+    if abs(x) >= 1e15:
+        return _spoken_big(x), True
+    if abs(x) < 1e-4:
+        short = f"{x:.10f}".rstrip("0")  # 0.000001 reads fine; 1.234567e-7 doesn't
+        return (short, False) if abs(x) >= 1e-9 and float(short) == x else (_spoken_big(x), True)
     digits = 2 if abs(x) >= 100 else places if abs(x) >= 1 else 4
     s = f"{x:,.{digits}f}".rstrip("0").rstrip(".")
     return s, float(s.replace(",", "")) != x

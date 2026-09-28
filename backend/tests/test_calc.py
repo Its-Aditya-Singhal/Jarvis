@@ -85,3 +85,8 @@ def test_rounding_is_said():
     assert fmt(1 / 3) == ("0.3333", True)
     assert fmt(2.5) == ("2.5", False)
     assert fmt(1234567) == ("1,234,567", False)
+    # huge and tiny numbers used to be spoken as "1e+20"
+    assert fmt(99999999980000000001) == ("100 quintillion", True)
+    assert fmt(1e40) == ("1 times 10 to the power of 40", True)
+    assert fmt(0.000001) == ("0.000001", False)
+    assert fmt(1.2345e-7) == ("1.23 times 10 to the power of -7", True)
