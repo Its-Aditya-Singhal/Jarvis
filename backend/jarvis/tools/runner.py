@@ -241,6 +241,9 @@ class ToolRunner:
             secs = int(float(args.get("seconds")))  # type: ignore[arg-type]  # missing -> TypeError, handled
         except (TypeError, ValueError):
             secs = 0
+        if secs > MAX_TIMER_S:
+            return ToolResult("timer.set", False, "टाइमर एक दिन तक का ही लग सकता है, उसके लिए अलार्म लगाइए।" if hi
+                              else "Timers can run for up to a day; set an alarm for that instead.")
         if not 1 <= secs <= MAX_TIMER_S:
             return ToolResult("timer.set", False, "टाइमर की अवधि समझ नहीं आई।" if hi else "I couldn't work out the timer length.")
         label = str(args.get("label") or "").strip()[:80]

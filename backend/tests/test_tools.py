@@ -86,6 +86,7 @@ def test_alarm_and_timer(env):
     r = run(runner, "timer.set", "hinglish", seconds=600)
     assert r.ok and r.say == "10 मिनट का टाइमर शुरू कर दिया है।"
     assert not run(runner, "timer.set", seconds=-5).ok
+    assert run(runner, "timer.set", seconds=25 * 3600).say == "Timers can run for up to a day; set an alarm for that instead."
     assert [a.kind for a in store.alarms()] == ["timer", "alarm"]
 
 
