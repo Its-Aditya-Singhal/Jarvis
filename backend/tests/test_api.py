@@ -251,6 +251,19 @@ def test_websocket_refuses_other_origins(settings):
                 ws.receive_json()
 
 
+def test_requests_from_other_web_pages_are_refused(settings):
+    """A page in the browser can fire a simple POST at 127.0.0.1 (CORS only hides the answer):
+    anything carrying another site's Origin is turned away before it runs."""
+    client, _ = _client(settings)
+    with client:
+        assert client.get("/api/status", headers={**H, "origin": "https://evil.example"}).status_code == 400
+        assert client.post("/api/alarms/dismiss", headers={"origin": "https://evil.example"}).status_code == 400
+        for origin in ("tauri://localhost", "http://tauri.localhost", "http://localhost:1420"):
+            res = client.get("/api/status", headers={**H, "origin": origin})
+            assert res.status_code == 200 and res.headers["access-control-allow-origin"] == origin
+        assert client.get("/api/status", headers=H).status_code == 200  # no Origin: not a browser
+
+
 def test_foreign_host_names_are_refused(settings):
     """DNS rebinding: a page on evil.example re-pointed at 127.0.0.1 sends Host: evil.example."""
     client, _ = _client(settings)

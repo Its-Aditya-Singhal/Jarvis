@@ -76,8 +76,10 @@ def _host_name(host: str) -> str:
 
 
 class LocalOnly:
-    """Refuse requests whose Host isn't this machine, and WebSockets opened by other web pages
-    (browsers send Origin on WebSockets, and CORS doesn't apply to them)."""
+    """Refuse requests whose Host isn't this machine, and requests and WebSockets that other web
+    pages send (browsers send Origin on both; CORS only hides the answer to a simple POST, it
+    doesn't stop it, and doesn't apply to WebSockets at all). The desktop shell's own requests
+    come from APP_ORIGINS; tools like curl send no Origin."""
 
     def __init__(self, app):
         self.app = app
@@ -87,7 +89,7 @@ class LocalOnly:
             headers = {k.decode("latin-1"): v.decode("latin-1") for k, v in scope.get("headers", [])}
             host_ok = _host_name(headers.get("host", "")) in LOCAL_HOSTS
             origin = headers.get("origin")
-            origin_ok = scope["type"] == "http" or origin is None or origin in APP_ORIGINS
+            origin_ok = origin is None or origin in APP_ORIGINS
             if not (host_ok and origin_ok):
                 if scope["type"] == "websocket":
                     await send({"type": "websocket.close", "code": 4403})
