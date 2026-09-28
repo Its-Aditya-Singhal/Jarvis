@@ -168,6 +168,39 @@ def test_waits_are_kept_only_before_something():
     assert [(a.tool, a.summary) for a in i.actions] == [("wait", "waiting 5 seconds"), ("app.close", "closing Slack")]
 
 
+def test_a_delay_given_as_a_decimal_or_text_is_kept():
+    # a model answering 10.0 used to lose the delay, so "close it after 10 seconds" closed at once
+    for secs in (10.0, "10", "10.0"):
+        data = {"actions": [{"tool": "app.open", "args": {"name": "WhatsApp"}}, {"tool": "wait", "args": {"seconds": secs}},
+                            {"tool": "app.close", "args": {"name": "WhatsApp"}}], "reply": ""}
+        i = parse_intent(data, "en", NOW, "open whatsapp and close it after 10 seconds")
+        assert [(a.tool, a.args) for a in i.actions][1] == ("wait", {"seconds": 10}), secs
+    for bad in (-5, True, "soon", float("nan")):
+        data = {"actions": [{"tool": "wait", "args": {"seconds": bad}}, {"tool": "app.close", "args": {"name": "Slack"}}], "reply": ""}
+        assert [a.tool for a in parse_intent(data, "en", NOW, "close slack later").actions] == ["app.close"]
+
+
+def test_two_generated_scripts_become_one():
+    # the second script used to be refused while the first waited for its confirmation
+    data = {"actions": [{"tool": "mac.do", "args": {"task": "Add a reminder 'Buy milk' in the Reminders app."}},
+                        {"tool": "mac.do", "args": {"task": "Play the playlist named 'Workout' in the Music app"}},
+                        {"tool": "app.open", "args": {"name": "Safari"}}], "reply": ""}
+    i = parse_intent(data, "en", NOW, "add buy milk to my reminders, play my workout playlist and open safari")
+    assert [a.tool for a in i.actions] == ["mac.do", "app.open"]
+    assert i.actions[0].args["task"] == ("Add a reminder 'Buy milk' in the Reminders app. "
+                                         "Then: Play the playlist named 'Workout' in the Music app")
+    assert i.actions[0].summary.startswith("doing “Add a reminder") and "Then: Play" in i.actions[0].summary
+    assert data["actions"][0]["args"]["task"].endswith("app.")  # the model's own record is left as it was
+
+
+def test_timer_descriptions_keep_the_seconds():
+    from jarvis.llm.intents import Action, describe
+
+    assert describe(Action("timer.set", {"seconds": 90}), "en", NOW) == "a timer for 1 minute 30 seconds"
+    assert describe(Action("timer.set", {"seconds": 300}), "en", NOW) == "a 5-minute timer"
+    assert describe(Action("timer.set", {"seconds": 5400}), "hi", NOW) == "1 घंटे 30 मिनट का टाइमर"
+
+
 def test_the_command_prompt_fits_every_macs_context():
     """This morning's 8 GB change set a 2K context, but the prompt alone is ~3K tokens:
     Ollama then silently cut the start of the prompt, rules included."""

@@ -229,9 +229,21 @@ def parse_intent(data: dict[str, Any], language: str, now: datetime, text: str =
     for a in data.get("actions") or []:
         if not isinstance(a, dict) or a.get("tool") not in TOOLS or not grounded(a["tool"], text):
             continue
-        args: dict[str, Any] = a["args"] if isinstance(a.get("args"), dict) else {}
-        if a["tool"] == "wait" and (actions and actions[-1].tool == "wait" or not str(args.get("seconds", "")).isdigit()):
+        args: dict[str, Any] = dict(a["args"]) if isinstance(a.get("args"), dict) else {}
+        secs = whole_seconds(args.get("seconds"))
+        if a["tool"] in ("wait", "timer.set") and secs is not None:
+            args["seconds"] = secs  # 10.0 or "10" -> 10
+        if a["tool"] == "wait" and (actions and actions[-1].tool == "wait" or secs is None):
             continue
+        if a["tool"] == "mac.do" and actions and actions[-1].tool == "mac.do":
+            # one script (and one confirmation) for "add milk to reminders and play my workout playlist":
+            # a second script would be refused while the first waits for its confirmation
+            prev = actions[-1]
+            first, then = str(prev.args.get("task") or "").strip().rstrip("."), str(args.get("task") or "").strip()
+            if first and then:
+                prev.args = {**prev.args, "task": f"{first}. Then: {then}"}
+                prev.summary = describe(prev, language, now)
+                continue
         act = Action(a["tool"], args)
         act.summary = describe(act, language, now)
         actions.append(act)
@@ -239,6 +251,17 @@ def parse_intent(data: dict[str, Any], language: str, now: datetime, text: str =
         actions.pop()
     reply = " ".join(str(data.get("reply") or "").split())
     return Intent(language, actions, reply)
+
+
+def whole_seconds(value: Any) -> int | None:
+    """A model's duration as whole seconds: 10, 10.0 and "10" are all 10; anything else None."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)) and value == value and abs(value) < 1e9:
+        return int(value) if value >= 0 else None
+    if isinstance(value, str) and re.fullmatch(r"\s*\d{1,9}(?:\.\d+)?\s*", value):
+        return int(float(value))
+    return None
 
 
 # -- spoken descriptions (code, not model) --------------------------------------
@@ -284,11 +307,13 @@ def describe(a: Action, language: str, now: datetime) -> str:
     if a.tool == "alarm.set" and (t := parse_local(g.get("time"))):
         return (f"{day_phrase(t.date(), now.date(), True)} {clock_phrase(t, True)} का अलार्म" if hi
                 else f"an alarm for {clock_phrase(t, False)} {day_phrase(t.date(), now.date(), False)}")
-    if a.tool == "timer.set" and str(g.get("seconds", "")).isdigit():
-        secs = int(g["seconds"])
-        amount = f"{secs // 60} मिनट" if hi and secs >= 60 else f"{secs} सेकंड" if hi else (
-            f"{secs // 60}-minute" if secs >= 60 else f"{secs}-second")
-        return f"{amount} का टाइमर" if hi else f"a {amount} timer"
+    if a.tool == "timer.set" and (secs := whole_seconds(g.get("seconds"))):
+        if secs % 60 == 0 and secs < 3600 or secs < 60:
+            amount = f"{secs // 60} मिनट" if hi and secs >= 60 else f"{secs} सेकंड" if hi else (
+                f"{secs // 60}-minute" if secs >= 60 else f"{secs}-second")
+            return f"{amount} का टाइमर" if hi else f"a {amount} timer"
+        # 90 s is "1 minute 30 seconds", not a "1-minute" timer
+        return f"{wait_phrase(secs, True)} का टाइमर" if hi else f"a timer for {wait_phrase(secs, False)}"
     if a.tool == "calendar.create" and (t := parse_local(g.get("start"))):
         title = text("title") or ("इवेंट" if hi else "event")
         return (f"{day_phrase(t.date(), now.date(), True)} {clock_phrase(t, True)} “{title}”" if hi
@@ -337,8 +362,8 @@ def describe(a: Action, language: str, now: datetime) -> str:
         if not any(text(k) for k in ("kind", "when", "folder", "query")) and a.tool != "files.recent":
             return ("वह फ़ाइल " + verb[0]) if hi else verb[1].replace("your latest", "that file")
         return f"{kind} {verb[0]}" if hi else f"{verb[1]} {kind}"
-    if a.tool == "wait" and str(g.get("seconds", "")).isdigit():
-        return f"{wait_phrase(int(g['seconds']), hi)} रुकना" if hi else f"waiting {wait_phrase(int(g['seconds']), False)}"
+    if a.tool == "wait" and (secs := whole_seconds(g.get("seconds"))) is not None:
+        return f"{wait_phrase(secs, hi)} रुकना" if hi else f"waiting {wait_phrase(secs, False)}"
     if a.tool == "mac.do" and text("task"):
         return f"“{text('task')}”" if hi else f"doing “{text('task')}”"
     if a.tool == "files.search" and text("query"):
