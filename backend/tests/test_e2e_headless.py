@@ -128,6 +128,20 @@ def test_typed_command_goes_through_the_language_model(settings):
         assert ollama.requests and ollama.requests[-1]["text"] == "What is the capital of France?"
 
 
+def test_typed_commands_work_without_speaking_unless_switched_off(settings):
+    h = Harness(settings, camera="once")
+    with h.client:
+        h.setup()
+        h.verify()  # face + liveness at launch, then the camera goes off
+        h.wait_for(lambda: h.svc.auth_public().get("face_once"))
+        r = h.post("/api/command", {"text": "set a timer for 5 minutes"})  # typed, never spoken
+        assert r.status_code == 200 and all(a["ok"] for a in r.json()["actions"])
+        assert any(a.kind == "timer" for a in h.svc.tools.store.alarms())
+        h.svc.prefs.set("security.typed", "off")
+        r = h.post("/api/command", {"text": "set a timer for 7 minutes"}).json()
+        assert not r["actions"][0]["ok"] and "Typed commands are off" in r["reply"]
+
+
 def test_stranger_is_denied_and_logged(h):
     h.setup()
     h.verify()

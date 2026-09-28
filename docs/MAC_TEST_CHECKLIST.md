@@ -74,6 +74,8 @@ scripts/build_dmg.sh
 - [ ] Face once (default): after the unlock the camera light goes off and the
       preview says FACE VERIFIED · CAMERA OFF; voice commands still work
 - [ ] Settings → Camera → Face all the time: the camera comes back on
+- [ ] A typed command ("set a timer for 2 minutes") runs without speaking; with
+      Settings → Commands → Voice only it asks you to say it instead
 - [ ] Walk away (Face all the time): locks after the chosen time; come back: unlocks
 - [ ] Wake word with your chosen name, in English and Hindi
 

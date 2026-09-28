@@ -33,6 +33,7 @@ PREFS: dict[str, Pref] = {p.key: p for p in [
     Pref("security.face", ("standard", "strict"), "standard", True, ("Standard", "Strict")),
     Pref("security.voice", ("standard", "strict"), "standard", True, ("Standard", "Strict")),
     Pref("security.away_lock_s", (60.0, 20.0, 8.0), 8.0, True, ("After 1 min", "After 20 s", "After 8 s")),
+    Pref("security.typed", ("on", "off"), "on", True, ("Voice or typed", "Voice only")),
     Pref("security.camera", ("once", "always"), "once", True, ("Face once, then voice", "Face all the time")),
     Pref("security.liveness", ("normal", "frequent"), "normal", True, ("Every 5-15 min", "Every 2-5 min")),
     # memory

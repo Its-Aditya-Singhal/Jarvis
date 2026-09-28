@@ -32,6 +32,12 @@ Every action is authorised from live evidence at the moment it runs (see
 | L2 ACT | L1 + your voice verified in the last 60 s, no unknown voice since, nobody else in view | alarms, notes, opening apps, controlling the Mac, typing, Ask Claude/ChatGPT |
 | L3 CONFIRM | L2 + liveness in the last 10 min + an explicit yes (verified voice or a click) within 30 s | deleting notes, events, memories, moving files to the Trash, privacy actions |
 
+**Typed commands (on by default).** With Settings → Commands on "Voice or typed",
+a command typed in the command bar, or a click on Confirm, counts like your voice
+once your face is verified: L2 then needs no spoken words, and the score is the one
+without voice evidence. "Voice only" restores the rule that L2 needs your voice.
+Anyone at your unlocked keyboard can then act as you, so lock the Mac when you leave.
+
 **Camera: face once (the default).** The face check with liveness runs when
 JARVIS starts. Once it passes, the camera switches off until JARVIS restarts, the
 screen is locked through JARVIS, or Settings → Camera is set to "Face all the time".

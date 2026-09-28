@@ -83,6 +83,8 @@ BLOCKED_SAY = {
                      "यह करने के लिए मुझे आपकी आवाज़ सुननी होगी। कृपया बोलकर कहिए।"),
     "voice_needed_voice": ("I couldn't confirm your voice. Please say that again.",
                            "आपकी आवाज़ पक्की नहीं हो पाई। कृपया दोबारा कहिए।"),
+    "voice_needed_typed": ("Typed commands are off in Settings, so please say that out loud.",
+                           "सेटिंग्स में टाइप किए कमांड बंद हैं, कृपया बोलकर कहिए।"),
     "voice_rejected": ("An unrecognised voice spoke, so please repeat that yourself.",
                        "कोई अनजान आवाज़ बोली थी, कृपया आप खुद दोबारा कहिए।"),
     "bystander": ("Someone else is in view, so I'll only read things for now.",
@@ -379,15 +381,22 @@ class AssistantService:
             ev.voice_rejected_since = v.auth.rejected_since_verified
         return ev
 
-    def _assess(self, now: float | None = None) -> tuple[Trust, np.ndarray]:
+    def _assess(self, now: float | None = None, screen: bool = False) -> tuple[Trust, np.ndarray]:
         ev = self.evidence(now)
         x = vector(ev, self.levels.voice_window_s)
+        if screen and self.prefs.get("security.typed") == "on":
+            # typed or clicked on the screen of a verified owner: the keyboard stands in for
+            # the voice, and the score is the presence score (the one without voice evidence)
+            ev.voice_verified_age_s, ev.voice_rejected_since = 0.0, False
+            presence = None if self.fusion is None else float(self.fusion.prob(without_voice(x)))
+            return assess(ev, presence, self.levels, presence), x
         if self.fusion is None:
             return assess(ev, None, self.levels), x
         return assess(ev, float(self.fusion.prob(x)), self.levels, float(self.fusion.prob(without_voice(x)))), x
 
-    def trust(self, now: float | None = None) -> Trust:
-        return self._assess(now)[0]
+    def trust(self, now: float | None = None, screen: bool = False) -> Trust:
+        """``screen``: the request was typed or clicked (see the ``security.typed`` setting)."""
+        return self._assess(now, screen)[0]
 
     def record_sample(self, label: int, source: str) -> None:
         """Keep this moment's feature vector (scores only) for personal retraining."""
@@ -884,6 +893,8 @@ class AssistantService:
     def _blocked_say(self, code: str, lang: str, source: str) -> str:
         if code == "voice_needed" and source == "voice":
             code = "voice_needed_voice"  # they did speak; the match was just unclear
+        elif code == "voice_needed" and source in ("typed", "click"):
+            code = "voice_needed_typed"  # typed commands are switched off in Settings
         en, hi = BLOCKED_SAY.get(code, (REASONS.get(code, "Not allowed right now."),) * 2)
         return hi if lang != "en" else en
 
@@ -893,7 +904,7 @@ class AssistantService:
         did_level2 = False
         for a in actions:
             need = LEVELS.get(a.tool, 3)
-            trust = self.trust()  # re-checked per action: the owner may have left while the model was thinking
+            trust = self.trust(screen=source == "typed")  # re-checked per action: the owner may have left meanwhile
             if trust.level == 0:
                 results.append(ToolResult(a.tool, False, "रुक गया: आप अब सत्यापित नहीं हैं।" if hi
                                           else "Stopped: you're no longer verified."))
@@ -1011,7 +1022,7 @@ class AssistantService:
                 else "I couldn't verify your voice from that. Say “yes, go ahead” clearly, or click Confirm.",
                 ok=False,
             )
-        trust = self.trust()
+        trust = self.trust(screen=source == "click")
         if not trust.l3_ready:
             code = trust.blockers.get(3, "low_confidence")
             if code == "fresh_liveness":

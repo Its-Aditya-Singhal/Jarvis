@@ -171,7 +171,7 @@ def test_level_gated_endpoints(settings):
         assert client.post("/api/confirm/abc", headers=H, json={"accept": True}).status_code == 403
         assert client.post("/api/fusion/retrain", headers=H).status_code == 403
         # the owner at the screen, but hasn't spoken recently: level 1
-        svc.trust = lambda now=None: Trust(1, 0.95, blockers={2: "voice_needed", 3: "voice_needed"})
+        svc.trust = lambda now=None, screen=False: Trust(1, 0.95, blockers={2: "voice_needed", 3: "voice_needed"})
         info = client.get("/api/fusion", headers=H).json()
         assert info["source"] == "default" and info["test"]["auc"] > 0.98
         assert info["device_samples"] == {"owner": 0, "other": 0}
@@ -180,7 +180,7 @@ def test_level_gated_endpoints(settings):
         assert client.put("/api/settings/files", headers=H, json={"folders": []}).status_code == 403
         assert client.post("/api/confirm/abc", headers=H, json={"accept": True}).json()["ok"] is False
         # level 2
-        svc.trust = lambda now=None: Trust(2, 0.99, l3_ready=True)
+        svc.trust = lambda now=None, screen=False: Trust(2, 0.99, l3_ready=True)
         r = client.post("/api/fusion/retrain", headers=H)
         assert r.status_code == 400 and "owner samples" in r.json()["detail"]
         assert client.post("/api/fusion/reset", headers=H).json()["source"] == "default"
@@ -193,7 +193,7 @@ def test_settings_and_privacy_endpoints(settings, tmp_path):
     with client:
         assert client.get("/api/privacy", headers=H).status_code == 403
         assert client.put("/api/settings/pref", headers=H, json={"key": "voice.speed", "value": 1.1}).status_code == 403
-        svc.trust = lambda now=None: Trust(1, 0.95, blockers={2: "voice_needed", 3: "voice_needed"})
+        svc.trust = lambda now=None, screen=False: Trust(1, 0.95, blockers={2: "voice_needed", 3: "voice_needed"})
         inv = client.get("/api/privacy", headers=H).json()
         assert {i["id"] for i in inv["items"]} >= {"face", "voice", "security", "settings"}
         assert inv["network"]["offline"] is True
@@ -206,7 +206,7 @@ def test_settings_and_privacy_endpoints(settings, tmp_path):
         assert client.post("/api/privacy/factory_reset", headers=H).status_code == 403
         assert client.put("/api/settings/profile", headers=H,
                           json={"owner_name": "A", "assistant_name": "Friday"}).status_code == 403
-        svc.trust = lambda now=None: Trust(2, 0.99, l3_ready=True)
+        svc.trust = lambda now=None, screen=False: Trust(2, 0.99, l3_ready=True)
         assert client.put("/api/settings/pref", headers=H, json={"key": "security.face", "value": "strict"}).json()["prefs"]
         # loosening opens a confirmation instead of applying
         r = client.put("/api/settings/pref", headers=H, json={"key": "security.face", "value": "standard"}).json()
@@ -270,7 +270,7 @@ def test_tool_actions_from_the_ui_need_the_same_level_as_by_voice(settings):
     client, svc = _client(settings, tools=True, apple=AppleBridge(run=lambda *a: ""))
     with client:
         state = {"level": 1}
-        svc.trust = lambda now=None: fake_trust(state)
+        svc.trust = lambda now=None, screen=False: fake_trust(state)
         aid = svc.tools.store.add_alarm("timer", __import__("datetime").datetime.now().replace(year=2030), "")
         r = client.post(f"/api/alarms/{aid}/cancel", headers=H)
         assert r.status_code == 403 and "level 2" in r.json()["detail"]

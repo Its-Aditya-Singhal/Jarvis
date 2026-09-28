@@ -97,9 +97,9 @@ def test_retry_and_choosing_a_mic(settings, monkeypatch):
         assert [d["name"] for d in r["devices"]] == ["MacBook Pro Microphone", "Microsoft Teams Audio"]
         assert client.post("/api/mic/retry", headers=H).status_code == 200 and mic.retried == 1
         # a different input could feed recordings to voice verification: level 2
-        svc.trust = lambda now=None: Trust(1, 0.95, blockers={2: "voice_needed", 3: "voice_needed"})
+        svc.trust = lambda now=None, screen=False: Trust(1, 0.95, blockers={2: "voice_needed", 3: "voice_needed"})
         assert client.put("/api/mic", headers=H, json={"device": "Microsoft Teams Audio"}).status_code == 403
-        svc.trust = lambda now=None: Trust(2, 0.99, l3_ready=True)
+        svc.trust = lambda now=None, screen=False: Trust(2, 0.99, l3_ready=True)
         assert client.put("/api/mic", headers=H, json={"device": "Not Plugged In"}).status_code == 400
         assert client.put("/api/mic", headers=H, json={"device": "Microsoft Teams Audio"}).status_code == 200
         assert mic.used == ["Microsoft Teams Audio"]

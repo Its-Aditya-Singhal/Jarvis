@@ -64,7 +64,7 @@ def make(settings, actions, level=2):
     svc = AssistantService(settings, db, store, EventBus(), Nothing(), Nothing(),
                            brain_factory=lambda s: FakeBrain(actions), tools_factory=tools)
     state = {"level": level}
-    svc.trust = lambda now=None: fake_trust(state)
+    svc.trust = lambda now=None, screen=False: fake_trust(state)
     return svc, tstore, db, state
 
 
@@ -101,10 +101,10 @@ def test_owner_leaving_mid_command_stops_the_rest(settings):
 def test_level1_can_read_but_not_create(settings):
     svc, tstore, db, state = make(settings, [Action("notes.search", {"query": "milk"}),
                                              Action("notes.add", {"text": "Buy milk"})], level=1)
-    out = svc.command("find milk and add a note", source="typed")
+    out = svc.command("find milk and add a note", source="voice")
     assert [a["ok"] for a in out["actions"]] == [True, False]
     assert out["actions"][1]["data"]["blocked"] == "voice_needed"
-    assert "hear your voice" in out["reply"] and tstore.notes() == []
+    assert "couldn't confirm your voice" in out["reply"] and tstore.notes() == []
     ev = db.security_events(5)[0]
     assert ev["kind"] == "tool_blocked" and ev["blocked"] and "needs level 2" in ev["detail"]
 
@@ -228,8 +228,8 @@ def test_a_confirmation_runs_once_even_when_confirmed_twice_at_once(settings):
     both_checked = threading.Barrier(2, timeout=5)
     real_trust = svc.trust
 
-    def trust(now=None):
-        t = real_trust(now)
+    def trust(now=None, screen=False):
+        t = real_trust(now, screen)
         if threading.current_thread().name.startswith("confirm"):
             both_checked.wait()  # both confirmations are past the "is it pending?" check
         return t
