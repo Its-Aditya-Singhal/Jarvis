@@ -92,6 +92,21 @@ llm  | alarm.set | set an alarm for 7 on Tuesday
 llm  | alarm.set | set an alarm for an hour before sunrise
 llm  | alarm.set | wake me up at 7 every weekday
 
+# alarms given as a length ring like an alarm; a reason after the request is ignored
+fast | timer.set(seconds=900, label=Alarm) | put alarm for 15 minutes
+fast | timer.set(seconds=900, label=Alarm) | put alarm for 15 minutes, I have to take a nap
+fast | timer.set(seconds=1200, label=Alarm) | set an alarm in 20 minutes
+fast | timer.set(seconds=1800, label=Alarm) | alarm for half an hour
+fast | timer.set(seconds=600) | set a timer for 10 minutes because I'm cooking
+
+# -- stopwatch -------------------------------------------------------------------------------
+fast | stopwatch(action=start) | start the stopwatch
+fast | stopwatch(action=start) | start stop watch
+fast | stopwatch(action=stop) | stop the stopwatch
+fast | stopwatch(action=reset) | reset the stopwatch
+fast | stopwatch(action=status) | what's the stopwatch at
+fast | stopwatch(action=status) | stopwatch pe kitna hua
+
 # -- alarm list & cancel ---------------------------------------------------------------------
 fast | alarm.cancel(kind=alarm) | cancel my alarms
 fast | alarm.cancel(kind=alarm) | cancel all alarms
@@ -190,8 +205,12 @@ fast | web.open(target=Best laptops 2026) | search google for best laptops 2026
 fast | web.open(target=Weather in Delhi) | search the web for weather in Delhi
 fast | web.open(target=Python decorators) | look up python decorators online
 fast | web.open(target=Flights to Goa) | search flights to Goa on google
+fast | web.open(target=Best laptops 2026) | google search best laptops 2026
+fast | web.open(target=Python tutorials) | search for python tutorials
+fast | web.open(target=Believer, site=youtube) | play believer on youtube
+fast | web.open(target=Cat videos, site=youtube) | search youtube for cat videos
 fast | web.open(target=IPL score) | IPL score google karo
-gap  | web.open(target=Best laptops) | search for best laptops on youtube
+fast | web.open(target=Best laptops, site=youtube) | search for best laptops on youtube
 llm  | none | what's the weather
 llm  | none | what's the latest news
 llm  | web.open | find me a recipe for paneer butter masala online
@@ -256,7 +275,7 @@ fast | media.control(action=previous) | go back
 fast | media.control(action=previous) | play the previous track
 fast | media.control(action=previous) | pichla gaana
 gap  | media.control(action=pause) | shut the music off
-llm  | media.control | play some lo-fi on spotify
+fast | web.open(target=Lo-fi, site=spotify) | play some lo-fi on spotify
 llm  | media.control | play Kesariya by Arijit Singh
 
 # -- battery, lock ---------------------------------------------------------------------------

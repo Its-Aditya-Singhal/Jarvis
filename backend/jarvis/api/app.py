@@ -584,6 +584,9 @@ def create_app(
                 {"id": n.id, "text": n.text, "created": n.created.isoformat(timespec="minutes"), "apple": n.apple_id is not None}
                 for n in t.store.notes(30)
             ],
+            # the stopwatch: when it (re)started and the seconds counted before that
+            "stopwatch": {"started": t.stopwatch_start.isoformat(timespec="seconds") if t.stopwatch_start else None,
+                          "held": round(t.stopwatch_held)},
             # "close it after 10 seconds": waiting actions, due as an ISO time like the alarms
             "delayed": [
                 {"id": d["id"], "due": datetime.fromtimestamp(d["due"]).isoformat(timespec="seconds"), "summary": d["summary"]}

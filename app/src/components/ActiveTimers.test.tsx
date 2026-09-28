@@ -43,6 +43,18 @@ describe("ActiveTimers", () => {
     await waitFor(() => expect(screen.queryByText("closing Slack")).not.toBeInTheDocument());
   });
 
+  it("shows the stopwatch counting up, and a paused one", async () => {
+    fake.route("GET /api/tools", () => ({ alarms: [], stopwatch: { started: iso(-65_000), held: 60 } }));
+    const { unmount } = render(<ActiveTimers />);
+    expect(await screen.findByText("STOPWATCH")).toBeInTheDocument();
+    expect(screen.getByText(/^2:0[4-6]$/)).toBeInTheDocument();
+    unmount();
+    fake.route("GET /api/tools", () => ({ alarms: [], stopwatch: { started: null, held: 125 } }));
+    render(<ActiveTimers />);
+    expect(await screen.findByText("2:05")).toBeInTheDocument();
+    expect(screen.getByText("paused")).toBeInTheDocument();
+  });
+
   it("shows nothing when nothing is running", async () => {
     fake.route("GET /api/tools", () => ({ alarms: [], delayed: [] }));
     const { container } = render(<ActiveTimers />);

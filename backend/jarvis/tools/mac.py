@@ -73,6 +73,11 @@ def is_bundle(path: Path) -> bool:
 # never quit from a voice command
 KEEP_RUNNING = {"finder", "jarvis", "loginwindow", "dock", "systemuiserver"}
 PLAYERS = ("Spotify", "Music")
+# "play believer on youtube": that site's search results
+SITE_SEARCH = {
+    "youtube": ("YouTube", "https://www.youtube.com/results?search_query={}"),
+    "spotify": ("Spotify", "https://open.spotify.com/search/{}"),
+}
 
 
 # spoken page name -> System Settings pane (macOS 13+ ids; the Privacy_* anchors still open the right list)
@@ -335,10 +340,13 @@ class MacControl:
         self._run(["open", str(path)])
 
     @staticmethod
-    def site_url(target: str) -> tuple[str, str]:
-        """(url, what) for a site name, URL or search words."""
+    def site_url(target: str, site: str = "") -> tuple[str, str]:
+        """(url, what) for a site name, URL or search words (searched on ``site``: youtube | spotify)."""
         t = " ".join(target.split()).strip(" .")
         low = t.lower()
+        if site.lower() in SITE_SEARCH:
+            name, url = SITE_SEARCH[site.lower()]
+            return url.format(quote_plus(t) if name == "YouTube" else quote(t)), f"“{t}” on {name}"
         if low in SITES:
             return SITES[low], t
         if re.fullmatch(r"(https?://)?[\w-]+(\.[\w-]+)+(/\S*)?", low):

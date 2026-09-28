@@ -282,3 +282,20 @@ def test_revealing_a_file_that_is_gone_says_so(tmp_path, monkeypatch):
     with pytest.raises(FolderError, match="no longer there"):
         fs.reveal(str(docs / "deleted.pdf"))  # found by an earlier search, removed since
     assert not ran
+
+
+def test_stopwatch_starts_stops_resumes_and_resets():
+    db = Database(":memory:")
+    now = {"t": NOW}
+    r = ToolRunner(db, ToolStore(db, StaticKeyProvider()), None, None, None, clock=lambda: now["t"])
+    sw = lambda action: r.run(Action("stopwatch", {"action": action}), "en")
+    assert not sw("status").ok  # nothing running yet
+    assert sw("start").say == "Stopwatch started."
+    now["t"] += timedelta(minutes=2, seconds=5)
+    assert sw("status").say == "The stopwatch is at 2 minutes 5 seconds."
+    assert sw("stop").say == "Stopwatch stopped at 2 minutes 5 seconds."
+    now["t"] += timedelta(minutes=10)  # stopped: time doesn't count
+    assert sw("start").say == "Stopwatch resumed."
+    now["t"] += timedelta(seconds=55)
+    assert sw("stop").data == {"seconds": 180}
+    assert sw("reset").ok and not sw("status").ok

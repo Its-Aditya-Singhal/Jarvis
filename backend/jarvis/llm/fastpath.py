@@ -231,9 +231,17 @@ def _restore(orig: str, cap: str) -> str | None:
     return out[:1].upper() + out[1:] if out else None
 
 
-def _one(t: str, now: datetime, is_app: Callable[[str], bool], hi: bool, orig: str = "") -> Parsed | None:
-    if (r := _files(t)) is not None:
-        return r
+# "put alarm for 15 minutes, I have to take a nap": the reason isn't part of the request
+_REASON = re.compile(r",? (?:because|coz|cause|since|as|so that|so|i have to|i need to|i want to|i gotta|i'?m going to|im going to|"
+                     r"i am going to|i'?ll|i will|for (?:my|the|a) (?!(?:minute|second|hour|min|sec)s?\b)|mujhe|kyunki) .+$")
+
+
+def _unreason(t: str) -> str:
+    return _REASON.sub("", t)
+
+
+def _timing(t: str, now: datetime) -> Parsed | None:
+    """Timers and alarms."""
     # timers
     m = (re.fullmatch(rf"{POLITE}(?:set|start|put)(?: me)?(?: a| an)? {TIMER} (?:for |of )?(.+?){TAIL}", t)
          or re.fullmatch(rf"{POLITE}(?:set|start|put|make)(?: me)?(?: a| an)? (.+?) {TIMER}(?: on| going)?{TAIL}", t)
@@ -256,6 +264,38 @@ def _one(t: str, now: datetime, is_app: Callable[[str], bool], hi: bool, orig: s
         when = m.group(m.lastindex or 0)
         if (at := _clock(when, now, wake=wake or "subah" in when)) is not None:
             return [Action("alarm.set", {"time": at.isoformat(timespec="minutes")})], ""
+    # "put alarm for 15 minutes", "alarm in half an hour": a countdown that rings like an alarm
+    m = (re.fullmatch(rf"{POLITE}(?:set|put|start)(?: an| a| my)? {ALARM} (?:for |in |after )?(.+?){TAIL}", t)
+         or re.fullmatch(rf"{POLITE}{ALARM} (?:for|in|after) (.+?){TAIL}", t))
+    if m and (secs := _duration(re.sub(r"^(?:the )?next ", "", m.group(1)).removeprefix("in "))):
+        return [Action("timer.set", {"seconds": secs, "label": "Alarm"})], ""
+    return None
+
+
+STOPWATCH = r"(?:the |my |a )?(?:stopwatch|stop watch|stop-watch)"
+
+
+def _stopwatch(t: str) -> Parsed | None:
+    act = None
+    if re.fullmatch(rf"{POLITE}(?:start|begin|run|set|resume|continue)(?: up)? {STOPWATCH}{TAIL}|{STOPWATCH} (?:start|on|chalu karo|shuru karo|start karo|chalao)", t):
+        act = "start"
+    elif re.fullmatch(rf"{POLITE}(?:stop|pause|end|halt|finish) {STOPWATCH}{TAIL}|{STOPWATCH} (?:stop|off|band karo|roko|rok do|stop karo)", t):
+        act = "stop"
+    elif re.fullmatch(rf"{POLITE}(?:reset|clear|zero) {STOPWATCH}{TAIL}|{STOPWATCH} reset(?: karo| kar do)?", t):
+        act = "reset"
+    elif re.fullmatch(rf"(?:what(?:'?s| is) (?:on )?|check |read |how long (?:is|has been) (?:on )?){STOPWATCH}(?: time| at| status| say| showing)?"
+                      rf"|{STOPWATCH}(?: time| status)?|how long has (?:it|the stopwatch|the stop watch) been(?: running)?|{STOPWATCH} (?:pe|par|mein) kitna (?:hua|time hua|hua hai)", t):
+        act = "status"
+    return None if act is None else ([Action("stopwatch", {"action": act})], "")
+
+
+def _one(t: str, now: datetime, is_app: Callable[[str], bool], hi: bool, orig: str = "") -> Parsed | None:
+    if (r := _files(t)) is not None:
+        return r
+    if (r := _timing(t, now)) is not None or (r := _timing(_unreason(t), now)) is not None:
+        return r
+    if (r := _stopwatch(t)) is not None:
+        return r
     if re.fullmatch(rf"{POLITE}(?:cancel|delete|remove|turn off|stop) (?:all )?(?:my |the )?(?:{ALARM}s?|{TIMER}s?)(?: and (?:{ALARM}s?|{TIMER}s?))?{TAIL}", t) \
             or re.fullmatch(rf"(?:saare |sab |mera |mere )?(?:{ALARM}|{TIMER}) (?:cancel|band|hata) (?:kar do|karo|do)", t):
         # "cancel the timer" must leave tomorrow's wake-up alarm alone
@@ -288,10 +328,22 @@ def _one(t: str, now: datetime, is_app: Callable[[str], bool], hi: bool, orig: s
         return [Action("app.close", {"name": m.group(1)})], ""
 
     # web search (explicit "google" / "web" / "online" only; "search for X" may mean files)
-    m = (re.fullmatch(r"(?:google|search google for|search the web for|search online for|look up|search on google for|google search) (.+?)(?: online| on google)?", t)
+    m = (re.fullmatch(r"(?:search google for|search the web for|search online for|search on google for|google search(?: for)?|google for|google|look up) (.+?)(?: online| on google)?", t)
          or re.fullmatch(r"(?:search|look up) (.+?) (?:on google|online|on the web|on the internet)", t)
          or re.fullmatch(r"(.+?) (?:google karo|google pe search karo|search karo google pe)", t))
     if m and (q := _restore(orig, m.group(1)) or m.group(1)):
+        return [Action("web.open", {"target": q})], ""
+    # "play believer on youtube", "search lofi on spotify", "youtube pe arijit ke gaane chalao"
+    m = (re.fullmatch(r"(?:play|search(?: for)?|find|look up|put on|open)(?: me)?(?: some)? (.+?) (?:on|in) (youtube|spotify)", t)
+         or re.fullmatch(r"(?:search )?(youtube|spotify)(?: pe| par| for| search(?: for)?)? (.+?)(?: chalao| lagao| bajao| search karo| dhundo| dikhao)?", t))
+    if m:
+        q, site = (m.group(1), m.group(2)) if m.group(1) not in ("youtube", "spotify") else (m.group(2), m.group(1))
+        if (q := _restore(orig, q) or q) and q not in SITES:
+            return [Action("web.open", {"target": q, "site": site})], ""
+    # "search for python tutorials": the web, unless it names files, notes or mail
+    m = re.fullmatch(r"(?:search for|search) (.+)", t)
+    if m and not re.search(r"\b(?:files?|documents?|docs?|folders?|pdfs?|notes?|emails?|mails?|messages?|calendar|photos?|downloads?|desktop|my|youtube|spotify)\b", m.group(1)) \
+            and (q := _restore(orig, m.group(1)) or m.group(1)):
         return [Action("web.open", {"target": q})], ""
 
     # volume

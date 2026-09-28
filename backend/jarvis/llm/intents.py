@@ -29,6 +29,7 @@ from ..speech.text import has_devanagari
 TOOLS: dict[str, tuple[str, str]] = {
     "alarm.set": ("Set an alarm", "time: local ISO datetime like 2026-09-28T07:00; label: optional"),
     "timer.set": ("Start a countdown timer", "seconds: integer; label: optional"),
+    "stopwatch": ("Start, stop, reset or read the stopwatch", "action: start | stop | reset | status"),
     "alarm.cancel": ("Cancel alarms/timers", "kind: optional alarm | timer (only that kind); time: optional local ISO datetime of the alarm; omit both to cancel all"),
     "calendar.create": ("Add a calendar event", "title; start: local ISO datetime; end: optional"),
     "calendar.list": ("Read the calendar for a day", "date: ISO date"),
@@ -39,7 +40,7 @@ TOOLS: dict[str, tuple[str, str]] = {
     "app.open": ("Open a Mac application", "name"),
     "app.close": ("Quit (close) a running Mac application", "name"),
     "folder.open": ("Open a folder in Finder (Documents, Downloads, Desktop, Pictures, Music, Movies, Home…)", "name"),
-    "web.open": ("Open a website or search the web in the browser", "target: site name, URL, or search words"),
+    "web.open": ("Open a website or search the web in the browser", "target: site name, URL, or search words; site: optional youtube | spotify (search there)"),
     "system.volume": ("Change or read the volume", "level: 0-100 | change: +/-number | mute: true/false; no args = read"),
     "media.control": ("Control music playback", "action: play | pause | next | previous"),
     "system.battery": ("Read the battery level", "none"),

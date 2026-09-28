@@ -22,7 +22,7 @@ from typing import Any
 from rapidfuzz import fuzz
 
 from ..database.db import Database
-from ..llm.intents import Action, clock_phrase, day_phrase, parse_local
+from ..llm.intents import Action, clock_phrase, day_phrase, parse_local, wait_phrase
 from .agent import Script, ScriptAgent, ScriptError
 from .apple import AppleBridge, AppleError
 from .apps import AppIndex
@@ -32,14 +32,17 @@ from .store import Event, ToolStore
 
 log = logging.getLogger(__name__)
 
+# Level 1 needs the owner's face (at launch, with face once); level 2 also a voice match. The
+# everyday commands (a timer, brightness, volume, music, a screenshot, a web search) are level 1:
+# harmless if someone else said them, and a failed voice match must not block "dim the screen".
 LEVELS = {
     "calendar.list": 1, "notes.search": 1, "files.search": 1,
-    "alarm.set": 2, "timer.set": 2, "alarm.cancel": 2, "calendar.create": 2, "notes.add": 2, "app.open": 2,
-    "calendar.delete": 3, "notes.delete": 3,
+    "alarm.set": 1, "timer.set": 1, "stopwatch": 1, "alarm.cancel": 2, "calendar.create": 2, "notes.add": 2,
+    "app.open": 2, "calendar.delete": 3, "notes.delete": 3,
     "history.search": 1, "memory.remember": 2, "memory.forget": 3,
     "alarm.list": 1, "system.battery": 1, "system.lock": 1,  # locking only protects
-    "app.close": 2, "folder.open": 2, "web.open": 2, "system.volume": 2, "media.control": 2,
-    "screen.shot": 2, "display.brightness": 2, "display.dark_mode": 2, "settings.open": 2,
+    "app.close": 2, "folder.open": 2, "web.open": 1, "system.volume": 1, "media.control": 1,
+    "screen.shot": 1, "display.brightness": 1, "display.dark_mode": 1, "settings.open": 2,
     "clipboard.read": 1, "clipboard.note": 2, "text.type": 2, "ai.ask": 2,
     "files.recent": 1, "files.reveal": 2, "files.trash": 3,  # the Trash is recoverable, but still a deletion
     "wait": 1,  # only delays the actions after it, which are checked when they run
@@ -130,6 +133,8 @@ class ToolRunner:
         self.memory: Any = None  # jarvis.memory.manager.Memory, set when memory is enabled
         self.last_files: list[Path] = []  # the latest search results: "show it in Finder", "trash it"
         self.agent: ScriptAgent | None = None  # writes AppleScript for mac.do, set when the language model is on
+        self.stopwatch_start: datetime | None = None  # running stopwatch (kept in memory only)
+        self.stopwatch_held = 0.0  # seconds counted before the latest start (stop, then start resumes)
 
     # -- Apple sync settings --------------------------------------------------------
     @property
@@ -258,6 +263,40 @@ class ToolRunner:
             length = (f"{m} minute{'s' if m != 1 else ''}" + (f" {s} seconds" if s else "")) if m else f"{s} seconds"
             say = f"Timer started for {length}."
         return ToolResult("timer.set", True, say, {"id": tid, "due": due.isoformat(timespec="seconds")})
+
+    def stopwatch_elapsed(self) -> float:
+        running = (self.clock() - self.stopwatch_start).total_seconds() if self.stopwatch_start else 0.0
+        return self.stopwatch_held + running
+
+    def _stopwatch(self, args: dict, hi: bool) -> ToolResult:
+        """action: start | stop | reset | status."""
+        action = str(args.get("action") or "status")
+        was_running = self.stopwatch_start is not None
+        if action == "start":
+            if was_running:
+                return ToolResult("stopwatch", True, "स्टॉपवॉच पहले से चल रही है।" if hi else "The stopwatch is already running.")
+            self.stopwatch_start = self.clock()
+            self.on_change()
+            resumed = self.stopwatch_held > 0
+            say = ("स्टॉपवॉच फिर से चालू कर दी है।" if resumed else "स्टॉपवॉच शुरू कर दी है।") if hi else (
+                "Stopwatch resumed." if resumed else "Stopwatch started.")
+            return ToolResult("stopwatch", True, say, {"running": True})
+        secs = round(self.stopwatch_elapsed())
+        if action == "reset":
+            self.stopwatch_start, self.stopwatch_held = None, 0.0
+            self.on_change()
+            return ToolResult("stopwatch", True, "स्टॉपवॉच रीसेट कर दी है।" if hi else "Stopwatch reset.")
+        if not was_running and not self.stopwatch_held:
+            return ToolResult("stopwatch", False, "कोई स्टॉपवॉच नहीं चल रही।" if hi else "No stopwatch is running.")
+        if action == "stop":
+            if was_running:
+                self.stopwatch_held, self.stopwatch_start = float(secs), None
+                self.on_change()
+            say = f"स्टॉपवॉच {wait_phrase(secs, True)} पर रोक दी।" if hi else f"Stopwatch stopped at {wait_phrase(secs, False)}."
+            return ToolResult("stopwatch", True, say, {"seconds": secs})
+        state = "" if was_running else (" (रुकी हुई)" if hi else ", paused")
+        say = f"स्टॉपवॉच पर {wait_phrase(secs, True)}{state}।" if hi else f"The stopwatch is at {wait_phrase(secs, False)}{state}."
+        return ToolResult("stopwatch", True, say, {"seconds": secs, "running": was_running})
 
     def _alarm_cancel(self, args: dict, hi: bool) -> ToolResult:
         pending = [a for a in self.store.alarms(("pending",))]
@@ -512,7 +551,7 @@ class ToolRunner:
         target = " ".join(str(args.get("target") or args.get("url") or args.get("query") or "").split())[:200]
         if not target:
             return ToolResult("web.open", False, "क्या खोलूँ, समझ नहीं आया।" if hi else "I didn't catch what to open.")
-        url, what = self.mac.site_url(target)
+        url, what = self.mac.site_url(target, str(args.get("site") or ""))
         self.mac.open_url(url)
         return ToolResult("web.open", True, f"ब्राउज़र में {what} खोल दिया है।" if hi else f"Opening {what} in your browser.",
                           {"url": url})
