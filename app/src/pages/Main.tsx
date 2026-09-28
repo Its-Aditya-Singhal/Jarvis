@@ -41,6 +41,8 @@ function useRecentChange<T>(value: T, ms: number): boolean {
 function useNow(ms: number, active: boolean): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
+    // refresh on every switch: a clock stopped mid-way would keep, say, "listening" on for good
+    setNow(Date.now());
     if (!active) return;
     const id = window.setInterval(() => setNow(Date.now()), ms);
     return () => window.clearInterval(id);
@@ -141,7 +143,7 @@ function Core() {
         {state === "approved" && <ConfirmCard />}
         {state === "approved" && <SuggestionChips />}
         {state === "approved" && <Conversation turns={conversation} name={name} />}
-        {state === "approved" && <CommandBox disabled={thinking} />}
+        {state === "approved" && <CommandBox busy={thinking} />}
         <HealthCard />
       </div>
     </div>
@@ -216,19 +218,21 @@ function Conversation({
 }
 
 /** Typed commands for when speaking isn't convenient (owner only). */
-function CommandBox({ disabled }: { disabled: boolean }) {
+function CommandBox({ busy }: { busy: boolean }) {
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const send = async (e: React.FormEvent) => {
     e.preventDefault();
     const t = text.trim();
-    if (!t) return;
+    // while the last command is still being worked on, keep what was typed (and the focus)
+    if (!t || busy) return;
     setText("");
     setError(null);
     try {
       await post("/api/command", { text: t });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Backend unreachable");
+      setText((now) => now || t); // give the command back so it can be sent again
     }
   };
   return (
@@ -239,9 +243,9 @@ function CommandBox({ disabled }: { disabled: boolean }) {
         value={text}
         maxLength={500}
         aria-label="Command"
-        placeholder="Type a command… (English, हिंदी or Hinglish) — press / to focus"
+        placeholder={busy ? "Working on it…" : "Type a command… (English, हिंदी or Hinglish) — press / to focus"}
         onChange={(e) => setText(e.target.value)}
-        disabled={disabled}
+        aria-busy={busy}
       />
       {error && <p className="error small">{error}</p>}
     </form>
@@ -288,7 +292,7 @@ const VOICE_LABEL: Record<string, [string, string]> = {
   idle: ["WAITING FOR SPEECH", "tone-off"],
 };
 
-const LEVEL_NAME = ["LOCKED", "READ", "ACT"];
+const LEVEL_NAME = ["LOCKED", "READ", "ACT", "CONFIRM"];
 
 function FactorBadges() {
   const { auth, status, speaking } = useStore();
@@ -296,7 +300,7 @@ function FactorBadges() {
   if (!status?.setup_complete) return null;
   const face = auth?.state === "approved" ? "tone-ok" : auth?.state === "denied" ? "tone-alert" : "tone-warn";
   const v = auth?.voice?.state ?? "idle";
-  const voice = !status.voice_enrolled ? "tone-off" : VOICE_LABEL[v][1];
+  const voice = !status.voice_enrolled ? "tone-off" : (VOICE_LABEL[v] ?? VOICE_LABEL.idle)[1];
   return (
     <div className="factors">
       <span className={face}>
@@ -305,12 +309,12 @@ function FactorBadges() {
       <span className={voice}>
         <i className="dot" /> VOICE{speaking ? " · HEARING" : ""}
       </span>
-      <span className={LIVE_LABEL[auth?.liveness?.state ?? "idle"][1]}>
+      <span className={(LIVE_LABEL[auth?.liveness?.state ?? "idle"] ?? LIVE_LABEL.idle)[1]}>
         <i className="dot" /> LIVENESS
         {auth?.liveness?.state === "disabled" ? " · OFF" : ""}
       </span>
       <span className={`level-pill l${level}`} title={auth?.trust?.blockers["2"] ?? ""}>
-        L{level} · {LEVEL_NAME[level]}
+        L{level} · {LEVEL_NAME[level] ?? ""}
       </span>
     </div>
   );
@@ -326,7 +330,9 @@ function AuthPanel() {
   }, [approved]);
   const voice = auth?.voice;
   const live = auth?.liveness;
-  const vLabel = status?.voice_enrolled ? VOICE_LABEL[voice?.state ?? "idle"] : ["NOT ENROLLED", "tone-warn"];
+  const vLabel = status?.voice_enrolled
+    ? (VOICE_LABEL[voice?.state ?? "idle"] ?? VOICE_LABEL.idle)
+    : ["NOT ENROLLED", "tone-warn"];
   const row = (k: string, v: string, tone = "") => (
     <div className="kv">
       <span>{k}</span>
@@ -379,7 +385,7 @@ function AuthPanel() {
         </div>
         <div className="card">
           <div className="panel-title">LIVENESS</div>
-          {row("Status", ...(LIVE_LABEL[live?.state ?? "idle"] as [string, string]))}
+          {row("Status", ...(LIVE_LABEL[live?.state ?? "idle"] ?? LIVE_LABEL.idle))}
           {row(
             "Anti-spoof score",
             approved && live?.live_score != null ? `${Math.round(live.live_score * 100)}%` : "hidden",

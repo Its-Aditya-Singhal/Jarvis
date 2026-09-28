@@ -107,7 +107,7 @@ export default function StatusBar() {
         />
         <Indicator
           label="LEVEL"
-          value={`L${auth?.level ?? 0} ${["LOCKED", "READ", "ACT"][auth?.level ?? 0]}`}
+          value={`L${auth?.level ?? 0} ${["LOCKED", "READ", "ACT", "CONFIRM"][auth?.level ?? 0] ?? ""}`}
           tone={(auth?.level ?? 0) >= 2 ? "ok" : (auth?.level ?? 0) === 1 ? "warn" : "off"}
         />
       </div>
