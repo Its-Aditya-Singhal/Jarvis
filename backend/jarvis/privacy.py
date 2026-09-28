@@ -142,6 +142,8 @@ def validate_export_path(path: str, data_dir: Path) -> Path:
     p = Path(path).expanduser()
     if not p.is_absolute():
         raise ValueError("choose a full path for the export")
+    if p.is_dir():  # a folder ("~/Downloads"): a new file inside it, not "Downloads.json" next to it
+        p = p / f"assistant-export-{datetime.now():%Y-%m-%d}.json"
     if p.suffix.lower() != ".json":
         p = p.with_suffix(".json")
     if not p.parent.is_dir():

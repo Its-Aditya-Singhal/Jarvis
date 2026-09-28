@@ -301,3 +301,13 @@ def test_offline_guard_covers_udp_and_legacy_dns():
         u.close()
         g.uninstall()
     assert socket.gethostbyname is not None and len(g.recent()) == 4
+
+
+def test_exporting_to_a_folder_puts_the_file_inside_it(settings, tmp_path):
+    folder = tmp_path / "Downloads"
+    folder.mkdir()
+    out = validate_export_path(str(folder), settings.data_dir)
+    assert out.parent == folder and out.name.startswith("assistant-export-") and out.suffix == ".json"
+    settings.data_dir.mkdir(parents=True, exist_ok=True)
+    with pytest.raises(ValueError):
+        validate_export_path(str(settings.data_dir), settings.data_dir)  # the app's own folder, still refused
