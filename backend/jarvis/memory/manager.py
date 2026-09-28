@@ -226,16 +226,17 @@ class Memory:
         if not facts or not query.strip():
             return []
         vec = self.embed([query]) if any(f.embedding is not None for f in facts) else None
+        q = vec[0] if vec is not None else None
+        ql = to_latin(query)
         scored: list[tuple[float, Fact]] = []
-        if vec is not None:
-            q = vec[0]
-            for f in facts:
-                if f.embedding is not None and len(f.embedding) == len(q):
-                    scored.append((float(f.embedding @ q), f))
-            scored = [x for x in scored if x[0] >= min_sim]
-        else:
-            ql = to_latin(query)
-            for f in facts:
+        for f in facts:
+            if q is not None and f.embedding is not None and len(f.embedding) == len(q):
+                s = float(f.embedding @ q)
+                if s >= min_sim:
+                    scored.append((s, f))
+            else:
+                # not indexed yet (saved while the embedding model was down) or no embeddings at all:
+                # word matching, so the fact isn't invisible until the next restart
                 s = fuzz.token_set_ratio(ql, to_latin(f.text)) / 100
                 if s * 100 >= FUZZY_MIN:
                     scored.append((s, f))

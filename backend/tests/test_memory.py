@@ -91,6 +91,17 @@ def test_word_match_fallback_without_embeddings(tmp_path):
     assert m.semantic and m.facts()[0].embedding is not None
 
 
+def test_a_fact_saved_while_embeddings_were_down_is_still_found(mem):
+    # facts without a vector used to be skipped by every search once any fact had one
+    m, client, _ = mem
+    m.remember("I prefer tea without sugar")
+    client.up = False
+    m.remember("My car service is on the 5th")
+    client.up = True
+    assert m.facts()[0].embedding is None or m.facts()[1].embedding is None
+    assert m.relevant("when is my car service") == ["My car service is on the 5th"]
+
+
 def test_history_is_logged_searchable_and_expires(mem):
     m, _, db = mem
     m.log_turn("what's the bank's phone number", "I don't know that one.", "en")
