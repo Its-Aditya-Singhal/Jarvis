@@ -240,10 +240,13 @@ class ToolRunner:
         if not isinstance(d, Draft):
             return ToolResult("email.send", d.ok, d.say, d.data)
         body = " ".join(d.body.split())
+        # the address is read out too: a name found in past mail ("Rahul") could belong to someone
+        # who only put that name on their own address
+        to = d.to_name if d.to_name == d.to_addr else f"{d.to_name} ({d.to_addr})"
         if hi:
-            ask = f"{d.to_name} को यह ईमेल भेजूँ? विषय: {d.subject}। {body} — भेजने के लिए “हाँ, भेज दो” कहिए या Confirm दबाइए।"
+            ask = f"{to} को यह ईमेल भेजूँ? विषय: {d.subject}। {body} — भेजने के लिए “हाँ, भेज दो” कहिए या Confirm दबाइए।"
         else:
-            ask = (f"Here's the email to {d.to_name}. Subject: {d.subject}. {body} "
+            ask = (f"Here's the email to {to}. Subject: {d.subject}. {body} "
                    "Shall I send it? Say “yes, send it” or click Confirm.")
         what = f"{d.to_name} <{d.to_addr}> को ईमेल" if hi else f"an email to {d.to_name} <{d.to_addr}>"
         return Plan("email.send", 0, what, hi, ask=ask, detail=d.text(), ref=d)

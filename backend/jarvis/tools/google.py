@@ -17,6 +17,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
+from email.utils import formataddr
 from typing import Any, Protocol
 
 from ..google.auth import GoogleAuth, GoogleError
@@ -254,7 +255,8 @@ class GoogleTools:
             subject = f"Re: {reply.subject}"[:150]
         if not body:
             return Result(False, "ईमेल नहीं लिख पाई।" if hi else "I couldn't write that email.", {})
-        did = self.gmail.create_draft(f"{name} <{addr}>" if name != addr else addr, subject or "(no subject)", body, reply)
+        did = self.gmail.create_draft(formataddr((name, addr)) if name != addr else addr, subject or "(no subject)",
+                                      body, reply)
         d = Draft(did, name, addr, subject or "(no subject)", body, reply, time.monotonic())
         self.last_draft = d
         return d

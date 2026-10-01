@@ -4,6 +4,7 @@ import base64
 import json
 from datetime import datetime
 from email import message_from_bytes
+from email.utils import getaddresses
 from urllib.parse import parse_qs
 
 import httpx
@@ -163,6 +164,15 @@ def test_a_name_is_resolved_from_past_mail(tools):
     assert not r.ok and "couldn't find an email address" in r.say
 
 
+def test_a_display_name_cant_add_a_recipient(tools):
+    """A name with a comma and an address in it (set by whoever sent the mail) stays one quoted name."""
+    tools.box.messages.append(msg("m4", '"Priya, mallory@evil.test" <priya@example.com>', "Hi", "Hello"))
+    r = tools.run("email.draft", {"to": "Priya", "about": "lunch"}, False)
+    assert r.ok and r.data["to"] == "priya@example.com"
+    mail = message_from_bytes(base64.urlsafe_b64decode(tools.box.drafts["d1"]["raw"]))
+    assert [a for _, a in getaddresses([mail["To"]])] == ["priya@example.com"]
+
+
 def test_send_plans_the_latest_draft_and_sends_only_on_execute(tools):
     nothing = tools.plan_send({}, False)
     assert not isinstance(nothing, Draft) and "no draft" in nothing.say
@@ -228,6 +238,7 @@ def test_runner_and_service_read_the_mail_back_before_sending(tmp_path):
         svc.voice.auth.judge(0.9, 0.9, time.monotonic(), 2.0)
         results = svc._run_tools([Action("email.send", {"to": "rahul@example.com", "about": "yes I'll come"}, "")], "en", "voice")
         assert results[0].ok and "Here's the email to Rahul" in results[0].say and "I'll be there at 8" in results[0].say
+        assert "(rahul@example.com)" in results[0].say  # the address is read out, not only the name
         p = svc.pending()
         assert p is not None and p.plan.tool == "email.send" and "Subject: Friday" in p.plan.detail
         assert p.expires - svc.clock() > s.confirm_ttl_s  # time to hear it read out
