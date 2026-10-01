@@ -1,6 +1,7 @@
 import { ReactNode, useEffect, useState } from "react";
 import AiCard from "../components/AiCard";
 import AppleCard from "../components/AppleCard";
+import GoogleCard from "../components/GoogleCard";
 import FilesCard from "../components/FilesCard";
 import FusionCard from "../components/FusionCard";
 import MicCard from "../components/MicCard";
@@ -123,6 +124,7 @@ export default function SettingsPanel() {
       <div className="cards" hidden={!data}>
         <IdentityCard status={status} run={run} />
         <AiCard />
+        <GoogleCard />
         <div className="card">
           <div className="panel-title">VOICE</div>
           <VoicePicker

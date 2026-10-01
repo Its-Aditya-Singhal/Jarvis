@@ -34,6 +34,8 @@ from ..config import Settings, get_settings
 from ..database.db import Database
 from ..downloads import DownloadError, ModelDownloader
 from ..events import EventBus
+from ..google.auth import SERVICES as GOOGLE_SERVICES
+from ..google.auth import GoogleAuth, GoogleError, parse_client_json
 from ..host import responsible_app
 from ..llm.client import OllamaClient
 from ..llm.gemini import GEMINI_KEY, KEY_PAGE, MODEL_NAME, GeminiClient
@@ -190,6 +192,14 @@ class AiIn(BaseModel):
     api_key: str | None = Field(default=None, max_length=200)  # "" removes it
 
 
+class GoogleIn(BaseModel):
+    client_id: str | None = Field(default=None, max_length=200)
+    client_secret: str | None = Field(default=None, max_length=200)
+    client_json: str | None = Field(default=None, max_length=20000)  # the file Cloud Console downloads
+    services: list[Literal["gmail", "drive", "calendar"]] | None = Field(default=None, max_length=3)
+    remove_client: bool = False
+
+
 class PrivacyIn(BaseModel):
     path: str | None = Field(default=None, max_length=1024)
 
@@ -240,6 +250,7 @@ def create_app(
     downloader: ModelDownloader | None = None,
     restart: Callable[[], None] = restart_process,
     gemini: GeminiClient | None = None,
+    google: GoogleAuth | None = None,
 ) -> FastAPI:
     s = settings or get_settings()
     db = Database(s.db_path)
@@ -285,6 +296,7 @@ def create_app(
 
     secrets = Secrets(db, keyp)
     cloud = gemini or GeminiClient(lambda: secrets.get(GEMINI_KEY))
+    gauth = google or GoogleAuth(db, secrets)
 
     def make_brain(svc: AssistantService) -> Brain:
         return brain or Brain(s, db, names=lambda: (svc.assistant_name, svc.owner_name),
@@ -326,9 +338,19 @@ def create_app(
         out: tuple[str, ...] = ()
         if b is not None and getattr(b, "gemini", False) and secrets.has(GEMINI_KEY):
             out += (GEMINI_HOST,)
-        return out
+        return out + gauth.hosts()  # Gmail / Drive / Calendar once connected (and while connecting)
 
     svc.guard.services = online_services
+    svc.google = gauth
+
+    def google_changed() -> None:
+        bus.publish({"type": "google_changed"})
+        if gauth.error:
+            bus.log(gauth.error, "warn")
+        elif gauth.connected:
+            bus.log("Google account connected", "ok")
+
+    gauth.on_change = google_changed
     started_without_models = bool(models.needed())  # this process loaded none of them
 
     def llm_wanted() -> list[dict]:
@@ -881,6 +903,50 @@ def create_app(
         if b is None or not b.gemini or b.cloud is None:
             raise HTTPException(400, "the Gemini brain isn't selected")
         return {"fast": b.cloud.check_key(b.model), "heavy": b.cloud.check_key(b.heavy_model)}
+
+    # -- Google accounts: Gmail, Drive, Calendar ------------------------------------------------
+    @app.get("/api/settings/google", dependencies=auth + [Depends(require_owner)])
+    def get_google():
+        return gauth.status()
+
+    @app.put("/api/settings/google", dependencies=auth + [Depends(require_level2)])
+    def set_google(body: GoogleIn):
+        try:
+            if body.remove_client:
+                gauth.remove_client()
+                bus.log("Google OAuth client removed")
+            if body.client_json:
+                gauth.set_client(*parse_client_json(body.client_json))
+                bus.log("Google OAuth client saved")  # never the secret itself
+            elif body.client_id is not None or body.client_secret is not None:
+                gauth.set_client(body.client_id or gauth.client_id, body.client_secret or "")
+                bus.log("Google OAuth client saved")
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        if body.services is not None:
+            gauth.set_wanted(list(body.services))
+            bus.log("Google services: " + (", ".join(s for s in GOOGLE_SERVICES if s in body.services) or "none"))
+        return gauth.status()
+
+    @app.post("/api/settings/google/connect", dependencies=auth + [Depends(require_level2)])
+    def google_connect():
+        try:
+            url = gauth.begin()
+        except GoogleError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        bus.log("Google sign-in started — finish it in the browser")
+        return {**gauth.status(), "url": url}
+
+    @app.post("/api/settings/google/cancel", dependencies=auth + [Depends(require_owner)])
+    def google_cancel():
+        gauth.cancel()
+        return gauth.status()
+
+    @app.post("/api/settings/google/disconnect", dependencies=auth + [Depends(require_level2)])
+    def google_disconnect():
+        gauth.disconnect()
+        bus.log("Google account disconnected")
+        return gauth.status()
 
     # -- settings & privacy --------------------------------------------------------------
     @app.get("/api/settings", dependencies=auth + [Depends(require_owner)])

@@ -229,6 +229,7 @@ class AssistantService:
         self._reenroll: tuple[str, float] | None = None  # (redo | deleted, grant expiry)
         self._told_issues = False
         self.downloader: Any = None  # the first-run model downloader (set by the API)
+        self.google: Any = None  # jarvis.google.auth.GoogleAuth (set by the API): Gmail, Drive, Calendar
         self._apply_voice_settings()
 
     def owner_verified(self) -> bool:

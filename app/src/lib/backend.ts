@@ -394,6 +394,7 @@ export type BackendEvent =
   | ({ type: "memory_suggestion" } & MemorySuggestion)
   | { type: "memory_changed" }
   | { type: "privacy_changed" }
+  | { type: "google_changed" }
   | { type: "face_reenroll"; kind: string }
   | { type: "listening"; active: boolean; seconds?: number }
   | { type: "speaking"; active: boolean }

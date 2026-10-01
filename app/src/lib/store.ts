@@ -49,6 +49,8 @@ export interface AppState {
   memoryVersion: number;
   /** bumps after a privacy action (dashboard refetches) */
   privacyVersion: number;
+  /** bumps when the Google account connects, disconnects or fails (Settings → Accounts refetches) */
+  googleVersion: number;
 }
 
 export interface Turn {
@@ -79,6 +81,7 @@ let state: AppState = {
   confirm: null,
   suggestions: [],
   memoryVersion: 0,
+  googleVersion: 0,
   privacyVersion: 0,
 };
 
@@ -220,6 +223,9 @@ function handle(e: BackendEvent) {
     case "privacy_changed":
       set({ privacyVersion: state.privacyVersion + 1, memoryVersion: state.memoryVersion + 1, toolsVersion: state.toolsVersion + 1 });
       refreshStatus();
+      break;
+    case "google_changed":
+      set({ googleVersion: state.googleVersion + 1 });
       break;
     case "face_reenroll":
       set({ enroll: null, enrollComplete: false });
