@@ -98,3 +98,11 @@ def test_restart_resumes_voice_sign_in(tmp_path):
             assert time.monotonic() < end
             time.sleep(0.02)
         assert svc.owner_verified() and svc.voice.mode == "verifying"
+
+
+def test_voice_only_never_downloads_the_face_models(tmp_path):
+    from jarvis.downloads import ModelDownloader
+
+    ids = [p.id for p in ModelDownloader(tmp_path, skip=("face", "liveness")).packs]
+    assert "face" not in ids and "liveness" not in ids and "voice" in ids
+    assert "face" in [p.id for p in ModelDownloader(tmp_path).packs]

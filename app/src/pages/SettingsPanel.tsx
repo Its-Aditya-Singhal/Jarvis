@@ -1,4 +1,5 @@
 import { ReactNode, useEffect, useState } from "react";
+import AiCard from "../components/AiCard";
 import AppleCard from "../components/AppleCard";
 import FilesCard from "../components/FilesCard";
 import FusionCard from "../components/FusionCard";
@@ -121,6 +122,7 @@ export default function SettingsPanel() {
       {!data && !error && !loadError && <p className="muted small">Loading…</p>}
       <div className="cards" hidden={!data}>
         <IdentityCard status={status} run={run} />
+        <AiCard />
         <div className="card">
           <div className="panel-title">VOICE</div>
           <VoicePicker

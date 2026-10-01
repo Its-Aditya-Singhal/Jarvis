@@ -87,10 +87,13 @@ class Cancelled(Exception):
 class ModelDownloader:
     def __init__(self, models_dir: Path, packs: list[Pack] | None = None, guard=None,
                  transport: httpx.BaseTransport | None = None, platform_id: str | None = None,
-                 disk_free: Callable[[Path], int] | None = None, on_change: Callable[[], None] = lambda: None):
+                 disk_free: Callable[[Path], int] | None = None, on_change: Callable[[], None] = lambda: None,
+                 skip: tuple[str, ...] = ()):
+        """``skip``: packs this setup never uses (voice-only: the face and anti-spoof models)."""
         self.dir = Path(models_dir)
         plat = platform_id or this_platform()
-        self.packs = [p for p in (packs if packs is not None else load_manifest()) if p.platform in (None, plat)]
+        self.packs = [p for p in (packs if packs is not None else load_manifest())
+                      if p.platform in (None, plat) and p.id not in skip]
         self.guard = guard
         self.transport = transport
         self.disk_free = disk_free or (lambda p: shutil.disk_usage(p).free)

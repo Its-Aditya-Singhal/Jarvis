@@ -316,7 +316,8 @@ def create_app(
         perf=perf,
     )
 
-    models = downloader or ModelDownloader(s.models_dir, guard=svc.guard)
+    models = downloader or ModelDownloader(s.models_dir, guard=svc.guard,
+                                           skip=() if s.face_auth else ("face", "liveness"))
     svc.downloader = models
 
     def online_services() -> tuple[str, ...]:

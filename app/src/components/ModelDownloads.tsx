@@ -170,7 +170,8 @@ export default function ModelDownloads({ firstRun = false }: { firstRun?: boolea
         )}
       </div>
 
-      <OllamaSection o={o} busy={busy} act={act} />
+      {/* the Gemini brain needs no local model: Ollama only appears when it's the chosen brain */}
+      {o.models.length > 0 && <OllamaSection o={o} busy={busy} act={act} />}
 
       {(firstRun ? !needed : fetched) && (
         <div className="dl-done">
