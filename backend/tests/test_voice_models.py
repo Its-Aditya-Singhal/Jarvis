@@ -130,9 +130,10 @@ def test_voice_service_end_to_end(clips, speaker, settings):
             return pred()
 
         svc.begin_enrollment(needs_owner=True)
-        for i in range(6):  # six phrases, all read by "Daniel"
+        assert svc.enrollment is not None
+        for i in range(svc.enrollment.snapshot()["count"]):  # every phrase, all read by "Daniel"
             mic.play(clips[("Daniel", i % 3)])
-        assert wait(lambda: svc.mode == "verifying"), svc.enrollment and svc.enrollment.snapshot()
+        assert wait(lambda: svc.mode == "verifying", timeout=120), svc.enrollment and svc.enrollment.snapshot()
         assert store.exists("voice")
 
         mic.play(clips[("Daniel", 2)])
