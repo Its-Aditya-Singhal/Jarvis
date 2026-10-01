@@ -149,7 +149,8 @@ receives values as `argv`, never as script text.
 - `scripts/build_dmg.sh` pins the model checksums, builds the backend with
   PyInstaller (`backend/sidecar/jarvis-backend.spec`, a folder rather than one
   file so launches don't unpack gigabytes), builds the Tauri app, copies the
-  backend into `Contents/Resources/backend`, signs everything ad hoc with the
+  backend into `Contents/Resources/backend`, signs everything (with a local
+  self-signed identity on a developer Mac so permissions survive rebuilds, ad hoc in CI) with the
   hardened runtime and `app/src-tauri/Entitlements.plist` (camera, microphone,
   Apple Events), and makes the .dmg. A version tag runs the same script on a
   macOS runner and drafts a GitHub release (`.github/workflows/release.yml`).

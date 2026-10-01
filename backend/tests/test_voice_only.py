@@ -237,3 +237,36 @@ def test_short_clips_are_never_stitched_together(tmp_path):
     assert [f() for f in Speech.submitted] == ["uncertain", "uncertain"]
     assert Speaker.lengths == []  # the speaker model never ran on them
     db.close()
+
+
+def test_a_refused_keychain_never_loses_the_saved_voice(tmp_path):
+    """A rebuilt app that macOS doesn't trust yet can't read the key: the voice file stays as it is,
+    nothing new is sealed over it, and the health list says how to let JARVIS in again."""
+    from keyring.errors import KeyringError
+
+    s, keys = _voice_only(tmp_path), StaticKeyProvider()
+    client, svc = _client(s, keys=keys)
+    with client:
+        _voice_ready(svc)
+        client.post("/api/setup/profile", headers=H, json={"owner_name": "Aditya", "assistant_name": "JARVIS"})
+        _enroll_voice(svc)
+        client.post("/api/setup/complete", headers=H)
+    tmpl = s.templates_dir / "voice.tmpl"
+    before = tmpl.read_bytes()
+
+    class Refused(StaticKeyProvider):
+        def get_key(self):
+            raise KeyringError("Can't get password from keychain: (-25293, 'Security Auth Failure')")
+
+    client, svc = _client(s, keys=Refused())
+    with client:
+        _voice_ready(svc)
+        svc.voice.begin_verification()
+        assert svc.voice.profile_error == "keychain" and svc.voice.matcher is None
+        (issue,) = [i for i in svc.issues() if i["id"] == "voice_profile"]
+        assert "Always Allow" in issue["fix"] and "still saved" in issue["fix"]
+    assert tmpl.read_bytes() == before
+    client, svc = _client(s, keys=keys)  # macOS lets it in again: the same voice works
+    with client:
+        _voice_ready(svc)
+        assert svc.voice.begin_verification() and svc.voice.profile_error is None

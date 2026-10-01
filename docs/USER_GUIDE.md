@@ -250,7 +250,7 @@ Notes sync.
 | Problem | Fix |
 |---|---|
 | "JARVIS can't be opened" | System Settings → Privacy & Security → Open Anyway (see Install) |
-| "jarvis-backend wants to access key jarvis-assistant in your keychain" | Type your Mac login password and press **Always Allow**. JARVIS keeps its encryption key in the Keychain, and because the app is signed ad hoc, macOS asks once after each install or update |
+| "jarvis-backend wants to access key jarvis-assistant in your keychain" | Type your Mac login password and press **Always Allow**. JARVIS keeps its encryption key in the Keychain. Builds are signed with a local identity made once on this Mac, so macOS asks once and remembers it across updates. If you press Deny, your saved voice is not lost: quit, reopen and press Always Allow |
 | "AI not reachable" / "no Gemini API key" | Settings → AI: save a key and press Test. Check the internet connection |
 | "My free Gemini limit is used up" | Wait a minute (per-minute limit) or until midnight Pacific (daily limit); everyday commands keep working. You can switch the model names in Settings → AI |
 | "Gmail isn't connected" / "reconnect in Settings" | Settings → Google account → Connect, and tick every box on Google's consent page |
@@ -259,7 +259,7 @@ Notes sync.
 | Settings says "needs level 2" | Say "Jarvis, hello" and try again within a minute, or press **Use Mac password** at the top of Settings (two minutes) |
 | Voice commands are off | Settings → Microphone says why and how to fix it (permission, no device, the wrong device, busy) |
 | A model is missing | Settings → On-device models → Download, then Restart |
-| Screenshot / dark mode / typing don't work | macOS asks once for Screen Recording, Automation (System Events) and Accessibility; allow JARVIS in System Settings → Privacy & Security |
+| Screenshot / dark mode / typing don't work | macOS asks once for Screen Recording, Automation (System Events) and Accessibility; allow JARVIS in System Settings → Privacy & Security. If the switch is already on but it still asks, the switch belongs to an older build: remove JARVIS from that list with **–**, or run `tccutil reset ScreenCapture com.adityasinghal.jarvis`, then reopen JARVIS and allow it again |
 | File search finds nothing | Allow JARVIS for Desktop, Documents and Downloads in System Settings → Privacy & Security → Files and Folders |
 | The app shows "could not start" | Reinstall from the .dmg; if it persists, open an issue with the log from `~/Library/Application Support/JarvisAssistant/logs` |
 

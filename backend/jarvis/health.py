@@ -49,6 +49,16 @@ def issues(status: dict, data_dir: Path | None = None, perf: dict | None = None)
         out.append({"id": "mic", "level": "error",
                     "title": f"{mic.get('error') or 'Microphone unavailable'} — voice commands are off",
                     "fix": mic_fix(mic.get("cause"), app)})
+    profile = status.get("voice_profile")
+    if profile == "keychain":
+        out.append({"id": "voice_profile", "level": "error",
+                    "title": "macOS didn't let me open your saved voice — I can't confirm it's you",
+                    "fix": f"Quit and reopen {app}. When macOS asks to use the “jarvis-assistant” Keychain item, "
+                           "type your Mac login password and click Always Allow. Your voice is still saved."})
+    elif profile == "unreadable":
+        out.append({"id": "voice_profile", "level": "error",
+                    "title": "Your saved voice can't be read on this Mac — I can't confirm it's you",
+                    "fix": "Settings → Identity → re-record voice (use your Mac password to start)."})
     models = status.get("models") or {}
     for key, title in (("face", "Face recognition"), ("voice", "Speaker recognition"),
                        ("stt", "Speech recognition"), ("tts", "Voice synthesis")):

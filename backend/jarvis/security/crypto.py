@@ -91,6 +91,16 @@ class KeychainKeyProvider:
                 pass
 
 
+def is_keychain_error(exc: BaseException) -> bool:
+    """True when the Keychain refused the key (denied, locked, or this build isn't trusted yet),
+    as opposed to a damaged file. Either way nothing sealed is deleted."""
+    try:
+        from keyring.errors import KeyringError
+    except ImportError:  # pragma: no cover
+        return False
+    return isinstance(exc, KeyringError)
+
+
 class StaticKeyProvider:
     """In-memory key; used by tests only."""
 

@@ -269,7 +269,11 @@ the backend reaches the internet, and only because you pressed Download:
 - **No interruption while speaking:** the microphone is muted while the
   assistant talks.
 - **Signing:** releases are signed ad hoc, not notarized by Apple, so macOS
-  can't vouch for who built the app. Check the published SHA-256 of the .dmg,
+  can't vouch for who built the app. A build made on your own Mac is signed
+  with a self-signed identity created there once (`scripts/signing_identity.sh`,
+  its own keychain, never leaves the Mac), so macOS keeps the app's privacy
+  permissions and Keychain access across rebuilds instead of tying them to
+  one build's hash. Check the published SHA-256 of the .dmg,
   or build it yourself with `scripts/build_dmg.sh`.
 - **Fusion numbers are simulated (face sign-in only):** the classifier's
   accuracy figures come from simulated sessions, not field trials.

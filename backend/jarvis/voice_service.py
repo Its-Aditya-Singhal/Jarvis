@@ -20,6 +20,7 @@ from .auth.voice.verification import VoiceAuth
 from .config import Settings
 from .database.db import Database
 from .events import EventBus
+from .security.crypto import is_keychain_error as _is_keychain_error
 from .security.template_store import TemplateStore
 
 log = logging.getLogger(__name__)
@@ -74,6 +75,8 @@ class VoiceService:
         self._speaking = False
         self._last_unknown_event = 0.0
         self._buf = np.zeros(0, dtype=np.float32)
+        # why the saved voice couldn't be opened at the last try ("keychain" / "unreadable"), else None
+        self.profile_error: str | None = None
 
     # -- status ----------------------------------------------------------------
     @property
@@ -155,10 +158,13 @@ class VoiceService:
     def begin_verification(self) -> bool:
         try:
             template = self.store.load(VOICE)
-        except Exception:
+        except Exception as exc:
+            # the file stays on disk untouched: once macOS lets JARVIS read its key again it works
+            self.profile_error = "keychain" if _is_keychain_error(exc) else "unreadable"
             log.exception("could not decrypt voice template")
             self.bus.log("Voice profile could not be decrypted", "error")
             return False
+        self.profile_error = None
         if template is None:
             return False
         with self._lock:
@@ -273,6 +279,8 @@ class VoiceService:
         self.speech.submit(utt.audio, lambda: self._judge(utt, q, matcher))
 
     def _too_short(self) -> str:
+        log.info("voice check uncertain: under %.1fs of speech", MIN_VERIFY_SPEECH_S)
+        self.bus.log("Voice unclear — too short to identify the speaker", "warn")
         self.bus.publish({"type": "voice", "verdict": "uncertain"})
         return "uncertain"
 
@@ -283,6 +291,10 @@ class VoiceService:
         sim = matcher.similarity(self.engine.embed(audio))
         now = time.monotonic()
         res = self.auth.judge(sim, q["score"], now, speech_s)
+        # numbers only (no audio, no words): what a "couldn't confirm your voice" was made of, so the
+        # thresholds can be checked against the owner's real scores
+        log.info("voice check %s: similarity %.3f (accept %.2f, reject %.2f), quality %.2f, speech %.1fs",
+                 res.verdict, sim, self.auth.threshold, self.auth.reject_threshold, q["score"], speech_s)
         if res.verdict == "verified":
             self.bus.log("Voice verified — owner identified", "ok")
         elif res.verdict == "rejected":
@@ -294,7 +306,11 @@ class VoiceService:
                     "Unrecognised voice near the device",
                     voice_conf=round(confidence(sim, self.s.voice_threshold, 10.0), 3),
                 )
+        elif q["score"] < self.auth.min_quality:
+            self.bus.log("Voice unclear — too quiet or noisy to confirm the speaker", "warn")
+        elif sim >= self.auth.reject_threshold:
+            self.bus.log(f"Voice unclear — close to yours but not enough ({sim:.2f} of {self.auth.threshold:.2f})", "warn")
         else:
-            self.bus.log("Voice unclear — could not confirm speaker", "warn")
+            self.bus.log("Voice unclear — too short to tell, and not much like yours", "warn")
         self.bus.publish({"type": "voice", "verdict": res.verdict})
         return res.verdict

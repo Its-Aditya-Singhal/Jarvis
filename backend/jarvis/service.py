@@ -668,7 +668,7 @@ class AssistantService:
     def issues(self, models: dict | None = None) -> list[dict]:
         st = {"camera": {"status": self.camera.status}, "models": models or self._models(),
               "mic": self.mic_info() if self.voice else {}, "files_denied": self._files_denied(),
-              "app": responsible_app()}
+              "voice_profile": self.voice.profile_error if self.voice else None, "app": responsible_app()}
         return health.issues(st, self.s.data_dir, self.perf.stats)
 
     def _start_memory(self) -> None:

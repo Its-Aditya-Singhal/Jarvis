@@ -4,10 +4,12 @@
 #   scripts/build_dmg.sh            # -> dist/JARVIS-<version>-arm64.dmg
 #
 # Steps: pin model checksums -> backend sidecar (PyInstaller) -> Tauri app bundle ->
-# backend copied into Contents/Resources/backend -> ad-hoc signature with the
-# entitlements (camera, microphone, Apple Events) and the hardened runtime -> .dmg.
-# The app is signed ad hoc, not notarized: on first open macOS asks you to confirm
-# it in System Settings -> Privacy & Security (see docs/USER_GUIDE.md).
+# backend copied into Contents/Resources/backend -> signature with the entitlements
+# (camera, microphone, Apple Events) and the hardened runtime -> .dmg.
+# The app is signed with a local self-signed identity made once on this Mac
+# (scripts/signing_identity.sh), so rebuilds keep the same identity and macOS keeps
+# its permissions and Keychain access; it is not notarized: on first open macOS asks
+# you to confirm it in System Settings -> Privacy & Security (see docs/USER_GUIDE.md).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -49,15 +51,17 @@ echo "==> Bundling the backend"
 rm -rf "$APP/Contents/Resources/backend"
 ditto "$SIDECAR" "$APP/Contents/Resources/backend"  # ditto keeps the framework symlinks intact
 
-echo "==> Signing (ad hoc, hardened runtime)"
+# shellcheck source=scripts/signing_identity.sh
+source "$ROOT/scripts/signing_identity.sh"
+echo "==> Signing (${SIGN_ID:0:12}, hardened runtime)"
 # inside out: every native library and executable in the backend, then the app itself
 find "$APP/Contents/Resources/backend" -type f \( -name "*.so" -o -name "*.dylib" \) -print0 |
-  xargs -0 -n 50 codesign --force --sign - --timestamp=none --options runtime
+  xargs -0 -n 50 codesign --force --sign "$SIGN_ID" --timestamp=none --options runtime
 find "$APP/Contents/Resources/backend" -type d -name "*.framework" -prune -print0 |
-  xargs -0 -I{} codesign --force --sign - --timestamp=none --options runtime {} 2>/dev/null || true
-codesign --force --sign - --timestamp=none --options runtime --entitlements "$ENTITLEMENTS" \
+  xargs -0 -I{} codesign --force --sign "$SIGN_ID" --timestamp=none --options runtime {} 2>/dev/null || true
+codesign --force --sign "$SIGN_ID" --timestamp=none --options runtime --entitlements "$ENTITLEMENTS" \
   "$APP/Contents/Resources/backend/jarvis-backend"
-codesign --force --sign - --timestamp=none --options runtime --entitlements "$ENTITLEMENTS" "$APP"
+codesign --force --sign "$SIGN_ID" --timestamp=none --options runtime --entitlements "$ENTITLEMENTS" "$APP"
 codesign --verify --deep --strict --verbose=2 "$APP"
 
 echo "==> Disk image"
@@ -70,7 +74,7 @@ ln -s /Applications "$STAGE/Applications"
 rm -f "$DMG"
 hdiutil create -volname "JARVIS $VERSION" -srcfolder "$STAGE" -fs HFS+ -format UDZO -ov "$DMG" >/dev/null
 rm -rf "$STAGE"
-codesign --force --sign - --timestamp=none "$DMG"
+codesign --force --sign "$SIGN_ID" --timestamp=none "$DMG"
 
 du -h "$DMG"
 echo "==> Done: $DMG"
