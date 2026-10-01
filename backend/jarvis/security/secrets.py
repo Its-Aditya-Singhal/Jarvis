@@ -48,3 +48,20 @@ class Secrets:
         """'…ab12' for the UI, or None when not set."""
         v = self.get(name)
         return f"…{v[-4:]}" if v and len(v) >= 8 else ("set" if v else None)
+
+
+# copying a key from a web page can bring along spaces, line breaks, zero-width characters or quotes
+_INVISIBLE = dict.fromkeys(map(ord, "\u200b\u200c\u200d\u2060\ufeff\u00a0"))
+
+
+def clean_api_key(raw: str, max_len: int) -> str | None:
+    """The key as pasted, minus what a copy from a web page adds; None if it can't be a key.
+
+    Only the shape is checked here (one run of printable ASCII, a sane length): providers
+    change their key formats, so the provider's own answer to Test decides if it works."""
+    key = "".join(raw.translate(_INVISIBLE).split()).strip("\"'`“”‘’")
+    if not key:
+        return ""
+    if not 16 <= len(key) <= max_len or not all(33 <= ord(c) <= 126 for c in key):
+        return None
+    return key

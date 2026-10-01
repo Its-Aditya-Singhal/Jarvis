@@ -166,5 +166,12 @@ def test_ai_settings_keep_the_key_sealed(tmp_path):
         assert r.json()["heavy_model"] == "gemini-3.8-flash"
         assert c.put("/api/settings/ai", headers=H, json={"fast_model": "../../etc"}).status_code == 422
         assert c.put("/api/settings/ai", headers=H, json={"api_key": "not a key!"}).status_code == 400
+        # what a copy from a web page brings along is dropped; the provider's Test decides the rest
+        pasted = ' \u200b"AIzaSyPASTED-key_9876"\n '
+        r = c.put("/api/settings/ai", headers=H, json={"api_key": pasted})
+        assert r.status_code == 200 and r.json()["key"] == "…9876"
+        assert c.put("/api/settings/ai", headers=H, json={"api_key": "AQ.Ab8RN6Lnew.format-key"}).status_code == 200
+        assert c.put("/api/settings/ai", headers=H, json={"api_key": "short"}).status_code == 400
+        assert c.put("/api/settings/ai", headers=H, json={"api_key": "AIzaSy\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9"}).status_code == 400
         c.put("/api/settings/ai", headers=H, json={"api_key": ""})
         assert svc.guard.services() == () and c.get("/api/settings/ai", headers=H).json()["key"] is None

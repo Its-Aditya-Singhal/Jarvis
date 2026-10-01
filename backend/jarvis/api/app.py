@@ -54,7 +54,7 @@ from ..prefs import PREFS, coerce
 from ..privacy import ACTIONS as PRIVACY_ACTIONS
 from ..privacy import inventory
 from ..security.crypto import KeychainKeyProvider, KeyProvider
-from ..security.secrets import Secrets
+from ..security.secrets import Secrets, clean_api_key
 from ..security.template_store import TemplateStore
 from ..service import AssistantService
 from ..speech.stt import SpeechToText
@@ -195,7 +195,7 @@ class AiIn(BaseModel):
     provider: Literal["gemini", "bedrock", "ollama"] | None = None
     fast_model: str | None = Field(default=None, pattern=MODEL_NAME)
     heavy_model: str | None = Field(default=None, pattern=MODEL_NAME)
-    api_key: str | None = Field(default=None, max_length=200)  # "" removes it
+    api_key: str | None = Field(default=None, max_length=400)  # "" removes it (pasted text, cleaned below)
     # Claude on Amazon Bedrock (paid by the owner's AWS account)
     bedrock_key: str | None = Field(default=None, max_length=4000)  # "" removes it; short-term keys are long
     bedrock_region: str | None = Field(default=None, pattern=bedrock_mod.REGION_NAME)
@@ -926,16 +926,16 @@ def create_app(
         if svc.brain is None:
             raise HTTPException(503, "language model disabled")
         if body.api_key is not None:
-            key = body.api_key.strip()
-            if key and not key.replace("-", "").replace("_", "").isalnum():
-                raise HTTPException(400, "that doesn't look like an API key")
+            key = clean_api_key(body.api_key, 200)
+            if key is None:
+                raise HTTPException(400, "that doesn't look like an API key (copy it again from AI Studio)")
             secrets.set(GEMINI_KEY, key)
             db.add_security_event("settings_changed", "Gemini API key " + ("saved" if key else "removed"))
             bus.log("Gemini API key " + ("saved" if key else "removed"))  # never the key itself
         if body.bedrock_key is not None:
-            key = body.bedrock_key.strip()
-            if key and not bedrock_mod.KEY_CHARS.match(key):
-                raise HTTPException(400, "that doesn't look like a Bedrock API key")
+            key = clean_api_key(body.bedrock_key, 4000)
+            if key is None:
+                raise HTTPException(400, "that doesn't look like a Bedrock API key (copy it again from the AWS console)")
             secrets.set(BEDROCK_KEY, key)
             db.add_security_event("settings_changed", "Bedrock API key " + ("saved" if key else "removed"))
             bus.log("Bedrock API key " + ("saved" if key else "removed"))  # never the key itself

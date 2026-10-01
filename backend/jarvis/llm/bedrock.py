@@ -17,7 +17,6 @@ structured outputs, so the JSON reply is asked for in the prompt and read with `
 from __future__ import annotations
 
 import logging
-import re
 import threading
 from collections.abc import Callable
 from typing import Any
@@ -50,7 +49,6 @@ KEY_PAGE = "https://console.aws.amazon.com/bedrock/home#/api-keys"
 ACCESS_PAGE = "https://console.aws.amazon.com/bedrock/home#/modelaccess"
 MODEL_NAME = r"^[a-z0-9][a-z0-9.:\-]{1,99}$"
 REGION_NAME = r"^[a-z]{2}(-[a-z]+)+-\d$"
-KEY_CHARS = re.compile(r"^[A-Za-z0-9+/=._\-]{20,4000}$")
 JSON_ONLY = "\n\nAnswer with one JSON object only: no prose, no code fences."
 
 # what to send for "no deliberation, just answer", in the order models accept it
