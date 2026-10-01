@@ -256,6 +256,7 @@ Notes sync.
 | "Gmail isn't connected" / "reconnect in Settings" | Settings → Google account → Connect, and tick every box on Google's consent page |
 | Google signs you out after a week | The OAuth consent screen is still in Testing: publish it (In production), then reconnect |
 | "I couldn't confirm your voice" a lot | Speak a little longer and closer; if it keeps happening, re-record your voice in Settings → Identity in your usual room. If it refuses because it can't confirm your voice, press **Use Mac password** |
+| Settings says "needs level 2" | Say "Jarvis, hello" and try again within a minute, or press **Use Mac password** at the top of Settings (two minutes) |
 | Voice commands are off | Settings → Microphone says why and how to fix it (permission, no device, the wrong device, busy) |
 | A model is missing | Settings → On-device models → Download, then Restart |
 | Screenshot / dark mode / typing don't work | macOS asks once for Screen Recording, Automation (System Events) and Accessibility; allow JARVIS in System Settings → Privacy & Security |

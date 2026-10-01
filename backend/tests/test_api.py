@@ -176,7 +176,7 @@ def test_level_gated_endpoints(settings):
         assert info["source"] == "default" and info["test"]["auc"] > 0.98
         assert info["device_samples"] == {"owner": 0, "other": 0}
         r = client.post("/api/fusion/retrain", headers=H)
-        assert r.status_code == 403 and "talk to me first" in r.json()["detail"]
+        assert r.status_code == 403 and "say my name and anything" in r.json()["detail"]
         assert client.put("/api/settings/files", headers=H, json={"folders": []}).status_code == 403
         assert client.post("/api/confirm/abc", headers=H, json={"accept": True}).json()["ok"] is False
         # level 2

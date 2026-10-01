@@ -23,7 +23,7 @@ describe("voice re-recording", () => {
     const user = userEvent.setup();
     fake.fail("POST /api/enroll/voice/start", 403,
       "say my name and anything first, so I know it's you, then try again (or use your Mac password)");
-    fake.route("POST /api/enroll/voice/unlock", () => {
+    fake.route("POST /api/unlock", () => {
       fake.route("POST /api/enroll/voice/start", () => ({ ok: true }));
       return { ok: true };
     });
@@ -31,7 +31,7 @@ describe("voice re-recording", () => {
     await user.click(await screen.findByRole("button", { name: "START VOICE SCAN" }));
     expect(await screen.findByText(/so I know it's you/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "USE MAC PASSWORD" }));
-    expect(fake.called("POST", "/api/enroll/voice/unlock")).toHaveLength(1);
+    expect(fake.called("POST", "/api/unlock")).toHaveLength(1);
     expect(await screen.findByText("VOICE ENROLLMENT")).toBeInTheDocument();
     expect(fake.called("POST", "/api/enroll/voice/start")).toHaveLength(2);
   });

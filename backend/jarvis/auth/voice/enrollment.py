@@ -65,6 +65,10 @@ def phrases(assistant: str, owner: str) -> list[Phrase]:
 
 
 MIN_SPEECH_S = 1.2
+# after this many refusals of the same phrase the words and the length are relaxed (a short or
+# hard-to-transcribe line must not block the whole enrollment); quality and consistency still apply
+RELAX_AFTER = 3
+RELAXED_MIN_SPEECH_S = 0.8
 MIN_QUALITY = 0.4
 # a recording far from the earlier ones is probably someone else / noise
 MIN_CONSISTENCY = 0.35
@@ -78,6 +82,16 @@ class VoiceEnrollmentSession:
     per_phrase: list[np.ndarray] = field(default_factory=list)  # whole-utterance embeddings
     hint: str = ""
     last_quality: float | None = None
+    misses: int = 0  # refusals of the current phrase
+
+    @property
+    def relaxed(self) -> bool:
+        return self.misses >= RELAX_AFTER
+
+    def miss(self, hint: str) -> bool:
+        self.misses += 1
+        self.hint = hint + (" (next try: any clear reading counts)" if self.relaxed else "")
+        return False
 
     @property
     def done(self) -> bool:
@@ -92,23 +106,21 @@ class VoiceEnrollmentSession:
         if self.done:
             return False
         self.last_quality = quality
-        if speech_s < MIN_SPEECH_S:
-            self.hint = "That was too short — read the whole phrase"
-            return False
+        if speech_s < (RELAXED_MIN_SPEECH_S if self.relaxed else MIN_SPEECH_S):
+            return self.miss("That was too short — read the whole phrase")
         if quality < MIN_QUALITY:
-            self.hint = "Too noisy or too quiet — speak clearly, a little closer"
-            return False
+            return self.miss("Too noisy or too quiet — speak clearly, a little closer")
         whole = windows[0]
         if self.per_phrase:
             ref = np.mean(self.per_phrase, axis=0)
             ref /= max(float(np.linalg.norm(ref)), 1e-8)
             if float(ref @ whole) < MIN_CONSISTENCY:
-                self.hint = "That didn't sound like your earlier recordings — try again"
-                return False
+                return self.miss("That didn't sound like your earlier recordings — try again")
         self.per_phrase.append(whole)
         self.embeddings.extend(windows)
         self.index += 1
         self.hint = ""
+        self.misses = 0
         return True
 
     def template(self) -> np.ndarray:

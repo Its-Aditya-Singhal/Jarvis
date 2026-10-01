@@ -226,11 +226,11 @@ class VoiceService:
             # re-enrollment after setup requires the verified owner to stay at the screen
             self.cancel_enrollment("Voice enrollment stopped — owner no longer verified")
             return
-        if self.speech is not None and utt.speech_s >= MIN_SPEECH_S and q["score"] >= MIN_QUALITY:
+        if self.speech is not None and not session.relaxed and utt.speech_s >= MIN_SPEECH_S and q["score"] >= MIN_QUALITY:
             phrase = session.items[session.index]
             ok, heard = self.speech.check_phrase(utt.audio, phrase.text, phrase.lang)
             if not ok:
-                session.hint = "That didn't match the phrase — please read it exactly as shown"
+                session.miss("That didn't match the phrase — please read it exactly as shown")
                 log.info("enrollment phrase mismatch: heard %r", heard)
                 self.bus.publish({"type": "voice_enroll", **session.snapshot(), "accepted": False})
                 return

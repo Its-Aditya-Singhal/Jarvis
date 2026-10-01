@@ -50,7 +50,7 @@ export default function VoiceEnroll({ onDone, onSkip, onClose, title = "Now let'
   const unlock = async () => {
     setError(null);
     try {
-      await post("/api/enroll/voice/unlock"); // macOS shows its own password prompt
+      await post("/api/unlock"); // macOS shows its own password prompt
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Backend unreachable");
       return;

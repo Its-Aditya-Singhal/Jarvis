@@ -2,7 +2,7 @@ import sqlite3
 
 import numpy as np
 
-from jarvis.auth.voice.enrollment import MIN_SPEECH_S, VoiceEnrollmentSession, phrases
+from jarvis.auth.voice.enrollment import MIN_SPEECH_S, RELAX_AFTER, VoiceEnrollmentSession, phrases
 from jarvis.auth.voice.quality import audio_quality
 from jarvis.auth.voice.vad import FRAME, Segmenter
 from jarvis.auth.voice.verification import VoiceAuth
@@ -75,6 +75,25 @@ def test_voice_enrollment_accepts_good_consistent_samples_only():
         assert s.offer(sample(), 2.0, 0.9)
     assert s.template().shape == (len(s.items) * 3, 192)
     assert s.snapshot()["done"]
+
+
+def test_a_phrase_refused_three_times_is_relaxed_but_still_needs_the_same_voice():
+    """A short or hard-to-transcribe line must not block the whole enrollment."""
+    rng = np.random.default_rng(4)
+    owner = _unit(rng.normal(size=192))
+    s = VoiceEnrollmentSession(phrases("J", "A"))
+
+    def sample():
+        return [_unit(owner + 0.02 * rng.normal(size=192)) for _ in range(3)]
+
+    assert s.offer(sample(), 2.0, 0.9)
+    for _ in range(RELAX_AFTER):
+        assert not s.offer(sample(), 1.0, 0.9)  # too short for a normal phrase
+    assert s.relaxed and "any clear reading counts" in s.hint
+    assert not s.offer([_unit(rng.normal(size=192))] * 3, 1.0, 0.9)  # someone else: still refused
+    assert not s.offer(sample(), 1.0, 0.1)  # noise: still refused
+    assert s.offer(sample(), 1.0, 0.9) and s.index == 2
+    assert not s.relaxed  # the next phrase starts strict again
 
 
 def test_voice_auth_verdicts_and_expiry():

@@ -67,13 +67,17 @@ rejected. Now:
 - Enrollment is 24 phrases in three languages, at different volumes and
   distances, each checked for the right words, quality and consistency with
   the earlier ones; the voiceprint keeps every phrase plus 2-second windows.
-- Re-recording the voice needs a recent match of the current voiceprint. When
-  that voiceprint no longer recognises you (an old enrollment, a new
-  microphone), **Use Mac password** asks macOS for your Mac password in its own
-  system dialog (JARVIS never sees it; it only learns "allowed" or
-  "cancelled"). That opens a two-minute window for one re-recording, and both
-  outcomes are logged as security events. Someone at your unlocked Mac needs
-  that password too.
+- Settings changes (saving a key, connecting Google, re-recording the voice)
+  need a voice match from the last minute. When the voice can't give one (a
+  voiceprint that no longer recognises you, a noisy room, nothing said yet),
+  **Use Mac password** asks macOS for your Mac password in its own system
+  dialog (JARVIS never sees it; it only learns "allowed" or "cancelled").
+  Clicks in Settings then count as level 2 for two minutes; spoken commands
+  still need your voice. Both outcomes are logged as security events, and
+  someone at your unlocked Mac needs that password too.
+- If one enrollment phrase is refused three times (too short, or the words
+  weren't recognised), the next reading of it is accepted on the voice checks
+  alone: quality and consistency with your earlier phrases still apply.
 
 **Typed commands (off by default).** Without a face check, the keyboard would
 bypass the voice. With Settings → Commands on "Voice or typed", a typed command

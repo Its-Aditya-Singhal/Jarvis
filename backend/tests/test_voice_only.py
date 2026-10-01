@@ -86,9 +86,10 @@ def test_level_two_needs_a_recent_voice_match(tmp_path):
         assert svc.trust().level == 1
 
 
-def test_a_voiceprint_that_rejects_its_owner_can_be_replaced_with_the_mac_password(tmp_path):
-    """The stored voiceprint scores the owner as someone else: the voice can't vouch for its own
-    replacement, so macOS's password prompt does, once, for a short window."""
+def test_the_mac_password_stands_in_for_the_voice_in_settings(tmp_path):
+    """The stored voiceprint scores the owner as someone else (or nothing was said yet): macOS's
+    password prompt unlocks Settings for two minutes, so the voice can be re-recorded and a key
+    saved. Commands still need the voice."""
     from jarvis.security.presence import confirm_mac_user
 
     client, svc = _client(_voice_only(tmp_path))
@@ -100,24 +101,31 @@ def test_a_voiceprint_that_rejects_its_owner_can_be_replaced_with_the_mac_passwo
         svc.voice.auth.judge(0.01, 0.9, time.monotonic(), 2.0)  # "Jarvis, hello" scored as a stranger
         asked: list[str] = []
         svc.prove_presence = lambda reason: asked.append(reason) or False  # cancelled / wrong password
-        assert client.post("/api/enroll/voice/start", headers=H).status_code == 403
-        r = client.post("/api/enroll/voice/unlock", headers=H)
+        r = client.post("/api/enroll/voice/start", headers=H)
+        assert r.status_code == 403 and "Mac password" in r.json()["detail"]
+        r = client.put("/api/settings/google", headers=H, json={"services": ["gmail"]})
+        assert r.status_code == 403 and "Mac password" in r.json()["detail"]
+        r = client.post("/api/unlock", headers=H)
         assert r.status_code == 403 and "Mac password" in r.json()["detail"]
         assert client.post("/api/enroll/voice/start", headers=H).status_code == 403
+        assert client.get("/api/status", headers=H).json()["auth"]["mac_unlock_s"] == 0
         svc.prove_presence = lambda reason: asked.append(reason) or True
-        assert client.post("/api/enroll/voice/unlock", headers=H).status_code == 200
-        assert "re-record your voice" in asked[-1]
+        r = client.post("/api/unlock", headers=H)
+        assert r.status_code == 200 and r.json()["seconds"] == 120
+        assert "two minutes" in asked[-1]
+        assert client.get("/api/status", headers=H).json()["auth"]["mac_unlock_s"] > 100
         assert client.post("/api/enroll/voice/start", headers=H).status_code == 200
         client.post("/api/enroll/voice/cancel", headers=H)
-        # used once: a second start needs the voice or the password again
-        assert client.post("/api/enroll/voice/start", headers=H).status_code == 403
+        assert client.put("/api/settings/google", headers=H, json={"services": ["gmail"]}).status_code == 200
+        # a spoken command still needs the voice: the password only covers clicks in Settings
+        assert svc.trust().level == 1
         # and the window runs out
-        assert client.post("/api/enroll/voice/unlock", headers=H).status_code == 200
         later = time.monotonic() + 1000
         svc.clock = lambda: later
-        assert not svc.take_voice_unlock()
+        assert svc.mac_unlocked_s() == 0
+        assert client.put("/api/settings/google", headers=H, json={"services": ["gmail"]}).status_code == 403
         events = [e["kind"] for e in svc.db.security_events(50)]
-        assert "voice_reenroll_unlocked" in events and "voice_reenroll_unlock_failed" in events
+        assert "mac_unlock" in events and "mac_unlock_failed" in events
 
     # the prompt itself: macOS only, the script runs /usr/bin/true, and only exit 0 counts
     calls = []

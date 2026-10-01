@@ -440,9 +440,13 @@ def create_app(
         t = svc.trust()
         if t.level < 1:
             raise HTTPException(403, "owner verification required")
+        if t.level < 2 and svc.mac_unlocked_s() > 0:
+            return  # the Mac password, given in the last two minutes, stands in for the voice
         if t.level < 2:
             code = t.blockers.get(2, "")
-            hint = " — talk to me first (say my name and anything), then try again" if code == "voice_needed" else ""
+            hint = (" — say my name and anything, then try again within a minute"
+                    + ("" if svc.face_on else " (or use your Mac password)")
+                    if code in ("voice_needed", "voice_rejected") else "")
             raise HTTPException(403, f"needs level 2: {REASONS.get(code, code)}{hint}")
 
     def require_setup_open() -> None:
@@ -558,7 +562,7 @@ def create_app(
         if svc.setup_complete and not svc.owner_verified():
             raise HTTPException(403, "owner verification required")
         if svc.setup_complete and not svc.face_on and svc.voice_enrolled and svc.trust(screen=True).level < 2 \
-                and not svc.take_voice_unlock():
+                and not svc.mac_unlocked_s():
             # voice-only: replacing the voiceprint needs the current voice (or typed commands, if on),
             # or the Mac password when that voiceprint no longer recognises its owner
             raise HTTPException(403, "say my name and anything first, so I know it's you, then try again "
@@ -568,13 +572,13 @@ def create_app(
         voice_or_503().begin_enrollment(needs_owner=svc.setup_complete)
         return {"ok": True}
 
-    @app.post("/api/enroll/voice/unlock", dependencies=auth + [Depends(require_owner)])
-    def voice_enroll_unlock():
+    @app.post("/api/unlock", dependencies=auth + [Depends(require_owner)])
+    def mac_unlock():
         if not svc.setup_complete or svc.face_on:
-            raise HTTPException(409, "not needed: the voice can be recorded as it is")
-        if not svc.unlock_voice_reenroll():
+            raise HTTPException(409, "not needed here")
+        if not svc.mac_unlock():
             raise HTTPException(403, "the Mac password wasn't confirmed")
-        return {"ok": True}
+        return {"ok": True, "seconds": round(svc.mac_unlocked_s())}
 
     @app.post("/api/enroll/voice/cancel", dependencies=auth)
     def voice_enroll_cancel():

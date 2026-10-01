@@ -2,6 +2,7 @@ import { ReactNode, useEffect, useState } from "react";
 import AiCard from "../components/AiCard";
 import AppleCard from "../components/AppleCard";
 import GoogleCard from "../components/GoogleCard";
+import MacUnlock from "../components/MacUnlock";
 import FilesCard from "../components/FilesCard";
 import FusionCard from "../components/FusionCard";
 import MicCard from "../components/MicCard";
@@ -121,6 +122,7 @@ export default function SettingsPanel() {
       <h2 className="view-title">SETTINGS</h2>
       {(error ?? loadError) && <p className="error small">{error ?? loadError}</p>}
       {note && <p className="note small">{note}</p>}
+      <MacUnlock />
       {!data && !error && !loadError && <p className="muted small">Loading…</p>}
       <div className="cards" hidden={!data}>
         <IdentityCard status={status} run={run} />

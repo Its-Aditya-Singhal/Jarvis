@@ -118,6 +118,7 @@ export interface AuthPublic {
   reason: string;
   faces: number;
   face_once?: boolean; // face checked at launch, camera off, voice from here on
+  mac_unlock_s?: number; // seconds left of the Mac-password window (Settings without a voice match)
   face_confidence?: number | null; // only present while the owner is verified
   bystander?: boolean;
   voice?: VoicePublic;
