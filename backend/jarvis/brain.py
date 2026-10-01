@@ -30,6 +30,18 @@ from .memory.manager import EXTRACT_SCHEMA, EXTRACT_TASK, Memory
 
 personal_question = Memory.sounds_personal
 
+# A command that reads or writes, plans several steps or asks something open-ended: on Bedrock it
+# goes to the stronger model first (Sonnet or higher); short simple ones go to the fast one (Haiku).
+HARD_WORDS = re.compile(
+    r"\b(?:mail|email|e-mail|inbox|draft|reply|write|compose|summari[sz]e|summary|explain|why|plan|compare|"
+    r"analy[sz]e|research|translate|essay|letter|story|poem|document|doc|report|steps?|then|after that|"
+    r"and also|meeting|schedule|calendar|advice|recommend|should i|difference|pros and cons)\b", re.I)
+HARD_LENGTH = 16  # words
+
+
+def sounds_hard(text: str) -> bool:
+    return len(text.split()) >= HARD_LENGTH or bool(HARD_WORDS.search(text))
+
 log = logging.getLogger(__name__)
 
 HISTORY_TURNS = 6
@@ -400,11 +412,13 @@ class Brain:
             return BrainResult(reply, lang, fast.actions, time.monotonic() - t0, True, fast.reply, fast=True)
         msgs = self._messages(text, lang, now)
         self.last_used = time.monotonic()
+        # Bedrock: pick the model by the command (Gemini keeps its free-quota order)
+        heavy = self.provider == "bedrock" and sounds_hard(text)
         try:
             try:
-                data = self.chat(msgs, SCHEMA)
+                data = self.chat(msgs, SCHEMA, heavy=heavy)
             except ValueError:  # malformed JSON: one retry
-                data = self.chat(msgs, SCHEMA)
+                data = self.chat(msgs, SCHEMA, heavy=heavy)
             intent: Intent = parse_intent(data, lang, now, text)
         except QuotaExceeded as exc:
             log.warning("all models over quota: %s", exc)

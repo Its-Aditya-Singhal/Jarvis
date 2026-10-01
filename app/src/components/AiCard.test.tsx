@@ -82,7 +82,7 @@ describe("AI settings", () => {
     await user.click(screen.getAllByRole("button", { name: "SAVE KEY" })[0]);
     expect(fake.called("PUT", "/api/settings/ai")[1].body).toEqual({ bedrock_key: "ABSKtestkey0123456789wxyz" });
     expect(await screen.findByLabelText(/saved \(…wxyz\)/)).toHaveValue("");
-    const heavy = screen.getByLabelText(/Writing model/);
+    const heavy = screen.getByLabelText(/harder requests/);
     await user.clear(heavy);
     await user.type(heavy, "anthropic.claude-opus-5-5");
     await user.click(screen.getByRole("button", { name: "SAVE MODELS" }));

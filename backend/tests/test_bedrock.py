@@ -213,3 +213,26 @@ def test_bedrock_settings_keep_the_key_sealed_and_open_only_its_host(tmp_path):
         c.put("/api/settings/ai", headers=H, json={"provider": "gemini"})
         assert svc.guard.services() == ("generativelanguage.googleapis.com",)
     voice.stop()
+
+
+def test_the_model_is_picked_by_the_command(tmp_path):
+    ok = '{"actions": [], "reply": "ok"}'
+    aws = Aws({br.FAST_MODEL: [msg(ok), msg(ok)], br.HEAVY_MODEL: [msg(ok), msg(ok), msg(ok)]})
+    b = brain(aws, tmp_path)
+    for text in ["could you get Notes up for me", "tell me a joke about cats"]:  # simple: Haiku
+        b.respond(text)
+    for text in ["summarize the mail from Rahul", "plan my trip to Goa next weekend",
+                 "find the cheapest way to get to the airport and book a cab for nine in the morning tomorrow"]:
+        b.respond(text)  # reading, writing, planning, long: the stronger model
+    assert [c[1]["model"] for c in aws.calls] == [br.FAST_MODEL] * 2 + [br.HEAVY_MODEL] * 3
+
+
+def test_gemini_keeps_the_fast_model_first_for_every_command(tmp_path):
+    from jarvis.brain import sounds_hard
+
+    assert sounds_hard("draft a reply to Priya") and not sounds_hard("open Safari")
+    cloud, calls = gemini({G_FAST: ['{"actions": [], "reply": "ok"}']})
+    s = Settings(data_dir=tmp_path, llm_provider="gemini")
+    Brain(s, KV(), lambda: ("JARVIS", "Aditya"), lambda: "male", cloud=cloud).respond("summarize the mail from Rahul")
+    assert calls == [G_FAST]
+

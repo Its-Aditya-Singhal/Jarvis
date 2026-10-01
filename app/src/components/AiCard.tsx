@@ -180,7 +180,7 @@ export default function AiCard() {
           </label>
           <input id="ai-bedrock-region" className="field" value={bRegion} spellCheck={false} onChange={(e) => setBRegion(e.target.value.trim())} />
           <label className="field-label" htmlFor="ai-bedrock-fast">
-            Commands model (fast; Haiku is cheapest)
+            Model for simple commands (open apps, timers, quick questions; Haiku is cheapest)
           </label>
           <input
             id="ai-bedrock-fast"
@@ -191,7 +191,7 @@ export default function AiCard() {
             onChange={(e) => setBFast(e.target.value.trim())}
           />
           <label className="field-label" htmlFor="ai-bedrock-heavy">
-            Writing model (email summaries, drafts)
+            Model for harder requests (mail, writing, planning, long or multi-step; Sonnet or higher)
           </label>
           <input
             id="ai-bedrock-heavy"
@@ -281,7 +281,7 @@ export default function AiCard() {
         {gemini
           ? "Everyday commands (volume, brightness, timers, music, screenshots) never use the AI. Everything else goes to Google's free Gemini API: the commands model first, the writing model if its free limit runs out, and the other way round for writing. Google may use free-tier requests to improve its products. The key is encrypted with your Mac's Keychain key and never shown again."
           : bedrock
-            ? "Everyday commands (volume, brightness, timers, music, screenshots) never use the AI and cost nothing. Everything else goes to Claude on Amazon Bedrock and is billed to your AWS account: pick any Claude model your account has access to (turn models on under Model access). If Bedrock can't answer (throttled, no access, key expired) and a Gemini key is saved, Gemini answers instead. Keys are encrypted with your Mac's Keychain key and never shown again."
+            ? "Everyday commands (volume, brightness, timers, music, screenshots) never use the AI and cost nothing. Everything else goes to Claude on Amazon Bedrock and is billed to your AWS account: JARVIS picks the model per request (simple commands to the first, mail, writing, planning and long requests to the second), and you can set each to any Claude model your account has access to (turn models on under Model access). If Bedrock can't answer (throttled, no access, key expired) and a Gemini key is saved, Gemini answers instead. Keys are encrypted with your Mac's Keychain key and never shown again."
             : "The local model runs on this Mac through Ollama and uses several GB of memory while it answers."}
       </p>
     </div>
