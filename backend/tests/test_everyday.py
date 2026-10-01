@@ -235,18 +235,22 @@ class World:
     def _files(self):
         dl, docs, desk = self.home / "Downloads", self.home / "Documents", self.home / "Desktop"
         now = NOW.timestamp()
-        for path, age_h, body in [
-            (dl / "Lease Agreement.txt", 26, "LEASE. The tenant must give two months' notice. Rent is 25000 a month."),
-            (dl / "Invoice 4411.pdf", 25, None),
-            (dl / "notes from call.md", 1, "# Call\n- ship on Friday\n- Rahul owns the budget"),
-            (desk / "Screenshot 2026-10-01 at 10.00.00.png", 3, None),
-            (docs / "Resume Aditya.txt", 400, "Aditya Singhal. Software engineer. Python, Swift, React."),
+        midnight = datetime.combine(NOW.date(), datetime.min.time()).timestamp()
+        # "yesterday" and "today" must hold at any hour the suite runs, so ages are kept inside those days
+        yesterday = lambda h: midnight - 86400 + h * 3600
+        today = lambda age_h: min(now, max(now - age_h * 3600, midnight + (10 - age_h) * 60))
+        for path, when, body in [
+            (dl / "Lease Agreement.txt", yesterday(11), "LEASE. The tenant must give two months' notice. Rent is 25000 a month."),
+            (dl / "Invoice 4411.pdf", yesterday(12), None),
+            (dl / "notes from call.md", today(1), "# Call\n- ship on Friday\n- Rahul owns the budget"),
+            (desk / "Screenshot 2026-10-01 at 10.00.00.png", today(3), None),
+            (docs / "Resume Aditya.txt", now - 400 * 3600, "Aditya Singhal. Software engineer. Python, Swift, React."),
         ]:
             if body is None:
                 path.write_bytes(b"%PDF-1.4 fake" if path.suffix == ".pdf" else b"\x89PNG fake")
             else:
                 path.write_text(body)
-            os.utime(path, (now - age_h * 3600, now - age_h * 3600))
+            os.utime(path, (when, when))
 
     # AppleScript, `open`, shell and Mac command stand-ins
     def _osa(self, script: str, *args: str, timeout: float = 20.0) -> str:
