@@ -9,7 +9,7 @@ from urllib.parse import parse_qs
 import httpx
 import pytest
 from test_google import CID, SECRET, Google, connect
-from test_tools import env  # noqa: F401, F811 (a fixture)
+from test_tools import env  # noqa: F401 (a fixture)
 
 from jarvis.database.db import Database
 from jarvis.google.auth import GoogleAuth
