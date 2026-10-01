@@ -47,10 +47,11 @@ rejected. Now:
 
 - The speaker model runs on every utterance addressed to JARVIS, follow-ups in
   the conversation window included.
-- A clip too short to judge alone (under 0.8 s, like "louder") is judged
-  together with the short clip just before it (the name, said up to 8 s
-  earlier). A short "yes" for a confirmation is never combined: say "yes, send
-  it" so there is enough of your voice.
+- A clip too short to judge (under 0.8 s of speech, like "louder") is always
+  unclear, and it is never joined to the clip before it: your "Jarvis" plus
+  someone else's quick "read my mail" could otherwise pass as you. A short
+  "yes" for a confirmation is unclear too: say "yes, send it" so there is
+  enough of your voice.
 - **Recognised:** everything runs at its level. **Unclear** (too short, noisy,
   or between the thresholds): only the harmless everyday set (volume,
   brightness, dark mode, music, timers, alarms, the stopwatch, screenshots,

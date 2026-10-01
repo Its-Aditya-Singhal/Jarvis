@@ -69,8 +69,8 @@ backend/jarvis/
    name. The name alone plays the pre-synthesised "Yes boss, how may I help
    you?" and opens the window.
 3. Only now, for addressed speech, the ECAPA model embeds the clip and compares
-   it with the voiceprint (a clip under 0.8 s is judged together with the short
-   one just before it). Rejected: nothing runs. Unclear: only the harmless
+   it with the voiceprint (a clip under 0.8 s of speech is too short to judge and
+   counts as unclear). Rejected: nothing runs. Unclear: only the harmless
    everyday commands. Recognised: the command goes on, with its verdict.
 4. The fast path matches common commands with patterns in under a millisecond
    (no AI request); anything else goes to the command model, which returns JSON

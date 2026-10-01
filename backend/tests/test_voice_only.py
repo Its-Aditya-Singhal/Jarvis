@@ -141,8 +141,9 @@ def test_level_two_needs_this_utterance_verified(tmp_path):
         assert not r[0].ok and svc.delayed() == []
 
 
-def test_short_clips_are_judged_with_the_name_said_just_before(tmp_path):
-    """"JARVIS" … "louder": each alone is too short to judge; together they are."""
+def test_short_clips_are_never_stitched_together(tmp_path):
+    """"JARVIS" … "louder": each is too short to judge, and two of them are not joined into one clip
+    (the owner's name plus someone else's short "read my mail" could pass as the owner)."""
     from test_api import FakeMic
 
     from jarvis.auth.matching import TemplateMatcher
@@ -166,10 +167,18 @@ def test_short_clips_are_judged_with_the_name_said_just_before(tmp_path):
                      lambda: True, lambda: ("JARVIS", "Aditya"))
     matcher = TemplateMatcher(np.tile(np.eye(1, 192, dtype=np.float32), (6, 1)), top_k=5)
     q = {"score": 0.9}
+    class Speech:
+        submitted: list = []
+
+        def submit(self, audio, verdict):
+            Speech.submitted.append(verdict)
+
+    v.speech = Speech()
+    v.matcher = matcher
     name = Utterance(np.zeros(8000, np.float32), 0.5, 0.0)
     louder = Utterance(np.zeros(8000, np.float32), 0.5, 0.0)
-    assert v._judge_short(name, q, matcher) == "uncertain" and Speaker.lengths == []  # nothing before it
-    assert v._judge_short(louder, q, matcher) == "verified"  # name + louder: 1 s of speech together
-    assert Speaker.lengths == [8000 + 1600 + 8000]
-    assert v._judge_short(louder, q, matcher) == "uncertain"  # each clip is used once
+    v._verify_utterance(name, q)
+    v._verify_utterance(louder, q)
+    assert [f() for f in Speech.submitted] == ["uncertain", "uncertain"]
+    assert Speaker.lengths == []  # the speaker model never ran on them
     db.close()

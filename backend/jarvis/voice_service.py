@@ -27,9 +27,7 @@ log = logging.getLogger(__name__)
 VOICE = "voice"
 LEVEL_PERIOD_S = 1 / 15
 UNKNOWN_VOICE_EVENT_GAP_S = 30.0
-MIN_VERIFY_SPEECH_S = 0.8  # shorter clips carry too little speaker information on their own
-# a short addressed clip is judged together with the short one just before it ("Jarvis" … "louder")
-COMBINE_WITHIN_S = 8.0
+MIN_VERIFY_SPEECH_S = 0.8  # shorter clips carry too little speaker information: always "uncertain"
 
 
 class VoiceService:
@@ -76,7 +74,6 @@ class VoiceService:
         self._speaking = False
         self._last_unknown_event = 0.0
         self._buf = np.zeros(0, dtype=np.float32)
-        self._short: tuple[float, np.ndarray, float] | None = None  # the last short addressed clip (t, audio, speech s)
 
     # -- status ----------------------------------------------------------------
     @property
@@ -262,10 +259,11 @@ class VoiceService:
         if matcher is None:
             return
         if utt.speech_s < MIN_VERIFY_SPEECH_S:
-            # too short to identify the speaker alone, but it may be "<name>", "louder" or "yes": judged
-            # (only if addressed) together with the short clip just before it, else "uncertain"
+            # too short to identify the speaker, but it may be "<name>", "louder" or "yes": "uncertain",
+            # so only the harmless everyday commands run. It is never stitched to the clip before it:
+            # the owner's "Jarvis" plus someone else's short "read my mail" could pass as the owner
             if self.speech is not None:
-                self.speech.submit(utt.audio, lambda: self._judge_short(utt, q, matcher))
+                self.speech.submit(utt.audio, self._too_short)
             return
         if self.speech is None:
             self._judge(utt, q, matcher)
@@ -274,18 +272,11 @@ class VoiceService:
         # talk in the room, calls and videos are never embedded (it was a second model per sentence)
         self.speech.submit(utt.audio, lambda: self._judge(utt, q, matcher))
 
-    def _judge_short(self, utt: Utterance, q: dict, matcher: TemplateMatcher) -> str:
-        now = time.monotonic()
-        prev, self._short = self._short, (now, utt.audio, utt.speech_s)
-        if prev is not None and now - prev[0] <= COMBINE_WITHIN_S and prev[2] + utt.speech_s >= MIN_VERIFY_SPEECH_S:
-            gap = np.zeros(int(0.1 * 16000), np.float32)
-            self._short = None  # each clip is combined once
-            return self._judge_audio(np.concatenate([prev[1], gap, utt.audio]), prev[2] + utt.speech_s, q, matcher)
+    def _too_short(self) -> str:
         self.bus.publish({"type": "voice", "verdict": "uncertain"})
         return "uncertain"
 
     def _judge(self, utt: Utterance, q: dict, matcher: TemplateMatcher) -> str:
-        self._short = None
         return self._judge_audio(utt.audio, utt.speech_s, q, matcher)
 
     def _judge_audio(self, audio: np.ndarray, speech_s: float, q: dict, matcher: TemplateMatcher) -> str:

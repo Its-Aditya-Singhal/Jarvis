@@ -152,8 +152,9 @@ Every request is checked against your voiceprint on its own words:
 | Someone else's | nothing ("That voice doesn't match my owner") |
 
 If it says "I couldn't confirm your voice", say it again a little longer. A
-very short follow-up ("louder") right after the name is judged together with
-the name. Typed commands are off by default, because the keyboard would bypass
+very short follow-up ("louder") counts as unclear, which is fine for the
+everyday commands; for anything that reads your mail or files, say a full
+sentence. Typed commands are off by default, because the keyboard would bypass
 the voice check; you can allow them in Settings → Security → Commands.
 
 ## Keyboard

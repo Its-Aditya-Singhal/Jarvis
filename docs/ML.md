@@ -49,7 +49,7 @@ only) on your own camera. If a real face sits below 0.6, lower
 | Embedding | ECAPA-TDNN (SpeechBrain, trained on VoxCeleb 1+2), 192-d, L2-normalised |
 | Quality gate | speech duration × SNR vs. measured noise floor × level × clipping |
 | Enrollment | 24 phrases (English, Hindi, Hinglish; normal, soft, louder, from a step back) → whole-clip + 2 s sliding-window embeddings (~70 vectors) |
-| Decision | top-5 cosine, Strict preset by default: ≥ 0.58 verified, < 0.35 unknown voice (Standard: 0.50 / 0.30); noisy audio and clips under 1.5 s never reject; a clip under 0.8 s is judged together with the short clip just before it |
+| Decision | top-5 cosine, Strict preset by default: ≥ 0.58 verified, < 0.35 unknown voice (Standard: 0.50 / 0.30); noisy audio and clips under 1.5 s never reject; a clip under 0.8 s of speech is always unclear (never joined to the clip before it) |
 | When | every utterance addressed to the assistant (the name, or the conversation window), judged on its own; `scripts/eval_voice.py` measures false accepts / rejects |
 
 Calibration with synthetic macOS voices standing in for different speakers:

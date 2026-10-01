@@ -64,7 +64,7 @@ What the PR contains, in short (details in `CHANGELOG.md` → Unreleased):
   `gmail.py`, `drive.py`, `gcal.py` over httpx), `backend/jarvis/tools/google.py` (email.unread/summary/read/
   draft/send, drive.search/recent/open/summarize), Google Calendar merged into calendar.list/create.
 - Per-utterance voice verdicts (verified / uncertain / rejected); uncertain only runs the `HARMLESS` set in
-  `tools/runner.py`; short clips (< 0.8 s) judged together with the previous short clip within 8 s;
+  `tools/runner.py`; short clips (< 0.8 s) are always uncertain (no longer stitched to the previous clip);
   24-phrase enrollment; `security.voice` defaults to Strict; `security.typed` defaults to off.
 - Follow-up window (`voice.followup_s`, default 60 s), ends on "thanks / that's all", or when someone else talks.
 - Lightweight: lazy `cv2`, `PerfMonitor` samples once a minute with no window open, no Ollama calls with Gemini,
