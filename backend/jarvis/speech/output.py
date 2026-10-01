@@ -97,6 +97,8 @@ class SpeechOutput:
         self._last_level_t = 0.0
         self._thread: threading.Thread | None = None
         self._cache: OrderedDict[tuple[str, str], np.ndarray] = OrderedDict()
+        self.keep: set[str] = set()  # phrases never evicted from the cache (the greeting: always instant)
+        self._kept: dict[tuple[str, str], np.ndarray] = {}
         self._synth_pool = ThreadPoolExecutor(1, thread_name_prefix="tts")
 
     @property
@@ -137,11 +139,15 @@ class SpeechOutput:
 
     def synth(self, text: str, gender: str) -> np.ndarray:
         key = (text, gender)
+        if key in self._kept:
+            return self._kept[key]
         if key in self._cache:
             self._cache.move_to_end(key)
             return self._cache[key]
         audio = self.tts.synth(text, gender)
-        if len(text) <= CACHE_MAX_CHARS:
+        if text in self.keep:
+            self._kept[key] = audio
+        elif len(text) <= CACHE_MAX_CHARS:
             self._cache[key] = audio
             while len(self._cache) > CACHE_SIZE:
                 self._cache.popitem(last=False)
@@ -149,6 +155,7 @@ class SpeechOutput:
 
     def clear_cache(self) -> None:
         self._cache.clear()
+        self._kept.clear()
 
     def prewarm(self, phrases: list[str]) -> None:
         """Synthesise common phrases ahead of time (background, at startup)."""

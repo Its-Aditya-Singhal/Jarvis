@@ -93,7 +93,7 @@ class Settings(BaseSettings):
     speech_enabled: bool = True
     stt_model: str = "small"  # faster-whisper size in models/whisper/<size>: small | medium
     tts_speed: float = 1.0
-    followup_s: float = 8.0  # after "<name>" alone, listen this long without the name
+    followup_s: float = 60.0  # after a reply (or "<name>" alone), listen this long without the name
 
     # The brain: "gemini" (Google's Gemini API, free tier: nothing runs on the Mac; the key and the
     # model names are set in Settings → AI) or "ollama" (a local model; opt-in, uses gigabytes)

@@ -284,7 +284,7 @@ def create_app(
             owner_verified=svc.owner_verified,
             names=lambda: (svc.assistant_name, svc.owner_name),
             player=player,
-            on_command=lambda text, lang: svc.command(text, lang, "voice"),
+            on_command=lambda text, lang, verdict: svc.command(text, lang, "voice", verdict),
         )
 
     files = FileSearch(db, protected=[s.data_dir])

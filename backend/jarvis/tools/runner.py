@@ -54,6 +54,10 @@ LEVELS = {
     "drive.search": 2, "drive.recent": 2, "drive.summarize": 2, "drive.open": 2,
 }
 GOOGLE_TOOLS = {t for t in LEVELS if t.startswith(("email.", "drive."))}
+# harmless if someone else said them: they run even when the voice match is only "uncertain"
+# (a short "louder"); reading tools (calendar, notes, files, clipboard) are not in here
+HARMLESS = {"alarm.set", "timer.set", "stopwatch", "alarm.list", "system.volume", "media.control", "system.battery",
+            "system.lock", "screen.shot", "display.brightness", "display.dark_mode", "web.open"}
 # the chat apps "ai.ask" can fill in: app name, website that pre-fills a prompt (None: it would send it), home page
 AI_SERVICES = {
     "claude": ("Claude", "https://claude.ai/new?q={}", "https://claude.ai/new"),

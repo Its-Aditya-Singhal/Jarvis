@@ -359,6 +359,7 @@ export interface VoiceEnrollSnapshot {
   count: number;
   text: string;
   lang: string;
+  how?: string;
   hint: string;
   progress: number;
   done: boolean;

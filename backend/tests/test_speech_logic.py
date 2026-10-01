@@ -119,29 +119,79 @@ def test_long_background_speech_is_checked_on_its_start_and_never_voice_matched(
     assert lengths[1:] == [int(16000 * 2.5), 16000 * 10] and judged == [1]
 
 
-def test_a_failed_voice_match_does_not_block_everyday_commands(settings):
+def test_only_harmless_commands_run_on_an_uncertain_voice_and_nothing_on_a_rejected_one(settings):
     sp, seen, said, _ = make(settings)
     commands = []
-    sp.on_command = lambda text, lang: commands.append(text)
+    sp.on_command = lambda text, lang, verdict=None: commands.append((text, verdict))
     sp.everyday = lambda text: "brightness" in text
     sp.stt.text = "Friday, decrease brightness"
-    sp.handle(AUDIO, "rejected")
-    assert commands == ["Decrease brightness"] and sp.db.events == []
+    sp.handle(AUDIO, "uncertain")  # a short "dim the screen" the voice model can't be sure of
+    assert commands == [("Decrease brightness", "uncertain")] and sp.db.events == []
     sp.stt.text = "Friday, read my notes"
-    sp.handle(AUDIO, lambda: "rejected")
-    assert commands == ["Decrease brightness"] and sp.db.events == ["voice_mismatch_command"]
+    sp.handle(AUDIO, lambda: "uncertain")
+    assert len(commands) == 1 and "couldn't confirm your voice" in said[-1]
+    # someone else: not even an everyday command
+    sp.stt.text = "Friday, decrease brightness"
+    sp.handle(AUDIO, "rejected")
+    assert len(commands) == 1 and sp.db.events == ["voice_mismatch_command"]
+    sp.handle(AUDIO, "verified")
+    assert commands[-1] == ("Decrease brightness", "verified")
 
 
-def test_name_alone_opens_a_follow_up_window(settings):
+def test_name_alone_says_the_cached_greeting_and_opens_the_conversation_window(settings):
+    from jarvis.speech_service import ACK_PHRASE
+
     sp, seen, said, _ = make(settings)
+    sp.ack = lambda: "say"
     sp.stt.text = "Friday?"
     sp.handle(AUDIO, None)
-    assert said[-1] == "<ping>" and sp.listening  # a blip, not a synthesised "Yes?"
+    assert said[-1] == ACK_PHRASE == "Yes boss, how may I help you?" and sp.listening
+    assert ACK_PHRASE in sp.out.keep  # synthesised once, never evicted from the cache
+    sp.ack = lambda: "ping"
+    sp.handle(AUDIO, None)
+    assert said[-1] == "<ping>"
     sp.stt.text = "what's on my calendar"  # no name needed now
     sp.handle(AUDIO, "verified")
     heard = [e for e in seen if e["type"] == "heard"]
-    assert heard[-1]["text"] == "What's on my calendar" and not sp.listening
-    assert {"type": "listening", "active": False} in seen
+    assert heard[-1]["text"] == "What's on my calendar"
+
+
+def test_the_window_stays_open_after_each_reply_until_thanks(settings):
+    settings.followup_s = 60.0
+    sp, seen, said, _ = make(settings)
+    commands = []
+    sp.on_command = lambda text, lang, verdict=None: commands.append(text)
+    sp.stt.text = "Friday, what did Rahul mail me"
+    sp.handle(AUDIO, "verified")
+    assert sp.listening and {"type": "listening", "active": True, "seconds": 60.0} in seen
+    sp.stt.text = "okay send him a mail confirming my presence"  # a follow-up: no name
+    sp.handle(AUDIO, "verified")
+    assert commands == ["What did Rahul mail me", "Okay send him a mail confirming my presence"] and sp.listening
+    sp.stt.text = "thanks, that's all"
+    sp.handle(AUDIO, "verified")
+    assert not sp.listening and said[-1] == "Anytime." and len(commands) == 2
+    sp.stt.text = "and what about tomorrow"  # the window is closed: ignored
+    sp.handle(AUDIO, "verified")
+    assert len(commands) == 2
+
+
+def test_another_voice_in_the_window_closes_it_quietly(settings):
+    sp, seen, said, _ = make(settings)
+    commands = []
+    sp.on_command = lambda text, lang, verdict=None: commands.append(text)
+    sp.stt.text = "Friday, set a timer for five minutes"
+    sp.handle(AUDIO, "verified")
+    assert sp.listening
+    sp.stt.text = "no I said we should go tomorrow"  # someone else in the room
+    n = len(said)
+    sp.handle(AUDIO, "rejected")
+    assert not sp.listening and len(commands) == 1 and len(said) == n  # nothing said, nothing run
+    # a short unconfirmed clip in the window also closes it, without a word
+    sp.stt.text = "Friday, set a timer for five minutes"
+    sp.handle(AUDIO, "verified")
+    sp.stt.text = "open the mail"
+    sp.handle(AUDIO[:8000], "uncertain")
+    assert not sp.listening and len(commands) == 2 and len(said) == n
 
 
 class RecordingPlayer:

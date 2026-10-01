@@ -72,8 +72,9 @@ export default function VoiceEnroll({ onDone, onSkip, onClose, title = "Now let'
         {!started && !done && (
           <>
             <p className="muted">
-              I'll show you six short phrases in English, Hindi and Hinglish. Read each one aloud at a
-              normal pace. Only a mathematical voiceprint is kept — never the recording.
+              I'll show you 24 short phrases in English, Hindi and Hinglish, some to say softly, louder or from a
+              step back, so I know your voice however you talk. It takes about five minutes. Only a mathematical
+              voiceprint is kept — never the recording.
             </p>
             {voiceEnrollCancelled && <p className="error">{voiceEnrollCancelled}</p>}
             {error && <p className="error">{error}</p>}
@@ -107,20 +108,14 @@ export default function VoiceEnroll({ onDone, onSkip, onClose, title = "Now let'
               <p className="prompt">Voice profile captured.</p>
             ) : (
               <div className={`phrase-card ${snap?.accepted ? "flash" : ""}`} key={snap?.index}>
-                <span className="lang">{snap?.lang}</span>
+                <span className="lang">
+                  {snap?.lang} · {(snap?.index ?? 0) + 1} of {snap?.count}
+                </span>
                 <p className="phrase">“{snap?.text ?? "…"}”</p>
-                <span className="muted small">Read this aloud</span>
+                <span className="muted small">{snap?.how ? `${snap.how}.` : "Read this aloud"}</span>
               </div>
             )}
             <p className="hint">{!done && snap?.hint}</p>
-            <ol className="phrase-list">
-              {(snap?.phrases ?? []).map((p, i) => (
-                <li key={i} className={done || i < (snap?.index ?? 0) ? "done" : i === snap?.index ? "now" : ""}>
-                  <em>{p.lang}</em>
-                  {p.text}
-                </li>
-              ))}
-            </ol>
             {!done && (
               <button className="btn ghost" onClick={cancel}>
                 RESTART

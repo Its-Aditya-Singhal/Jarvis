@@ -51,7 +51,7 @@ from .speech.stt import SpeechToText
 from .speech.text import to_latin
 from .speech_service import SpeechService
 from .tools.agent import ScriptAgent
-from .tools.runner import LEVELS, Plan, ToolResult, ToolRunner
+from .tools.runner import HARMLESS, LEVELS, Plan, ToolResult, ToolRunner
 from .tools.scheduler import AlarmScheduler
 from .tools.store import Alarm
 from .voice_service import VoiceService
@@ -899,12 +899,13 @@ class AssistantService:
             self.bus.log("Unknown person in view with owner", "warn")
 
     # -- commands --------------------------------------------------------------
-    def command(self, text: str, lang: str = "en", source: str = "voice") -> dict:
+    def command(self, text: str, lang: str = "en", source: str = "voice", verdict: str | None = None) -> dict:
         """Run one owner command through the brain and answer (shown + spoken).
 
         Callers have already checked level 1 (the live owner is at the
         screen). Each proposed action is checked against the level it needs
-        when it runs; deletions become a pending confirmation.
+        when it runs; deletions become a pending confirmation. ``verdict``: the voice match of
+        this very utterance (spoken commands); anything beyond level 1 needs "verified".
         """
         text = " ".join(text.split())[:500]
         self.bus.publish({"type": "heard", "text": text, "lang": lang, "source": source})
@@ -920,7 +921,7 @@ class AssistantService:
             reply = r.reply
             if r.actions and self.tools is not None:
                 with self._tools_lock:
-                    results = self._run_tools(r.actions, r.language, source)
+                    results = self._run_tools(r.actions, r.language, source, verdict=verdict)
                 for info, res in zip(actions, results):
                     info.update(ok=res.ok, result=res.say, data=res.data)
                 reply = " ".join(res.say for res in results)
@@ -968,13 +969,16 @@ class AssistantService:
         return {"ok": True}
 
     def everyday(self, text: str) -> bool:
-        """An everyday command (brightness, volume, a timer, music, a screenshot, a web search…):
-        understood without the language model and made only of tools that need no voice match."""
+        """A harmless everyday command (brightness, volume, a timer, music, a screenshot, a web
+        search, the time…): understood without the language model and harmless if someone else
+        said it, so it runs when the voice match is only uncertain (a short "louder")."""
         b = self.brain
         if b is None or self.tools is None:
             return False
         actions = b.fast_actions(text)
-        return actions is not None and bool(actions) and all(LEVELS.get(a.tool, 3) <= 1 for a in actions)
+        if actions is None:
+            return False
+        return all(a.tool in HARMLESS for a in actions)  # [] = the time, a date or a sum
 
     def _blocked_say(self, code: str, lang: str, source: str) -> str:
         if code == "voice_needed" and source == "voice":
@@ -984,9 +988,12 @@ class AssistantService:
         en, hi = BLOCKED_SAY.get(code, (REASONS.get(code, "Not allowed right now."),) * 2)
         return hi if lang != "en" else en
 
-    def _run_tools(self, actions, lang: str, source: str = "voice", granted: int = 0) -> list[ToolResult]:
+    def _run_tools(self, actions, lang: str, source: str = "voice", granted: int = 0,
+                   verdict: str | None = None) -> list[ToolResult]:
         """``granted``: the level the owner had when a delayed request was made (it still stops
-        if they are no longer verified at all)."""
+        if they are no longer verified at all). ``verdict``: the voice match of the utterance
+        that asked; anything beyond level 1 needs it to be "verified" (a match a minute ago isn't
+        enough: every request that reads mail or acts is checked on its own words)."""
         hi = lang != "en"
         results: list[ToolResult] = []
         did_level2 = False
@@ -998,11 +1005,14 @@ class AssistantService:
                                           else "Stopped: you're no longer verified."))
                 self.db.add_security_event("tool_blocked", f"{a.tool} blocked: owner no longer verified", blocked=True)
                 break
+            unverified = source == "voice" and not granted and verdict is not None and verdict != "verified"
             if a.tool == "wait":
-                results.append(self._delay(a, list(actions[i + 1:]), lang, source, max(trust.level, granted)))
+                # what runs later was granted now: an unconfirmed voice grants level 1 at most
+                level = 1 if unverified else max(trust.level, granted)
+                results.append(self._delay(a, list(actions[i + 1:]), lang, source, level))
                 break  # the rest runs when the delay is over
-            if need >= 2 and max(trust.level, min(granted, 2)) < 2:
-                code = trust.blockers.get(2, "low_confidence")
+            if need >= 2 and (unverified or max(trust.level, min(granted, 2)) < 2):
+                code = "voice_needed" if unverified else trust.blockers.get(2, "low_confidence")
                 results.append(ToolResult(a.tool, False, self._blocked_say(code, lang, source), {"blocked": code}))
                 self.db.add_security_event(
                     "tool_blocked", f"{a.tool} needs level {need}, have {trust.level}: {REASONS.get(code, code)}", blocked=True
@@ -1040,7 +1050,7 @@ class AssistantService:
                               else "That delay is too long; set an alarm or a timer instead.")
         need = max(min(LEVELS.get(a.tool, 3), 2) for a in rest)
         if level < need:
-            code = self.trust(screen=source == "typed").blockers.get(need, "low_confidence")
+            code = self.trust(screen=source == "typed").blockers.get(need, "voice_needed")
             return ToolResult("wait", False, self._blocked_say(code, lang, source), {"blocked": code})
         what = ", ".join(a.summary or a.tool for a in rest)
         did = secrets.token_hex(4)

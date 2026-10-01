@@ -68,12 +68,15 @@ def test_level_two_needs_a_recent_voice_match(tmp_path):
         client.post("/api/setup/complete", headers=H)
         t = svc.trust()
         assert t.level == 1 and t.blockers[2] == "voice_needed"
-        assert svc.trust(screen=True).level == 2  # typed commands stand in for the voice (Settings)
-        # voice re-enrollment needs the current voice, or the keyboard when typed commands are on
+        # typed commands are off by default (the keyboard would bypass the voice match)...
+        assert svc.prefs.get("security.typed") == "off" and svc.trust(screen=True).level == 1
+        assert client.post("/api/enroll/voice/start", headers=H).status_code == 403
+        # ...and when switched on in Settings they stand in for the voice
+        svc.prefs.set("security.typed", "on")
+        assert svc.trust(screen=True).level == 2
         assert client.post("/api/enroll/voice/start", headers=H).status_code == 200
         client.post("/api/enroll/voice/cancel", headers=H)
         svc.prefs.set("security.typed", "off")
-        assert client.post("/api/enroll/voice/start", headers=H).status_code == 403
         svc.voice.auth.judge(0.9, 0.9, time.monotonic(), 2.0)
         t = svc.trust()
         assert t.level == 2 and t.l3_ready  # no liveness to wait for
@@ -106,3 +109,67 @@ def test_voice_only_never_downloads_the_face_models(tmp_path):
     ids = [p.id for p in ModelDownloader(tmp_path, skip=("face", "liveness")).packs]
     assert "face" not in ids and "liveness" not in ids and "voice" in ids
     assert "face" in [p.id for p in ModelDownloader(tmp_path).packs]
+
+
+def test_strict_voice_match_is_the_default(tmp_path):
+    from jarvis.prefs import VOICE_PRESETS
+
+    client, svc = _client(_voice_only(tmp_path))
+    with client:
+        assert svc.prefs.get("security.voice") == "strict"
+        assert (svc.s.voice_threshold, svc.s.voice_reject_threshold) == VOICE_PRESETS["strict"]
+
+
+def test_level_two_needs_this_utterance_verified(tmp_path):
+    """A voice match a minute ago isn't enough: the request itself must be in the owner's voice."""
+    from jarvis.llm.intents import Action
+
+    client, svc = _client(_voice_only(tmp_path), tools=True)
+    with client:
+        _voice_ready(svc)
+        client.post("/api/setup/profile", headers=H, json={"owner_name": "Aditya", "assistant_name": "JARVIS"})
+        _enroll_voice(svc)
+        client.post("/api/setup/complete", headers=H)
+        svc.voice.auth.judge(0.9, 0.9, time.monotonic(), 2.0)  # verified a moment ago
+        note = Action("notes.add", {"text": "buy milk"}, "")
+        r = svc._run_tools([note], "en", "voice", verdict="uncertain")
+        assert not r[0].ok and r[0].data["blocked"] == "voice_needed" and "confirm your voice" in r[0].say
+        assert svc._run_tools([note], "en", "voice", verdict="verified")[0].ok
+        # a delay can't smuggle a level-2 action past an unconfirmed voice either
+        wait = Action("wait", {"seconds": 5}, "")
+        r = svc._run_tools([wait, Action("app.open", {"name": "Safari"}, "")], "en", "voice", verdict="uncertain")
+        assert not r[0].ok and svc.delayed() == []
+
+
+def test_short_clips_are_judged_with_the_name_said_just_before(tmp_path):
+    """"JARVIS" … "louder": each alone is too short to judge; together they are."""
+    from test_api import FakeMic
+
+    from jarvis.auth.matching import TemplateMatcher
+    from jarvis.auth.voice.vad import Utterance
+    from jarvis.database.db import Database
+    from jarvis.events import EventBus
+    from jarvis.security.template_store import TemplateStore
+    from jarvis.voice_service import VoiceService
+
+    class Speaker:
+        ready = True
+        lengths: list = []
+
+        def embed(self, audio):
+            Speaker.lengths.append(len(audio))
+            return np.eye(1, 192, dtype=np.float32)[0]
+
+    s = _voice_only(tmp_path)
+    db = Database(tmp_path / "v.sqlite3")
+    v = VoiceService(s, db, TemplateStore(tmp_path / "t", StaticKeyProvider()), EventBus(), Speaker(), FakeMic(),
+                     lambda: True, lambda: ("JARVIS", "Aditya"))
+    matcher = TemplateMatcher(np.tile(np.eye(1, 192, dtype=np.float32), (6, 1)), top_k=5)
+    q = {"score": 0.9}
+    name = Utterance(np.zeros(8000, np.float32), 0.5, 0.0)
+    louder = Utterance(np.zeros(8000, np.float32), 0.5, 0.0)
+    assert v._judge_short(name, q, matcher) == "uncertain" and Speaker.lengths == []  # nothing before it
+    assert v._judge_short(louder, q, matcher) == "verified"  # name + louder: 1 s of speech together
+    assert Speaker.lengths == [8000 + 1600 + 8000]
+    assert v._judge_short(louder, q, matcher) == "uncertain"  # each clip is used once
+    db.close()

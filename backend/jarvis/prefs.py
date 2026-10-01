@@ -27,13 +27,16 @@ class Pref:
 PREFS: dict[str, Pref] = {p.key: p for p in [
     # voice
     Pref("voice.speed", (0.9, 1.0, 1.1, 1.2), 1.0, labels=("Calm", "Normal", "Brisk", "Fast")),
-    Pref("voice.followup_s", (5.0, 8.0, 12.0), 8.0, labels=("5 s", "8 s", "12 s")),
-    Pref("voice.ack", ("ping", "say"), "ping", labels=("Beep", "Say “Yes?”")),
+    # after a reply (or the name alone) JARVIS keeps listening this long without the name
+    Pref("voice.followup_s", (30.0, 60.0, 120.0), 60.0, labels=("30 s", "1 min", "2 min")),
+    Pref("voice.ack", ("ping", "say"), "say", labels=("Beep", "“Yes boss, how may I help you?”")),
     # security (loosest -> strictest)
     Pref("security.face", ("standard", "strict"), "standard", True, ("Standard", "Strict")),
-    Pref("security.voice", ("standard", "strict"), "standard", True, ("Standard", "Strict")),
+    # strict by default: Gmail, Drive and Calendar hang off the voice match
+    Pref("security.voice", ("standard", "strict"), "strict", True, ("Standard", "Strict")),
     Pref("security.away_lock_s", (60.0, 20.0, 8.0), 8.0, True, ("After 1 min", "After 20 s", "After 8 s")),
-    Pref("security.typed", ("on", "off"), "on", True, ("Voice or typed", "Voice only")),
+    # off by default: without a face check the keyboard would bypass the voice match
+    Pref("security.typed", ("on", "off"), "off", True, ("Voice or typed", "Voice only")),
     Pref("security.camera", ("once", "always"), "once", True, ("Face once, then voice", "Face all the time")),
     Pref("security.liveness", ("normal", "frequent"), "normal", True, ("Every 5-15 min", "Every 2-5 min")),
     # any command (generated AppleScript): what runs without asking (8 GB Macs always ask)

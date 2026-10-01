@@ -70,9 +70,19 @@ def name_prompt(assistant: str, owner: str = "") -> str:
     return text + (f" The user is {fix(owner)}." if owner else "")
 
 
+ACK_PHRASE = "Yes boss, how may I help you?"  # the answer to the name alone (synthesised once, played instantly)
+# "thanks" / "that's all" ends the conversation window
+END_RE = re.compile(r"(?:(?:ok(?:ay)?|no|great|cool|alright),? )?(?:thanks?(?: a lot| so much)?|thank you(?: so much)?|that'?s (?:all|it)"
+                    r"|nothing(?: else)?|never ?mind|no(?:,)? thanks?|(?:ok(?:ay)? )?bye|good ?bye|bas(?: itna(?: hi)?| karo)?"
+                    r"|shukriya|dhanyavaa?d|dhanyawaa?d|kuch nahi|koi baat nahi|theek hai bas)"
+                    r"(?:,? (?:jarvis|boss|for now|that'?s all))?[.!]*")
+SR_S = 16000
+
+
 def common_phrases(owner: str) -> list[str]:
     """Replies worth synthesising at startup so they play instantly."""
     return [
+        ACK_PHRASE,
         f"Authentication approved. Hi {owner}, how may I help you today?",
         "Quick liveness check. Follow the prompts.",
         "Authentication required. I only take commands from my verified owner.",
@@ -83,7 +93,7 @@ def common_phrases(owner: str) -> list[str]:
         "I couldn't confirm your voice. Please say that again.",
         "Okay, I won't delete it.",
         "Note saved.",
-        "Yes?",
+        "Anytime.",
     ]
 
 
@@ -107,7 +117,7 @@ class SpeechService:
         owner_verified: Callable[[], bool],
         names: Callable[[], tuple[str, str]],
         player=None,
-        on_command: Callable[[str, str], object] | None = None,
+        on_command: Callable[[str, str, str | None], object] | None = None,
     ):
         self.s = settings
         self.db = db
@@ -116,7 +126,7 @@ class SpeechService:
         self.tts = tts
         self.owner_verified = owner_verified
         self.names = names
-        self.on_command = on_command  # (text, language) -> handled by the assistant brain
+        self.on_command = on_command  # (text, language, voice verdict) -> handled by the assistant brain
         # set by the assistant service when tools are enabled
         self.alarm_ringing: Callable[[], bool] = lambda: False
         self.dismiss_alarm: Callable[[], int] = lambda: 0
@@ -125,12 +135,13 @@ class SpeechService:
         self.on_confirm: Callable[[bool, str | None], None] = lambda accept, verdict: None
         self.on_voice_mismatch: Callable[[], None] = lambda: None
         # set by the assistant service: a harmless everyday command (brightness, a timer…) that
-        # runs even when the voice match fails, since the face check already passed
+        # runs even when the voice match is only uncertain (a short "louder"); never when rejected
         self.everyday: Callable[[str], bool] = lambda text: False
         self.ack: Callable[[], str] = lambda: "ping"  # ping | say
         # custom answer while nobody is verified (face-profile recovery); None = the default refusal
         self.unverified_reply: Callable[[str | None], str | None] = lambda verdict: None
         self.out = SpeechOutput(tts, bus, self.voice_gender, player=player)
+        self.out.keep.add(ACK_PHRASE)
         self._q: queue.Queue[tuple[np.ndarray, Verdict]] = queue.Queue(maxsize=3)
         self._stop = threading.Event()
         self._life = threading.Lock()  # start() vs stop()
@@ -148,6 +159,8 @@ class SpeechService:
         if gender not in GENDERS:
             raise ValueError("gender must be female or male")
         self.db.set("voice_gender", gender)
+        if self.tts.ready:  # the greeting in the new voice, ready before it's needed
+            threading.Thread(target=self.out.prewarm, args=([ACK_PHRASE],), name="tts-prewarm", daemon=True).start()
 
     # -- lifecycle -------------------------------------------------------------
     def start(self) -> None:
@@ -232,11 +245,22 @@ class SpeechService:
             except Exception:
                 log.exception("speech turn failed")
 
+    def _open_window(self) -> None:
+        """Keep listening without the name for the follow-up window (reset by each command)."""
+        self._listen_until = time.monotonic() + self.s.followup_s
+        self.bus.publish({"type": "listening", "active": True, "seconds": self.s.followup_s})
+
+    def close_window(self) -> None:
+        if self._listen_until:
+            self._listen_until = 0.0
+            self.bus.publish({"type": "listening", "active": False})
+
     def handle(self, audio: np.ndarray, verdict: Verdict) -> None:
         assistant, owner = self.names()
         t0 = time.monotonic()
         prompt = name_prompt(assistant)
-        screening = not (time.monotonic() < self._listen_until or self.alarm_ringing() or self.confirm_pending())
+        in_window = time.monotonic() < self._listen_until
+        screening = not (in_window or self.alarm_ringing() or self.confirm_pending())
         if screening and len(audio) > (WAKE_HEAD_S + 1.0) * SR:
             head = self.stt.transcribe(audio[: int(WAKE_HEAD_S * SR)], prompt=prompt)
             if not find_wake(assistant, head.text)[0]:
@@ -251,10 +275,10 @@ class SpeechService:
             self.dismiss_alarm()
             return
         found, rest = find_wake(assistant, tr.text)
-        followup = time.monotonic() < self._listen_until
         answer = confirm_answer(rest if found else tr.text) if self.confirm_pending() else None
-        if not found and not followup and answer is None:
+        if not found and not in_window and answer is None:
             return  # not addressed to the assistant: discarded, never shown
+        followup = not found and answer is None  # said in the conversation window, without the name
         command = rest if found else tr.text
         command = command[:1].upper() + command[1:]
         if callable(verdict):
@@ -274,13 +298,18 @@ class SpeechService:
             self.bus.log("Voice command blocked — owner not verified", "alert")
             self.out.say("Authentication required. I only take commands from my verified owner.")
             return
-        if verdict == "rejected" and not self.everyday(command):
+        if verdict == "rejected":
+            # someone else: nothing runs, not even an everyday command
+            self.on_voice_mismatch()
+            if followup:  # talk in the room after the conversation: the window just closes
+                self.close_window()
+                self.bus.log("Conversation ended — another voice spoke", "warn")
+                return
             self.db.add_security_event(
                 "voice_mismatch_command", "Command spoken in a voice that is not the owner's", blocked=True
             )
             self.bus.log("Voice command blocked — voice does not match the owner", "alert")
             self.out.say("That voice doesn't match my owner. Command blocked.")
-            self.on_voice_mismatch()
             return
         if answer is not None:
             self.bus.publish({"type": "heard", "text": command, "lang": tr.language})
@@ -290,18 +319,30 @@ class SpeechService:
         latency = round(time.monotonic() - t0, 2)
         if not command.strip():
             self.bus.publish({"type": "heard", "text": tr.text, "lang": tr.language, "stt_s": latency})
-            self._listen_until = time.monotonic() + self.s.followup_s
-            self.bus.publish({"type": "listening", "active": True, "seconds": self.s.followup_s})
+            self._open_window()
             if self.ack() == "say":
-                self.out.say("Yes?")
+                self.out.say(ACK_PHRASE)  # synthesised at startup: plays at once
             else:
-                self.out.ping()  # instant "go ahead" instead of a synthesised "Yes?"
+                self.out.ping()
             return
-        if self._listen_until:
-            self._listen_until = 0.0
-            self.bus.publish({"type": "listening", "active": False})
+        if END_RE.fullmatch(command.lower().strip()):
+            self.bus.publish({"type": "heard", "text": command, "lang": tr.language, "stt_s": latency})
+            self.close_window()
+            if verdict == "verified" or found:
+                self.out.say("Anytime.")
+            return
+        if verdict != "verified" and not self.everyday(command):
+            # a doubtful voice gets nothing that reads or acts: only harmless everyday commands
+            self.close_window()
+            if followup and len(audio) < 1.5 * SR_S:
+                self.bus.log("Follow-up ignored — voice not confirmed", "warn")
+                return  # a short clip in the room: probably not meant for me
+            self.bus.log("Voice command not run — voice not confirmed", "warn")
+            self.out.say("I couldn't confirm your voice. Please say that again.")
+            return
         if self.on_command is not None:
-            self.on_command(command, tr.language)
+            self.on_command(command, tr.language, verdict)
+            self._open_window()
             return
         self.bus.publish({"type": "heard", "text": command, "lang": tr.language, "stt_s": latency})
         reply = placeholder_reply(command, tr.language, self.voice_gender())

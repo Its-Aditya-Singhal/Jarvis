@@ -137,7 +137,7 @@ export default function SettingsPanel() {
           />
           {ctl("voice.speed", "Speaking speed")}
           {ctl("voice.ack", "When you say my name")}
-          {ctl("voice.followup_s", "Listen after my name for")}
+          {ctl("voice.followup_s", "Keep listening after a reply for")}
           <p className="muted small">
             Speech: {status?.models.stt === "ready" ? `Whisper ${data?.mode.stt ?? ""}` : status?.models.stt} · Voice:{" "}
             {status?.models.tts === "ready" ? "Kokoro-82M" : status?.models.tts} · all on this Mac.
