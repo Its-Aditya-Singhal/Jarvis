@@ -195,11 +195,12 @@ def test_api_calls_carry_the_token_and_retry_once_on_401(google):
     connect(google)
     url = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
     google.fake.api[url] = [httpx.Response(401), httpx.Response(200, json={"items": []})]
-    r = google.call("GET", url, "calendar")
+    r = google.call("GET", url, "calendar", headers={"X-Test": "kept"})
     assert r.json() == {"items": []}
     sent = [c for c in google.fake.calls if str(c.url).startswith(url)]
     assert sent[0].headers["authorization"] == "Bearer ya29.token1"
     assert sent[1].headers["authorization"] == "Bearer ya29.token2"  # refreshed after the 401
+    assert sent[1].headers["x-test"] == "kept"  # the caller's headers go with the retry too
 
 
 def test_disconnect_revokes_and_deletes(google):

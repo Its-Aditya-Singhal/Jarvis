@@ -386,8 +386,9 @@ class GoogleAuth:
             if self.connected and service in self.wanted():
                 raise NotConnected(f"{name} wasn't allowed when you connected — reconnect in Settings → Accounts")
             raise NotConnected(f"{name} isn't connected — connect it in Settings → Accounts")
+        extra = kw.pop("headers", {})
         for attempt in (0, 1):
-            headers = {"Authorization": f"Bearer {self.access_token()}", **kw.pop("headers", {})}
+            headers = {**extra, "Authorization": f"Bearer {self.access_token()}"}
             try:
                 r = self._http.request(method, url, headers=headers, **kw)
             except httpx.HTTPError as exc:
