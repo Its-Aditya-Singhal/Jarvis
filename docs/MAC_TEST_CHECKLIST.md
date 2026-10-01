@@ -155,3 +155,27 @@ Never paste a key or a client secret into a chat.
 - [ ] Record ~20 short clips of yourself on another day plus clips of other people, run
       `backend/.venv/bin/python scripts/eval_voice.py --enroll … --owner … --others …`, note FAR / FRR at Standard and Strict
 - [ ] Idle for 10 minutes with the window closed: Activity Monitor shows the backend's CPU % (should be ~0–1 %), memory and Energy Impact
+
+## Everyday tools (October 2026)
+
+These need Aditya's voice and his own accounts; everything else was tested in the cloud through the
+real command path (`backend/tests/test_everyday.py`, 100 commands). Send messages to yourself first.
+
+- [ ] Real model routing: `cd backend && JARVIS_GEMINI_KEY=<key> .venv/bin/python -m pytest -m gemini -q`
+      (the whole routing corpus through Gemini, ~2 s a request; never paste the key in a chat). Note any misses.
+- [ ] "text <yourself> testing JARVIS" → it reads the message and number back → "yes, send it" → it arrives
+- [ ] "WhatsApp <yourself> hello" → read back with +91… → "yes, send it" → WhatsApp opens and sends it
+- [ ] Allow Full Disk Access when asked (System Settings → Privacy & Security), then "read my messages" and "what did <someone> text me"
+- [ ] "call <yourself>" → it asks → "yes, go ahead" → FaceTime/iPhone offers the call (hang up)
+- [ ] "remind me to test JARVIS in 10 minutes" → appears in Reminders with an alert; "what are my reminders for today"
+- [ ] "my city is <your city>" → "how's the weather" → compare with the Weather app
+- [ ] "what's the news today" and "100 dollars in rupees" → a current answer (Gemini with Google Search)
+- [ ] "summarise the PDF I downloaded yesterday" (any PDF in Downloads) → "move it to Documents" → "yes" → it moved
+- [ ] "when am I free tomorrow" matches your calendar; "set up a meeting with <yourself> tomorrow at 3" → "yes" → the invitation email arrives
+- [ ] Make the shortcuts "JARVIS Focus On" / "JARVIS Focus Off" (user guide) → "start focus mode" → DND on, WhatsApp/Slack quit; "end focus mode"
+- [ ] "play <a song in your library>" / "what's playing" / "set Music's volume to 30"
+- [ ] Copy a paragraph → "translate my clipboard into Hindi" → paste: the translation
+- [ ] "give me my daily briefing"
+- [ ] Open something with an error (a failed build, a website error) → "Jarvis, what's happening on my screen?" → it explains the error and offers help; allow Screen Recording when asked
+- [ ] Someone else says "Jarvis, read my messages" / "text Mom hi" → refused
+

@@ -3,6 +3,28 @@
 ## Unreleased — voice-only, Gemini, Google account
 
 ### Added
+- **Everyday tools**, all understood by the AI from your own words (no fixed phrases):
+  - **Messages and calls:** "text Mom I'm on my way" (iMessage, or WhatsApp when you say so),
+    "read my messages", "what did Rahul text me" → "reply to him…", "call Dad", "FaceTime Priya".
+    Every message and call is read back and needs your "yes", like mail.
+  - **Apple Reminders and Notes:** "remind me to call the bank tomorrow at 10", "put eggs on my
+    shopping list", "what are my reminders for today", "add a note in Apple Notes…".
+  - **Weather and web answers:** "my city is Pune" once, then "how's the weather", "will it rain
+    tomorrow" (Open-Meteo, no key); news, scores, prices and currency rates through Gemini with
+    Google Search ("100 dollars in rupees").
+  - **Files:** "summarise the PDF I downloaded yesterday", "read the lease and tell me the notice
+    period", "move it to Documents", "rename it to tax return 2026" (moves and renames ask first).
+  - **Calendar helpers:** "when am I free tomorrow", "do I have a free hour this afternoon", "set up
+    a meeting with Rahul tomorrow at 3" (asks first; Google Calendar emails the invitation).
+  - **Focus mode:** Do Not Disturb (through two shortcuts you make once), quits distracting apps,
+    runs a focus timer; "end focus mode".
+  - **Music:** "play Believer", "play my workout playlist" (Music library, else a Spotify search),
+    "what's playing", "set Spotify's volume to 30".
+  - **Clipboard:** summarise, translate (copied back), explain or fix the grammar of what you copied.
+  - **Daily briefing:** weather, the rest of today's calendar, reminders due, unread mail.
+  - **Screen help:** "Jarvis, what's happening on my screen?" takes one screenshot, sends it to
+    Gemini's writing model and says what's going on, what the error means and what JARVIS can do
+    about it.
 - **Gmail, Google Drive and Google Calendar.** Settings → Google account walks
   through creating your own free OAuth client, then Connect signs in through the
   browser (loopback redirect, PKCE, checked state). "Summarize my last 10
@@ -34,6 +56,8 @@
   at both presets, from your recordings and other voices.
 
 ### Changed
+- "the" no longer counts as a Hindi word, so "move the file to the desktop" is answered in English.
+- The local model's context grew to 8K (6.5K on 8 GB Macs) to fit the larger tool list.
 - **Voice-only sign-in by default:** no camera, face model, anti-spoof model or
   face loop; the camera isn't even opened for a permission prompt.
   `JARVIS_FACE_AUTH=1` brings face sign-in back.

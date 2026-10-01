@@ -37,9 +37,9 @@ Every action is authorised from live evidence at the moment it runs:
 | Level | Needs (voice-only) | Allows |
 |---|---|---|
 | L0 | setup not finished | nothing |
-| L1 READ | setup done; for a spoken request, a voice that wasn't rejected | harmless everyday commands with an unclear voice; with a recognised voice also reading calendar, notes, files, memory |
-| L2 ACT | **this request** recognised as your voice, plus a match in the last 60 s and no unknown voice since | Gmail, Drive and Google Calendar, notes, apps, settings, typing, generated AppleScript |
-| L3 CONFIRM | L2 + an explicit yes (in your recognised voice, or a click) before the card expires | sending a mail, deleting notes, events, memories, moving files to the Trash, privacy actions |
+| L1 READ | setup done; for a spoken request, a voice that wasn't rejected | harmless everyday commands with an unclear voice; with a recognised voice also reading calendar, free time, reminders, notes, file names, memory, web answers |
+| L2 ACT | **this request** recognised as your voice, plus a match in the last 60 s and no unknown voice since | Gmail, Drive and Google Calendar, reading messages, file contents, the clipboard through the AI, screen help, the briefing, reminders, notes, focus mode, apps, settings, typing, generated AppleScript |
+| L3 CONFIRM | L2 + an explicit yes (in your recognised voice, or a click) before the card expires | sending a mail or message, calls, meeting invitations, moving or renaming files, deleting notes, events, memories, moving files to the Trash, privacy actions |
 
 **Every request is judged on its own words.** Until this version a voice match
 counted for a minute and everyday commands ran even when the voice was
@@ -55,7 +55,7 @@ rejected. Now:
 - **Recognised:** everything runs at its level. **Unclear** (too short, noisy,
   or between the thresholds): only the harmless everyday set (volume,
   brightness, dark mode, music, timers, alarms, the stopwatch, screenshots,
-  web searches, the time, sums); nothing that reads your data or acts.
+  web searches, the weather, the time, sums); nothing that reads your data or acts.
   **Rejected:** nothing at all, logged as a security event.
 - Even a level-2 action inside a command is refused if that command's own
   verdict wasn't "recognised"; a spoken delay ("in 5 minutes…") can't carry a
@@ -104,6 +104,20 @@ Bedrock's data handling follows AWS's terms for your account, not Google's free
 tier. If Bedrock can't answer and a Gemini key is saved, that one request goes
 to Gemini. The Bedrock API key is sealed and handled like the Gemini key below.
 
+**Everyday tools that send something to the AI**, each only when you ask: the question for a
+web answer (with Google Search turned on for it, so the answer can be current); a file's text
+(up to ~60,000 characters) for "summarise this PDF"; the clipboard's text for summarise /
+translate / explain / fix (never when a password manager marked it as a password); and for
+screen help **one screenshot of your whole screen**, JPEG, about 1600 px. The screenshot goes to
+the writing model (Gemini 3.5 Flash-Lite by default), is kept in memory only (the temporary file
+is deleted at once) and the model is told never to read out passwords or codes it sees; but
+whatever is on screen at that moment is sent, so don't ask with something private open.
+File and clipboard text go to whichever writing model is chosen (Gemini, Bedrock, or the local
+model). Web answers and screen help always use Gemini, even when Bedrock is the brain; with no
+Gemini key they say so and send nothing.
+Reading messages, reminders, the briefing and the weather send nothing to the AI except the
+spoken result of a command, which stays in the conversation context for follow-ups (like mail).
+
 **The API key** is sealed with the Keychain key in the database, never logged,
 never sent back to the UI (only its last four characters), and sent only in
 the `x-goog-api-key` header to `generativelanguage.googleapis.com`.
@@ -126,8 +140,23 @@ send anything: the AI only ever sees it as data to summarise.
 **Offline mode** (on by default) still blocks everything except: the Gemini
 API host once a key is saved, and `oauth2.googleapis.com`,
 `accounts.google.com`, `gmail.googleapis.com` and `www.googleapis.com` once a
-Google account is connected (and while you connect). Each connection is listed
-in the Privacy view.
+Google account is connected (and while you connect). With the Gemini brain on,
+it also lets through `open-meteo.com` for the weather: only the city name is sent,
+with no key or account. Each connection is listed in the Privacy view.
+
+**Messages, calls, meetings and files.** Sending an iMessage or WhatsApp
+message, starting a call, inviting people to a meeting, and moving or renaming a
+file are level 3, like sending mail: JARVIS reads back exactly what will happen
+(the message and the number, the people and their addresses, the file and where
+it goes) and does it only after a "yes" in your recognised voice or a click.
+Reading messages, a file's contents, the clipboard (through the AI) or the
+screen, the briefing (it includes mail) and focus mode (it quits apps) are level
+2: they need your recognised voice on that request. Messages and Contacts are
+read from their own databases, read-only, with Full Disk Access; nothing is ever
+written there. A message's text, like a mail's, is data: it can't send anything
+by itself. WhatsApp's Return key is pressed only when WhatsApp is the app in
+front. Files are moved or renamed only inside the allowed folders, never over an
+existing file, and a new name can't contain a path.
 
 ## Protections in detail
 

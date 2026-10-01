@@ -13,7 +13,8 @@
 │      ─► fast path (patterns) ─┬─► tool runner ─► Kokoro     │
 │                               └─► Gemini (command model)    │
 │  tools: Mac control · files · notes · calendar · Gmail ·    │
-│         Drive · Google Calendar (writing model for mail)    │
+│         Drive · Google Calendar · Messages · Reminders ·    │
+│         weather · web answers · screen help (writing model) │
 │  encrypted SQLite + Keychain key · offline guard            │
 └─────────────────────────────────────────────────────────────┘
         │ HTTPS, only the services switched on
@@ -56,7 +57,8 @@ backend/jarvis/
   auth/face|voice|liveness|fusion, auth/levels.py   the models and the level rules
   brain.py, llm/       fast path (patterns), Gemini client, Ollama client/server/setup, intent schema and prompt
   tools/               runner (the tool registry with a level per tool), scheduler, apps, files, Mac control,
-                       Apple bridge, math, google.py (mail / Drive tools, draft read-back)
+                       Apple bridge, math, google.py (mail / Drive tools, draft read-back), everyday.py
+                       (messages, reminders, weather, files, focus, music, clipboard, briefing, screen help)
   memory/              encrypted facts and history, embeddings, suggestions
   security/, database/ AES-256-GCM sealing with the Keychain key, SQLite
   downloads.py         first-run model download (manifest in model_manifest.json)
@@ -116,6 +118,19 @@ AppleScript gets values as `argv`, and file tools only touch allowed folders.
 | email.send | writes or reuses the latest draft, reads it back in the confirmation, `drafts/send` only after it | 3 |
 | drive.search / recent / summarize / open | Drive REST (read-only): name, then full-text search; Docs/Sheets/Slides exported as text for a summary; `webViewLink` opened in the browser | 2 |
 | calendar.* with Google | when Google Calendar is connected, new events are also created in the primary calendar and listed from it | as above |
+| message.send / message.read | iMessage through Messages (AppleScript, values as argv; SMS fallback), WhatsApp through its `whatsapp://send` link with Return pressed only when WhatsApp is in front; reading: `~/Library/Messages/chat.db` and the Contacts databases opened read-only (Full Disk Access), tapbacks and your own messages skipped (`tools/macapps.py`) | 3 / 2 |
+| call.start | `tel:` / `facetime:` / `facetime-audio:` links (FaceTime places the call) | 3 |
+| reminder.add / reminder.list | Apple Reminders through AppleScript (list by name, due date with an alert) | 2 / 1 |
+| weather / location.set | Open-Meteo geocoding and forecast (`tools/weather.py`), the home city stored locally | 1 / 2 |
+| web.answer | the writing model with Gemini's Google Search tool; without Gemini it opens a web search instead | 1 |
+| files.summarize | the text of one allowed file (pypdf for PDFs, `textutil` for Word/RTF, plain text) to the writing model (`tools/reading.py`) | 2 |
+| files.move / files.rename | one plain file, inside the allowed folders only, never over an existing file, a name without paths; re-checked after the confirmation | 3 |
+| calendar.free / calendar.invite | gaps between the day's events (all-day items ignored); a Google Calendar event with attendees and `sendUpdates=all`, addresses from past mail | 1 / 3 |
+| focus.start / focus.stop | the owner's "JARVIS Focus On/Off" shortcuts (`shortcuts run`), quits distracting apps, a "Focus" timer | 2 / 1 |
+| music.play | the Music library (playlist by name, else a search) through AppleScript, else a Spotify search | 1 |
+| clipboard.ai | the clipboard's text to the writing model (summary, translation or correction; the last two copied back) | 2 |
+| briefing | weather, the rest of today's calendar, reminders due, unread mail, composed in code | 2 |
+| screen.explain | `screencapture` to a temporary JPEG (deleted at once, shrunk with `sips`), sent inline to the writing model with a list of what JARVIS can do | 2 |
 
 \*See [SECURITY.md](SECURITY.md#levels). Level-3 tools cannot be run
 directly: the runner only plans them, and deletion happens after confirmation.

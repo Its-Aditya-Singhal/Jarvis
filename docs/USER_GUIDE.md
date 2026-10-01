@@ -121,10 +121,64 @@ name and it answers "Yes boss, how may I help you?" straight away.
 - "find the budget sheet in my drive" → "summarise it" / "open it"
 - "what's on my calendar tomorrow?" / "add dinner with Rahul on Friday at 8"
 
+**Messages, calls, reminders:**
+- "text Mom that I'll be home by 8" / "WhatsApp Rahul that I'm on my way" (read back first, see below)
+- "read my messages" / "what did Mom text me?" → "reply to her saying yes"
+- "call Dad" / "FaceTime Priya" (asks first)
+- "remind me to call the bank tomorrow at 10" / "put eggs on my shopping list" / "what are my reminders for today?"
+- "add a note in Apple Notes saying the gate code is 4512" / "remember that my car is on level 2"
+
+**Weather and the web:**
+- "my city is Pune" (once) → "how's the weather?" / "will it rain tomorrow?" / "weather in Mumbai"
+- "what's the news today?" / "who won the match last night?" / "100 dollars in rupees" / "bitcoin price"
+
+**Files, calendar, focus, music, clipboard:**
+- "summarise the PDF I downloaded yesterday" / "read the lease and tell me the notice period"
+- "move it to Documents" / "rename my latest download to tax return 2026" (asks first)
+- "what's my day look like?" / "when am I free tomorrow?" / "set up a meeting with Rahul tomorrow at 3" (asks first, then Google emails the invitation)
+- "start focus mode" / "focus for 45 minutes" / "end focus mode" / "turn on Do Not Disturb"
+- "play Believer" / "play my workout playlist" / "what's playing?" / "set Spotify's volume to 30"
+- "summarise what I copied" / "translate my clipboard into Hindi" / "fix the grammar of what I copied"
+
+**Your day and your screen:**
+- "give me my daily briefing": weather, the rest of today's calendar, reminders due and unread mail
+- "Jarvis, what's happening on my screen?" / "what does this error mean?": JARVIS takes one
+  screenshot, sends it to Gemini's writing model (Gemini 3.5 Flash-Lite unless you changed it in
+  Settings → AI), and says what's going on, what the error means and what it can do for you. The
+  screenshot leaves the Mac only for that request, is never saved, and needs the Gemini brain (the
+  local model can't see images)
+
 **Anything else:** ask in your own words. The AI picks from all of JARVIS's
-tools; for Mac apps no tool covers ("add milk to my Reminders", "turn on Do Not
-Disturb") it writes an AppleScript, runs it straight away if it only reads, and
+tools; for Mac apps no tool covers ("close all my Safari tabs", "turn off
+Wi-Fi") it writes an AppleScript, runs it straight away if it only reads, and
 shows it to you before it changes anything.
+
+### Sending messages and calling
+
+Like mail, a message is **read back first** ("Here's the iMessage to Mom (+91 98765 43210): …
+Shall I send it?") and goes out only after "yes, send it" in your verified voice, or a click on
+**Send**. iMessage goes through the Messages app (SMS if your iPhone relays texts). WhatsApp has
+no way for other apps to send, so JARVIS opens the chat with your message written in and presses
+Return only when WhatsApp is in front; otherwise it leaves the message there for you to send.
+WhatsApp needs the number with its country code: numbers saved without one get your Mac's region
+code (+91 in India), and the read-back says the full number. Calls go through FaceTime (and your
+iPhone for phone calls); macOS may ask you to press Call.
+
+### Permissions the everyday tools ask for
+
+macOS asks once for each, the first time it's needed:
+
+| Tool | Permission |
+|---|---|
+| Reading messages, finding contacts | **Full Disk Access** for JARVIS (System Settings → Privacy & Security → Full Disk Access); without it contacts fall back to the Contacts permission and reading messages says how to allow it |
+| Sending iMessages, Reminders, Music | **Automation** (“JARVIS wants to control Messages / Reminders / Music”): click OK |
+| Pressing Return in WhatsApp | **Accessibility** (the same one typing uses) |
+| Screen help | **Screen Recording** (the same one screenshots use) |
+
+**Do Not Disturb:** macOS doesn't let apps switch Focus directly, so JARVIS runs two shortcuts
+you make once in the Shortcuts app: a shortcut named **JARVIS Focus On** with the action
+*Set Focus → Do Not Disturb → Turn On*, and **JARVIS Focus Off** with *Turn Off*. Without them,
+focus mode still quits distracting apps and runs the timer, and tells you this.
 
 ### Sending mail
 
@@ -147,8 +201,8 @@ Every request is checked against your voiceprint on its own words:
 
 | Your voice on that request | What runs |
 |---|---|
-| Recognised | everything (deleting or sending still asks for your "yes") |
-| Unclear (a short or noisy clip) | only harmless everyday commands: volume, brightness, timers, music, screenshots, searches, the time |
+| Recognised | everything (deleting, sending, calling, inviting, moving or renaming files still asks for your "yes") |
+| Unclear (a short or noisy clip) | only harmless everyday commands: volume, brightness, timers, music, screenshots, searches, the weather, the time |
 | Someone else's | nothing ("That voice doesn't match my owner") |
 
 If it says "I couldn't confirm your voice", say it again a little longer. A
