@@ -723,10 +723,11 @@ class AssistantService:
 
     def begin_verification(self) -> bool:
         if not self.face_on:
-            with self._lock:
-                self.mode = "verifying"
+            # the voice check first: nobody may see the session "verifying" before its voice is
             if self.voice is not None and self.voice.enrolled:
                 self.voice.begin_verification()
+            with self._lock:
+                self.mode = "verifying"
             self.bus.log("Voice sign-in active (face sign-in is off)")
             return True
         try:
