@@ -155,3 +155,36 @@ def test_language_model_routes(case, brain):
     r = brain.respond(case.text)
     want, _ = expected_actions(case.expected)
     assert r.ok and [a.tool for a in r.actions] == [t for t, _ in want]
+
+
+# -- the Gemini brain (needs a free Gemini API key: JARVIS_GEMINI_KEY=… pytest -m gemini) -----------
+@pytest.fixture(scope="module")
+def gemini_brain(tmp_path_factory):
+    import os
+
+    from test_llm_live import KV
+
+    from jarvis.brain import Brain
+    from jarvis.config import Settings
+    from jarvis.llm.gemini import GeminiClient
+
+    key = os.environ.get("JARVIS_GEMINI_KEY")
+    if not key:
+        pytest.skip("set JARVIS_GEMINI_KEY to route the corpus through Gemini")
+    s = Settings(data_dir=tmp_path_factory.mktemp("gemini"))
+    kv = KV()
+    kv.set("ai.provider", "gemini")
+    return Brain(s, kv, lambda: ("Jarvis", "Aditya"), lambda: "female", cloud=GeminiClient(lambda: key),
+                 clock=lambda: NOW)
+
+
+@pytest.mark.gemini
+@pytest.mark.parametrize("case", [c for c in CASES if c.route == "llm"], ids=lambda c: c.id)
+def test_gemini_routes(case, gemini_brain):
+    import time
+
+    gemini_brain.clear()
+    r = gemini_brain.respond(case.text)
+    time.sleep(2.1)  # the free tier allows 30 requests a minute
+    want, _ = expected_actions(case.expected)
+    assert r.ok and [a.tool for a in r.actions] == [t for t, _ in want], (r.reply, [a.tool for a in r.actions])

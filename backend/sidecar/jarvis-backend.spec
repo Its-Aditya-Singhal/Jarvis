@@ -21,7 +21,7 @@ hiddenimports = collect_submodules("jarvis") + [
 PACKAGES = [
     "insightface", "onnxruntime", "cv2", "speechbrain", "silero_vad", "faster_whisper", "ctranslate2", "tokenizers",
     "kokoro_onnx", "espeakng_loader", "phonemizer", "language_tags", "segments", "csvw", "indic_transliteration",
-    "sounddevice", "_sounddevice_data", "soundfile", "_soundfile_data", "torchaudio", "sentencepiece", "rapidfuzz",
+    "sounddevice", "_sounddevice_data", "soundfile", "_soundfile_data", "torchaudio", "sentencepiece", "rapidfuzz", "pypdf",
     "hyperpyyaml",
 ]
 if sys.platform == "darwin":

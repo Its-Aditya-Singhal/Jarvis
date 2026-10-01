@@ -68,6 +68,7 @@ from ..tools.mac import MacControl
 from ..tools.runner import ToolRunner
 from ..tools.scheduler import AlarmScheduler
 from ..tools.store import ToolStore
+from ..tools.weather import HOSTS as WEATHER_HOSTS
 from ..voice_service import VoiceService
 
 log = logging.getLogger(__name__)
@@ -356,6 +357,8 @@ def create_app(
         # Gemini: the brain, or on Bedrock the fallback when Bedrock can't answer
         if provider in ("gemini", "bedrock") and secrets.has(GEMINI_KEY):
             out += (GEMINI_HOST,)
+        if out:  # an online brain is on: the weather may go out too (only a city name, to Open-Meteo, no key)
+            out += WEATHER_HOSTS
         return out + gauth.hosts()  # Gmail / Drive / Calendar once connected (and while connecting)
 
     svc.guard.services = online_services
@@ -374,6 +377,8 @@ def create_app(
         gtools = GoogleTools(gauth, names=lambda: (svc.assistant_name, svc.owner_name), open_url=mac_ctl.open_url)
         gtools.writer = svc.brain
         svc.tools.google = gtools
+        svc.tools.ai = svc.brain  # web answers, file and clipboard summaries, screen help
+        svc.tools.names = lambda: (svc.assistant_name, svc.owner_name)
     started_without_models = bool(models.needed())  # this process loaded none of them
 
     def llm_wanted() -> list[dict]:

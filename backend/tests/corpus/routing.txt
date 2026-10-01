@@ -211,8 +211,8 @@ fast | web.open(target=Believer, site=youtube) | play believer on youtube
 fast | web.open(target=Cat videos, site=youtube) | search youtube for cat videos
 fast | web.open(target=IPL score) | IPL score google karo
 fast | web.open(target=Best laptops, site=youtube) | search for best laptops on youtube
-llm  | none | what's the weather
-llm  | none | what's the latest news
+llm  | weather | what's the weather
+llm  | web.answer | what's the latest news
 llm  | web.open | find me a recipe for paneer butter masala online
 llm  | web.open | open the website for my bank
 
@@ -538,15 +538,15 @@ llm  | none | thank you
 llm  | none | good morning
 llm  | none | explain recursion in one line
 llm  | none | तुम कौन हो
-llm  | none | aaj mausam kaisa hai
+llm  | weather | aaj mausam kaisa hai
 llm  | none | mujhe ek joke sunao
 llm  | email.send | Send an email to my boss saying I'm late
 llm  | none | order a pizza
 llm  | none | delete all my files
 llm  | none | run rm -rf on my home folder
 llm  | none | transfer money to Rahul
-llm  | mac.do | call mom on FaceTime
-llm  | mac.do | message Priya that I'm running late
+llm  | call.start | call mom on FaceTime
+llm  | message.send | message Priya that I'm running late
 llm  | none | buy the cheapest flight to Goa
 
 # -- real commands from the owner's Mac (2026-09-28): delays, "it", levels, lists of apps -------
@@ -597,16 +597,16 @@ fast | app.open(name=google chrome) + wait(seconds=15) + app.close(name=google c
 llm  | app.open + wait + app.close | open whatsapp, wait ten seconds, then shut it
 fast | app.open(name=music) + wait(seconds=60) + system.volume(change=-10) | open music and after a minute turn the volume down
 llm  | wait + app.close | once 10 seconds have passed close whatsapp
-llm  | mac.do | add milk to my reminders
-llm  | mac.do | what song is playing right now
-llm  | mac.do | play my workout playlist
-llm  | mac.do | turn on do not disturb
+llm  | reminder.add | add milk to my reminders
+llm  | media.control | what song is playing right now
+llm  | music.play | play my workout playlist
+llm  | focus.start | turn on do not disturb
 llm  | mac.do | create a folder called Projects on my desktop
 llm  | mac.do | what's the title of the tab open in safari
 fast | email.unread() | how many unread emails do I have
 llm  | mac.do | turn off wifi
 llm  | mac.do | minimise all windows
-llm  | mac.do | reminder list mein doodh add kar do
+llm  | reminder.add | reminder list mein doodh add kar do
 llm  | none | empty the trash
 llm  | none | show me my saved passwords
 llm  | none | install homebrew for me
@@ -635,3 +635,92 @@ llm  | email.draft | draft a mail to Rahul saying the meeting moved to Friday
 llm  | email.summary | what's been going on in my inbox this week
 llm  | email.read | did the bank write to me about my card
 llm  | drive.summarize | summarise the project plan document in my drive
+
+# -- everyday tools (2026-10-01): messages, calls, reminders, weather and the web, files, calendar,
+#    focus, music, the clipboard, the briefing and screen help (all understood by the model) ------
+llm  | message.send | text mom that I'll be home by 8
+llm  | message.send | send a message to Rahul saying the meeting moved to 4
+llm  | message.send | iMessage Priya happy birthday
+llm  | message.send | whatsapp Rahul that I'm on my way
+llm  | message.send | send a whatsapp to mom saying call me when you're free
+llm  | message.send | tell dad on whatsapp that I reached safely
+llm  | message.send | priya ko message karo ki main 10 minute mein aa raha hoon
+llm  | message.send | rahul ko whatsapp pe bolo ki kal milte hain
+llm  | message.read | read my messages
+llm  | message.read | any new texts?
+llm  | message.read | what did mom text me
+llm  | message.read | did Rahul message me
+llm  | message.read | read the last message from Priya
+llm  | message.read | mere naye messages padho
+llm  | call.start | call dad
+llm  | call.start | ring Rahul
+llm  | call.start | FaceTime Priya
+llm  | call.start | video call mom
+llm  | call.start | mummy ko call karo
+llm  | reminder.add | remind me to call the bank tomorrow at 10
+llm  | reminder.add | add pay the electricity bill to my reminders
+llm  | reminder.add | put buy eggs on my shopping list
+llm  | reminder.add | remind me to take my medicine at 9 pm
+llm  | reminder.add | kal subah dentist ko phone karna yaad dila dena
+llm  | reminder.list | what are my reminders for today
+llm  | reminder.list | read my reminders
+llm  | reminder.list | what's on my to do list
+llm  | notes.add | add a note in Apple Notes saying gate code is 4512
+fast | memory.remember(text=My car is parked on level 2) | remember this, my car is parked on level 2
+llm  | weather | how's the weather today
+llm  | weather | will it rain tomorrow
+llm  | weather | what's the temperature in Mumbai
+llm  | weather | do I need an umbrella today
+llm  | weather | kal mausam kaisa rahega
+llm  | location.set | my city is Pune
+llm  | location.set | I live in Bangalore, use that for the weather
+llm  | web.answer | what's the news today
+llm  | web.answer | who won the match last night
+llm  | web.answer | how much is 100 dollars in rupees
+llm  | web.answer | convert 50 euros to rupees
+llm  | web.answer | what's the price of bitcoin right now
+llm  | web.answer | when is the next iPhone launch
+llm  | web.answer | aaj ki taaza khabar kya hai
+llm  | files.summarize | summarise the PDF I downloaded yesterday
+llm  | files.summarize | what's in my latest download
+llm  | files.summarize | read the lease agreement PDF and tell me the notice period
+llm  | files.summarize | summarize my resume
+llm  | files.move | move the PDF I downloaded today to documents
+llm  | files.move | move my latest screenshot to the desktop
+llm  | files.rename | rename my latest download to tax return 2026
+llm  | files.recent + files.move | find yesterday's invoice and put it in documents
+llm  | calendar.list | what's my day look like
+llm  | calendar.list | what do I have on tomorrow
+llm  | calendar.free | when am I free tomorrow
+llm  | calendar.free | do I have a free hour this afternoon
+llm  | calendar.free | find me a 30 minute slot on Friday
+llm  | calendar.invite | set up a meeting with Rahul tomorrow at 3
+llm  | calendar.invite | schedule a call with priya@example.com on Monday at 11 am
+llm  | calendar.invite | book a 30 minute sync with Rahul and Priya on Friday at 4 pm
+llm  | focus.start | start focus mode
+llm  | focus.start | focus mode for an hour
+llm  | focus.start | I need to focus for 45 minutes, close slack too
+llm  | focus.stop | end focus mode
+llm  | focus.stop | stop focus mode
+llm  | music.play | play Believer
+llm  | music.play | play some Arijit Singh
+llm  | music.play | play Midnights by Taylor Swift
+llm  | notes.add | put this in my apple notes: call the plumber on Monday
+llm  | music.play | arijit singh ke gaane bajao
+llm  | media.control | set Spotify's volume to 30
+llm  | media.control | what's playing
+llm  | clipboard.ai | summarise what I copied
+llm  | clipboard.ai | translate my clipboard into Hindi
+llm  | clipboard.ai | translate the copied text to English
+llm  | clipboard.ai | explain what I just copied
+llm  | clipboard.ai | fix the grammar of the text I copied
+llm  | briefing | give me my daily briefing
+llm  | briefing | good morning, brief me
+llm  | briefing | what's my morning summary
+llm  | briefing | aaj ka briefing do
+llm  | screen.explain | Jarvis, what's happening on my screen
+llm  | screen.explain | what's on my screen
+llm  | screen.explain | what does this error mean
+llm  | screen.explain | look at my screen and tell me what's wrong
+llm  | screen.explain | can you help me with what's on my screen
+llm  | screen.explain | meri screen pe kya ho raha hai

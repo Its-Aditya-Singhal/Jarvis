@@ -441,7 +441,9 @@ def _one(t: str, now: datetime, is_app: Callable[[str], bool], hi: bool, orig: s
         return [Action("text.type", {"text": text})], ""
 
     # notes
-    m = re.fullmatch(rf"{POLITE}(?:take|add|make|write|save)(?: a| me a)? note(?: that| to| saying|:)? (.+)", t) \
+    # ("add a note in Apple Notes saying …" names where it goes: the model handles that)
+    m = re.fullmatch(rf"{POLITE}(?:take|add|make|write|save)(?: a| me a)? note(?! (?:in|to|into) (?:the |my )?(?:apple )?notes?\b)"
+                     rf"(?: that| to| saying|:)? (.+)", t) \
         or re.fullmatch(r"note (?:down |that )(.+)", t)
     if m and len(m.group(1).split()) >= 2 and (text := _restore(orig, m.group(1))):
         return [Action("notes.add", {"text": text})], ""

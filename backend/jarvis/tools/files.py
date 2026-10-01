@@ -2,9 +2,11 @@
 
 Default folders: Documents, Desktop, Downloads. More can be added in
 Settings; a folder must exist and must not be a system or credential
-location. Only file names, dates and paths are used; contents are never read.
-Moving to the Trash (never deleting) is the only change ever made to a file,
-and only after the owner confirmed that exact file.
+location. Search goes through Spotlight's index and file names and dates.
+Moving to the Trash (never deleting), moving to another allowed folder and
+renaming are the only changes ever made to a file, each only after the owner
+confirmed that exact file. Contents are read only to summarise a file the
+owner asked about (``reading.py``).
 """
 
 from __future__ import annotations
@@ -267,3 +269,64 @@ class FileSearch:
         p = self.trashable(path)  # checked again: the file may have changed since it was confirmed
         self._trash(p)
         return p
+
+    # -- moving and renaming -------------------------------------------------------------------
+    def movable(self, path: str | Path) -> Path:
+        """The file, if it may be moved or renamed: the same rules as the Trash."""
+        return self.trashable(path)
+
+    def destination(self, folder: Path) -> Path:
+        """A folder files may be moved into: an existing, allowed, non-hidden folder."""
+        if folder.is_symlink():
+            raise FolderError("that folder is a shortcut (symlink)")
+        p = _expand(folder)
+        if not p.is_dir() or any(s.lower() in BUNDLES for s in p.suffixes):
+            raise FolderError("that isn't a folder")
+        if not self.allowed(p) and p not in self.folders():
+            raise FolderError("files can only be moved within the allowed folders (Settings → Files)")
+        if any(part.startswith(".") for part in p.parts):
+            raise FolderError("hidden folders are left alone")
+        for bad in self.protected:
+            if p.is_relative_to(bad):
+                raise FolderError(f"{p} is a protected location")
+        return p
+
+    @staticmethod
+    def new_name(current: Path, spoken: str) -> str:
+        """A safe file name from the owner's words; the extension stays unless they gave one."""
+        name = " ".join(spoken.replace("/", " ").replace(":", " ").replace("\\", " ").split()).strip(" .")
+        if not name or name in (".", ".."):
+            raise FolderError("I didn't catch the new name")
+        if len(name) > 200:
+            raise FolderError("that name is too long")
+        if current.suffix and not name.lower().endswith(current.suffix.lower()):
+            name += current.suffix  # "rename it to lease 2026" keeps the .pdf
+        return name
+
+    def move(self, path: str | Path, folder: Path | None = None, name: str | None = None) -> Path:
+        """Move into ``folder`` and/or rename to ``name`` (both checked again here: the file may have
+        changed since the owner confirmed). Never replaces an existing file."""
+        p = self.movable(path)
+        dest_dir = self.destination(folder) if folder is not None else p.parent
+        target = dest_dir / (name or p.name)
+        if target.name.startswith(".") or "/" in (name or ""):
+            raise FolderError("that name isn't allowed")
+        if target.exists():
+            raise FolderError(f"there's already a file called {target.name} there")
+        if target == p:
+            return p
+        p.rename(target) if dest_dir == p.parent or _same_disk(p, dest_dir) else _copy_move(p, target)
+        return target
+
+
+def _same_disk(a: Path, folder: Path) -> bool:
+    try:
+        return a.stat().st_dev == folder.stat().st_dev
+    except OSError:
+        return False
+
+
+def _copy_move(src: Path, dst: Path) -> None:
+    import shutil
+
+    shutil.move(str(src), str(dst))

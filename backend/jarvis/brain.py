@@ -198,6 +198,32 @@ class Brain:
                         lambda c, m: {"text": c.generate(m, msgs, temperature=0.3, max_tokens=max_tokens)})
         return out["text"].strip()
 
+    @property
+    def gemini_heavy(self) -> str | None:
+        """The Gemini writing model that searches the web and reads screenshots: on the Gemini brain,
+        and on Bedrock when a Gemini key is saved too. None: no Gemini (the local model can do neither)."""
+        cloud = self.cloud
+        if self.provider == "ollama" or cloud is None or not hasattr(cloud, "ask") or not cloud.api_key():
+            return None
+        return self.db.get("ai.heavy_model") or HEAVY_MODEL
+
+    def look_up(self, system: str, question: str, max_tokens: int = 400) -> str:
+        """An answer from the web (Google Search through Gemini's writing model): news, scores,
+        rates. Raises LLMUnavailable without Gemini."""
+        return self._gemini_ask(system, question, None, True, max_tokens)
+
+    def see(self, system: str, question: str, image: bytes, mime: str = "image/jpeg", max_tokens: int = 500) -> str:
+        """Gemini's writing model's answer about an image (a screenshot). Raises LLMUnavailable without Gemini."""
+        return self._gemini_ask(system, question, (image, mime), False, max_tokens)
+
+    def _gemini_ask(self, system: str, text: str, image: tuple[bytes, str] | None, search: bool, max_tokens: int) -> str:
+        model = self.gemini_heavy
+        if model is None or self.cloud is None:
+            raise LLMUnavailable("this needs a Gemini key (Settings → AI)")
+        self.last_used = time.monotonic()
+        # Gemma has neither search nor image input: the writing model only
+        return self.cloud.ask(model, system, text, image=image, search=search, max_tokens=max_tokens)
+
     def write_json(self, system: str, text: str, max_tokens: int = 700) -> dict:
         """A drafted mail ({"subject", "body"}): always the stronger model first."""
         msgs = [{"role": "system", "content": system}, {"role": "user", "content": text}]

@@ -14,6 +14,7 @@ remembered), never assumed from the name.
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import re
@@ -177,6 +178,31 @@ class GeminiClient:
         parts = (cands[0].get("content") or {}).get("parts") or []
         # thought parts (if a model thinks anyway) are not the answer
         return "".join(p.get("text", "") for p in parts if not p.get("thought"))
+
+    def ask(self, model: str, system: str, text: str, image: tuple[bytes, str] | None = None,
+            search: bool = False, max_tokens: int = 500) -> str:
+        """One plain-text answer. ``image``: (bytes, MIME type) sent with the question (a screenshot);
+        ``search``: let the model look things up with Google Search first (live weather, news,
+        rates). Both need a Gemini model (Gemma has neither): the API's 400 is raised as is."""
+        parts: list[dict[str, Any]] = []
+        if image is not None:
+            parts.append({"inline_data": {"mime_type": image[1], "data": base64.b64encode(image[0]).decode()}})
+        parts.append({"text": text})
+        body: dict[str, Any] = {"contents": [{"role": "user", "parts": parts}],
+                                "systemInstruction": {"parts": [{"text": system}]},
+                                "generationConfig": {"temperature": 0.3, "maxOutputTokens": max_tokens}}
+        if search:
+            body["tools"] = [{"google_search": {}}]
+        r = self._post(model, body)
+        if r.status_code == 200:
+            return self._text(r.json()).strip()
+        err = self._error(r)
+        msg = str((err.get("error") or {}).get("message") or r.text[:300])
+        if r.status_code == 429:
+            raise QuotaExceeded(model, _is_daily(err))
+        if r.status_code in (401, 403) or r.status_code == 400 and "api key" in msg.lower():
+            raise BadKey(f"Gemini refused the API key ({msg[:120]})")
+        raise LLMUnavailable(f"Gemini error {r.status_code}: {msg[:200]}")
 
     def chat_json(self, model: str, messages: list[dict[str, str]], schema: dict[str, Any] | None = None,
                   temperature: float = 0.2, keep_alive: str = "", num_predict: int | None = None) -> dict[str, Any]:

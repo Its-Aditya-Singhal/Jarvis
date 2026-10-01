@@ -1,4 +1,4 @@
-"""Optional sync with Apple Calendar and Apple Notes (AppleScript).
+"""Optional sync with Apple Calendar and Apple Notes, and Apple Reminders (AppleScript).
 
 Off by default; the owner turns it on in Settings. When on:
   * new calendar events are also created in the chosen Apple calendar, and
@@ -6,7 +6,8 @@ Off by default; the owner turns it on in Settings. When on:
   * new notes are also created in an Apple Notes folder ("JARVIS"), and note
     search also looks at Apple Notes titles and that folder.
 Syncing through Apple's apps means iCloud can carry these items to the
-owner's other devices; that is the point of turning it on.
+owner's other devices; that is the point of turning it on. Reminders are added
+and read only when the owner asks for them ("add milk to my reminders").
 
 Values are passed to AppleScript as ``argv`` — never pasted into the script —
 so a title like `" & do shell script "…` stays plain text. macOS asks once
@@ -17,6 +18,7 @@ clear error, not a crash.
 from __future__ import annotations
 
 import logging
+import re
 import subprocess
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -175,3 +177,62 @@ end run"""
             if line and line not in names:
                 names.append(line)
         return names[:limit]
+
+    # -- reminders -------------------------------------------------------------------
+    def add_reminder(self, text: str, due: datetime | None = None, list_name: str = "") -> str:
+        """Add to Apple Reminders (the named list, else the default one); returns the list used."""
+        script = _MKDATE + """
+on run argv
+    tell application "Reminders"
+        set L to default list
+        if (item 2 of argv) is not "" then
+            try
+                set L to list (item 2 of argv)
+            end try
+        end if
+        if (count of argv) > 2 then
+            set d to my mkdate(item 3 of argv, item 4 of argv, item 5 of argv, item 6 of argv, item 7 of argv)
+            make new reminder at end of reminders of L with properties {name:(item 1 of argv), due date:d, remind me date:d}
+        else
+            make new reminder at end of reminders of L with properties {name:(item 1 of argv)}
+        end if
+        return name of L
+    end tell
+end run"""
+        return self.run(script, text, list_name, *(_parts(due) if due is not None else []))
+
+    def reminders(self, limit: int = 40) -> list[tuple[str, datetime | None]]:
+        """Open (not completed) reminders: (title, due or None), soonest first, undated last."""
+        script = """
+on run argv
+    set out to ""
+    set n to 0
+    tell application "Reminders"
+        repeat with r in (every reminder whose completed is false)
+            set d to due date of r
+            set s to ""
+            if d is not missing value then
+                set s to ((year of d) as string) & "-" & ((month of d as integer) as string) & "-" & (day of d as string) & ¬
+                    " " & (hours of d as string) & ":" & (minutes of d as string)
+            end if
+            set out to out & (name of r) & tab & s & linefeed
+            set n to n + 1
+            if n ≥ (item 1 of argv as integer) then exit repeat
+        end repeat
+    end tell
+    return out
+end run"""
+        items: list[tuple[str, datetime | None]] = []
+        for line in self.run(script, str(limit)).splitlines():
+            title, _, when = line.partition("\t")
+            if not title.strip():
+                continue
+            due = None
+            if m := re.fullmatch(r"(\d{4})-(\d{1,2})-(\d{1,2}) (\d{1,2}):(\d{1,2})", when.strip()):
+                try:
+                    y, mo, d, h, mi = (int(g) for g in m.groups())
+                    due = datetime(y, mo, d, h, mi)
+                except ValueError:
+                    due = None
+            items.append((title.strip(), due))
+        return sorted(items, key=lambda x: (x[1] is None, x[1] or datetime.max))

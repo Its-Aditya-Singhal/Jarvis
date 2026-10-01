@@ -1175,7 +1175,8 @@ class AssistantService:
     def _request_confirmation(self, action, lang: str, trust: Trust) -> ToolResult:
         hi = lang != "en"
         if self.pending() is not None:
-            return ToolResult(action.tool, False, "एक बार में एक ही चीज़ हटा सकती हूँ।" if hi else "One deletion at a time, please.")
+            return ToolResult(action.tool, False, "पहले पिछली पुष्टि पूरी कीजिए, एक बार में एक ही काम।" if hi
+                              else "One confirmation at a time: answer the waiting question first, please.")
         assert self.tools is not None
         plan = self.tools.plan(action, lang)
         if isinstance(plan, ToolResult):
@@ -1236,6 +1237,8 @@ class AssistantService:
             if p.plan.tool == "email.send":
                 return self._answer("ठीक है, नहीं भेजा। ड्राफ़्ट Gmail में है।" if hi
                                     else "Okay, not sent. The draft stays in Gmail.", ok=True)
+            if p.plan.cancel:  # a message, a call, a move or rename, a meeting
+                return self._answer(p.plan.cancel, ok=True)
             return self._answer("ठीक है, नहीं हटाया।" if hi else "Okay, I won't delete it.", ok=True)
         if source == "voice" and verdict != "verified":
             # a short "yes" carries too little voice to identify the speaker

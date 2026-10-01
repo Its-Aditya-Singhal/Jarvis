@@ -20,6 +20,7 @@ dependencies = [
   "mlx-whisper>=0.4; sys_platform == 'darwin' and platform_machine == 'arm64'",  # Whisper on the Apple GPU
   "kokoro-onnx>=0.4",
   "rapidfuzz>=3.9",
+  "pypdf>=4.2",  # reading PDFs to summarise them (pure Python)
   "indic-transliteration>=2.3",
   "httpx>=0.27",
   "anthropic>=1.0",  # Claude on Amazon Bedrock (optional brain, Settings → AI)
@@ -39,6 +40,7 @@ markers = [
   "mac: needs macOS or Mac hardware (camera, microphone, `say`, AppleScript, Apple GPU); skipped elsewhere",
   "models: needs the downloaded models in models/ (scripts/download_models.py); skipped when missing",
   "ollama: needs a local Ollama with the configured model; skipped when not running",
+  "gemini: needs a Gemini API key in JARVIS_GEMINI_KEY (real requests); skipped without one",
 ]
 
 [tool.ruff]

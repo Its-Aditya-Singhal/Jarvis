@@ -14,7 +14,6 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Callable
-from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -24,13 +23,17 @@ from rapidfuzz import fuzz
 from ..database.db import Database
 from ..google.auth import GoogleError
 from ..llm.intents import Action, clock_phrase, day_phrase, parse_local, wait_phrase
-from .agent import Script, ScriptAgent, ScriptError
+from .agent import ScriptAgent, ScriptError
 from .apple import AppleBridge, AppleError
 from .apps import AppIndex
+from .everyday import Everyday
 from .files import FileSearch, FolderError, Found
 from .google import Draft, GoogleTools
-from .mac import SETTINGS_TITLES, SITES, MacControl, settings_page
+from .mac import PLAYERS, SETTINGS_TITLES, SITES, MacControl, settings_page
+from .macapps import AppError, MacApps
+from .results import Plan, ToolResult
 from .store import Event, ToolStore
+from .weather import Weather
 
 log = logging.getLogger(__name__)
 
@@ -52,12 +55,19 @@ LEVELS = {
     # Google account: reading mail or files needs the owner's voice; sending waits for a confirmation
     "email.unread": 2, "email.summary": 2, "email.read": 2, "email.draft": 2, "email.send": 3,
     "drive.search": 2, "drive.recent": 2, "drive.summarize": 2, "drive.open": 2,
+    # everyday tools: anything that reaches other people (a message, a call, an invitation) or changes a
+    # file is read back and waits for a confirmation; reading messages, files, the clipboard or the
+    # screen (which also goes to the AI) needs the owner's voice
+    "message.send": 3, "message.read": 2, "call.start": 3, "reminder.add": 2, "reminder.list": 1,
+    "weather": 1, "location.set": 2, "web.answer": 1, "files.summarize": 2, "files.move": 3, "files.rename": 3,
+    "calendar.free": 1, "calendar.invite": 3, "focus.start": 2, "focus.stop": 1, "music.play": 1,
+    "clipboard.ai": 2, "briefing": 2, "screen.explain": 2,
 }
 GOOGLE_TOOLS = {t for t in LEVELS if t.startswith(("email.", "drive."))}
 # harmless if someone else said them: they run even when the voice match is only "uncertain"
 # (a short "louder"); reading tools (calendar, notes, files, clipboard) are not in here
 HARMLESS = {"alarm.set", "timer.set", "stopwatch", "alarm.list", "system.volume", "media.control", "system.battery",
-            "system.lock", "screen.shot", "display.brightness", "display.dark_mode", "web.open"}
+            "system.lock", "screen.shot", "display.brightness", "display.dark_mode", "web.open", "weather", "music.play"}
 # the chat apps "ai.ask" can fill in: app name, website that pre-fills a prompt (None: it would send it), home page
 AI_SERVICES = {
     "claude": ("Claude", "https://claude.ai/new?q={}", "https://claude.ai/new"),
@@ -67,29 +77,6 @@ AI_SERVICES = {
 MATCH_MIN = 75  # fuzzy score needed to pick a note/event to delete
 MAX_TIMER_S = 24 * 3600
 MAX_AHEAD = timedelta(days=366)
-
-
-@dataclass
-class ToolResult:
-    tool: str
-    ok: bool
-    say: str
-    data: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass
-class Plan:
-    """A destructive action resolved to one exact item, awaiting confirmation."""
-
-    tool: str
-    item_id: int
-    what: str  # e.g. the note's text or the event's title and time
-    hi: bool
-    path: str = ""  # files.trash: the exact file shown in the confirmation
-    script: Script | None = None  # mac.do: the generated script, shown in full in the confirmation
-    ask: str = ""  # the spoken question, when it isn't "Delete …?" (an email's read-back)
-    detail: str = ""  # shown in full in the confirmation card (the email)
-    ref: Any = None  # email.send: the Gmail draft
 
 
 def _quote(s: str, n: int = 60) -> str:
@@ -123,7 +110,7 @@ def _join(items: list[str], hi: bool) -> str:
     return ", ".join(items[:-1]) + (" और " if hi else " and ") + items[-1]
 
 
-class ToolRunner:
+class ToolRunner(Everyday):
     def __init__(
         self,
         db: Database,
@@ -134,6 +121,8 @@ class ToolRunner:
         on_change: Callable[[], None] = lambda: None,
         clock: Callable[[], datetime] = datetime.now,
         mac: MacControl | None = None,
+        macapps: MacApps | None = None,
+        weather: Weather | None = None,
     ):
         self.db = db
         self.store = store
@@ -149,6 +138,11 @@ class ToolRunner:
         self.stopwatch_start: datetime | None = None  # running stopwatch (kept in memory only)
         self.stopwatch_held = 0.0  # seconds counted before the latest start (stop, then start resumes)
         self.google: GoogleTools | None = None  # Gmail, Drive, Google Calendar (set when an account is wired up)
+        self.macapps = macapps or MacApps(front=self.mac.front_app)  # Messages, Contacts, calls, Focus, Music
+        self.weather = weather or Weather()
+        self.ai: Any = None  # the Brain (web answers, summaries, screen help), set when the language model is on
+        self.names: Callable[[], tuple[str, str]] = lambda: ("JARVIS", "")
+        self.last_text = None  # the latest message read out: "reply to her"
 
     # -- Apple sync settings --------------------------------------------------------
     @property
@@ -201,6 +195,8 @@ class ToolRunner:
             return self._files_trash(plan)
         if plan.tool == "mac.do":
             return self._run_script(plan)
+        if (do := getattr(self, "_do_" + plan.tool.replace(".", "_"), None)) is not None:
+            return do(plan)  # message.send, call.start, files.move, files.rename, calendar.invite
         if plan.tool == "notes.delete":
             done = self.store.delete_note(plan.item_id)
         elif plan.tool == "memory.forget" and self.memory is not None:
@@ -504,7 +500,8 @@ class ToolRunner:
             return ToolResult("notes.add", False, "नोट में क्या लिखूँ, समझ नहीं आया।" if hi else "I didn't catch what to write in the note.")
         nid = self.store.add_note(text)
         synced, err = False, None
-        if self.notes_sync:
+        # "add it to Apple Notes" saves there even when syncing every note is off
+        if (self.notes_sync or str(args.get("app") or "").lower().startswith("apple")) and self.apple is not None:
             try:
                 self.store.set_note_apple(nid, self.apple.create_note(text))
                 synced = True
@@ -657,6 +654,8 @@ class ToolRunner:
 
     def _media_control(self, args: dict, hi: bool) -> ToolResult:
         action = str(args.get("action") or "toggle").lower()
+        if action in ("now", "status", "what", "current") or action == "volume" or _number(args.get("level")) is not None:
+            return self._player_info(action, args, hi)
         if action not in ("play", "pause", "toggle", "next", "previous"):
             action = "toggle"
         player = self.mac.media(action)
@@ -666,6 +665,28 @@ class ToolRunner:
         hin = {"play": "चला दिया", "pause": "रोक दिया", "toggle": "कर दिया", "next": "अगला गाना", "previous": "पिछला गाना"}
         return ToolResult("media.control", True, f"{player}: {hin[action]}।" if hi else f"{en[action]} on {player}.",
                           {"player": player})
+
+    def _player_info(self, action: str, args: dict, hi: bool) -> ToolResult:
+        """What's playing, or the music app's own volume (separate from the Mac's)."""
+        running = self.mac.running()
+        player = next((p for p in PLAYERS if p in running), None)
+        if player is None:
+            return ToolResult("media.control", False, "कोई म्यूज़िक ऐप नहीं खुला।" if hi else "No music app is open.")
+        try:
+            if action == "volume" or _number(args.get("level")) is not None:
+                n = _number(args.get("level"))
+                level = self.macapps.player_volume(player, n)
+                say = (f"{player} की आवाज़ {level}% है।" if hi else f"{player}'s volume is {level}%.") if n is None else (
+                    f"{player} की आवाज़ {level}% कर दी।" if hi else f"Set {player}'s volume to {level}%.")
+                return ToolResult("media.control", True, say, {"player": player, "level": level})
+            now = self.macapps.now_playing(player)
+        except AppError as exc:
+            return ToolResult("media.control", False, f"{player}: {exc}.")
+        if now is None:
+            return ToolResult("media.control", True, f"{player} में अभी कुछ नहीं चल रहा।" if hi else f"Nothing is playing in {player}.",
+                              {"player": player})
+        return ToolResult("media.control", True, f"{player} पर {now} चल रहा है।" if hi else f"Playing {now} on {player}.",
+                          {"player": player, "track": now})
 
     def _system_battery(self, args: dict, hi: bool) -> ToolResult:
         pct, plugged = self.mac.battery()

@@ -1,4 +1,4 @@
-"""Google Calendar (the primary calendar): list a day's events and add events."""
+"""Google Calendar (the primary calendar): list a day's events and add events (with invitations)."""
 
 from __future__ import annotations
 
@@ -61,7 +61,12 @@ class GoogleCalendar:
         d0 = datetime.combine(day, datetime.min.time())
         return self.events_between(d0, d0 + timedelta(days=1))
 
-    def create(self, title: str, start: datetime, end: datetime) -> str:
+    def create(self, title: str, start: datetime, end: datetime, attendees: list[str] | None = None) -> str:
+        """Add an event; with ``attendees`` (addresses) Google emails each of them an invitation."""
         body: dict[str, Any] = {"summary": title, "start": {"dateTime": _rfc3339(start)},
                                 "end": {"dateTime": _rfc3339(end)}}
-        return str(self.auth.call("POST", API, "calendar", json=body).json().get("id") or "")
+        params = {}
+        if attendees:
+            body["attendees"] = [{"email": a} for a in attendees]
+            params["sendUpdates"] = "all"
+        return str(self.auth.call("POST", API, "calendar", json=body, params=params or None).json().get("id") or "")

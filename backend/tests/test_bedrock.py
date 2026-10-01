@@ -201,9 +201,9 @@ def test_bedrock_settings_keep_the_key_sealed_and_open_only_its_host(tmp_path):
         assert KEY not in json.dumps(c.get("/api/settings/ai", headers=H).json())
         raw = svc.db.get("secret.bedrock_api_key")
         assert raw and "ABSK" not in raw  # sealed at rest
-        assert svc.guard.services() == ("bedrock-mantle.us-east-1.api.aws",)
+        assert svc.guard.services() == ("bedrock-mantle.us-east-1.api.aws", "open-meteo.com")  # + weather (a city name)
         c.put("/api/settings/ai", headers=H, json={"api_key": "AIzaSyTESTKEY-abcd1234"})  # Gemini as the fallback
-        assert svc.guard.services() == ("bedrock-mantle.us-east-1.api.aws", "generativelanguage.googleapis.com")
+        assert svc.guard.services() == ("bedrock-mantle.us-east-1.api.aws", "generativelanguage.googleapis.com", "open-meteo.com")
         r = c.put("/api/settings/ai", headers=H, json={"bedrock_region": "eu-west-1",
                                                        "bedrock_heavy_model": "anthropic.claude-opus-5-5"})
         assert r.json()["bedrock"]["heavy_model"] == "anthropic.claude-opus-5-5"
@@ -214,9 +214,9 @@ def test_bedrock_settings_keep_the_key_sealed_and_open_only_its_host(tmp_path):
         assert c.put("/api/settings/ai", headers=H, json={"bedrock_key": "not a key!"}).status_code == 400
         c.put("/api/settings/ai", headers=H, json={"bedrock_key": ""})
         assert c.get("/api/settings/ai", headers=H).json()["bedrock"]["key"] is None
-        assert svc.guard.services() == ("generativelanguage.googleapis.com",)  # Gemini still answers
+        assert svc.guard.services() == ("generativelanguage.googleapis.com", "open-meteo.com")  # Gemini still answers
         c.put("/api/settings/ai", headers=H, json={"provider": "gemini"})
-        assert svc.guard.services() == ("generativelanguage.googleapis.com",)
+        assert svc.guard.services() == ("generativelanguage.googleapis.com", "open-meteo.com")
     voice.stop()
 
 

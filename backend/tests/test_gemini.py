@@ -161,7 +161,7 @@ def test_ai_settings_keep_the_key_sealed(tmp_path):
         assert "AIzaSyTESTKEY" not in json.dumps(c.get("/api/settings/ai", headers=H).json())
         raw = svc.db.get("secret.gemini_api_key")
         assert raw and "AIzaSy" not in raw  # sealed at rest
-        assert svc.guard.services() == ("generativelanguage.googleapis.com",)
+        assert svc.guard.services() == ("generativelanguage.googleapis.com", "open-meteo.com")  # + weather (a city name)
         r = c.put("/api/settings/ai", headers=H, json={"heavy_model": "gemini-3.8-flash"})
         assert r.json()["heavy_model"] == "gemini-3.8-flash"
         assert c.put("/api/settings/ai", headers=H, json={"fast_model": "../../etc"}).status_code == 422

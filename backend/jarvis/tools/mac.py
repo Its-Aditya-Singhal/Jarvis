@@ -14,8 +14,10 @@ from __future__ import annotations
 
 import ctypes
 import logging
+import os
 import re
 import subprocess
+import tempfile
 import time
 import unicodedata
 from collections.abc import Callable
@@ -430,6 +432,27 @@ class MacControl:
             n += 1
         self._run(["screencapture", "-x", str(path)])
         return path
+
+    def screen_image(self, max_px: int = 1600) -> bytes:
+        """The whole screen as a JPEG (longest side ``max_px``) for screen help, kept only in memory: the
+        temporary file is deleted at once. Raises PermissionError until Screen Recording is allowed."""
+        if not self._screen_access():
+            raise PermissionError("screen recording")
+        fd, name = tempfile.mkstemp(prefix="jarvis-screen-", suffix=".jpg")
+        os.close(fd)
+        path = Path(name)
+        try:
+            self._run(["screencapture", "-x", "-t", "jpg", str(path)])
+            try:
+                self._run(["sips", "-Z", str(max_px), "-s", "formatOptions", "70", str(path)])  # smaller upload
+            except (subprocess.CalledProcessError, OSError, subprocess.TimeoutExpired):
+                pass  # the full-size image still works
+            data = path.read_bytes()
+        finally:
+            path.unlink(missing_ok=True)
+        if not data:
+            raise OSError("the screenshot came out empty")
+        return data
 
     def get_brightness(self) -> int | None:
         b = self.brightness.get()

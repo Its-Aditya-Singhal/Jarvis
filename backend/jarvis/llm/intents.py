@@ -34,7 +34,14 @@ TOOLS: dict[str, tuple[str, str]] = {
     "calendar.create": ("Add a calendar event", "title; start: local ISO datetime; end: optional"),
     "calendar.list": ("Read the calendar for a day", "date: ISO date"),
     "calendar.delete": ("Delete a calendar event", "title; date: optional ISO date"),
-    "notes.add": ("Save a note", "text"),
+    "calendar.free": ("Find free time in the calendar", "date: ISO date; minutes: optional length needed; after, before: optional HH:MM"),
+    "calendar.invite": ("Set up a meeting with other people and email them invitations (Google Calendar)", "title; start: local ISO datetime; end: optional; with: names or email addresses, comma separated"),
+    "reminder.add": ("Add to Apple Reminders (a to-do, \"remind me to … at/tomorrow …\")", "text; due: optional local ISO datetime; list: optional list name"),
+    "reminder.list": ("Read Apple Reminders", "when: today (default) | all"),
+    "message.send": ("Send an iMessage/text or a WhatsApp message (read back first)", "to: contact name, number, or him/her; text: the message exactly as it should arrive, in the user's voice; app: optional imessage | whatsapp"),
+    "message.read": ("Read recent iMessages / texts", "from: optional contact name; count: optional"),
+    "call.start": ("Phone or FaceTime someone (asks first)", "to: contact name or number; video: optional true (FaceTime video)"),
+    "notes.add": ("Save a note", "text; app: optional apple (also put it in Apple Notes)"),
     "notes.search": ("Find saved notes", "query"),
     "notes.delete": ("Delete one saved note", "query: words from the note"),
     "app.open": ("Open a Mac application", "name"),
@@ -42,7 +49,8 @@ TOOLS: dict[str, tuple[str, str]] = {
     "folder.open": ("Open a folder in Finder (Documents, Downloads, Desktop, Pictures, Music, Movies, Home…)", "name"),
     "web.open": ("Open a website or search the web in the browser", "target: site name, URL, or search words; site: optional youtube | spotify (search there)"),
     "system.volume": ("Change or read the volume", "level: 0-100 | change: +/-number | mute: true/false; no args = read"),
-    "media.control": ("Control music playback", "action: play | pause | next | previous"),
+    "media.control": ("Control music playback", "action: play | pause | next | previous | now (what's playing) | volume; level: 0-100 for the music app's own volume"),
+    "music.play": ("Play a song, artist, album or playlist", "query; app: optional music | spotify"),
     "system.battery": ("Read the battery level", "none"),
     "system.lock": ("Lock the screen", "none"),
     "alarm.list": ("List alarms and timers that are set", "none"),
@@ -52,6 +60,7 @@ TOOLS: dict[str, tuple[str, str]] = {
     "settings.open": ("Open a System Settings page (Wi-Fi, Bluetooth, Sound, Displays, Battery, Privacy…)", "page"),
     "clipboard.read": ("Read out the text on the clipboard", "none"),
     "clipboard.note": ("Save the clipboard's text as a note", "none"),
+    "clipboard.ai": ("Summarise, translate, explain or fix the copied text", "task: summarize | translate | explain | fix; to: language (translate)"),
     "text.type": ("Type (paste) dictated text into the app in front", "text: exactly what to type"),
     "ai.ask": ("Open Claude or ChatGPT with a prompt written in (the user sends it)", "service: claude | chatgpt; prompt: the request, in the user's words"),
     "memory.remember": ("Remember something the user tells you to remember", "text: the fact, in the user's words"),
@@ -62,6 +71,9 @@ TOOLS: dict[str, tuple[str, str]] = {
                      "kind: pdf|image|screenshot|document|spreadsheet|presentation|video|audio|archive|any; when: optional today|yesterday|this week|last week|this month|last N days|ISO date; folder: optional downloads|desktop|documents; query: optional words from the file name"),
     "files.reveal": ("Show a file in Finder", "same args as files.recent (the newest match); no args = the file just found"),
     "files.trash": ("Move one file to the Trash", "same args as files.recent (the newest match); no args = the file just found"),
+    "files.summarize": ("Read a file on this Mac (PDF, Word, text) and summarise it or answer a question about it", "same args as files.recent; question: optional"),
+    "files.move": ("Move one file into another folder", "same args as files.recent to pick it (none = the file just found); to: destination folder"),
+    "files.rename": ("Rename one file", "same args as files.recent to pick it (none = the file just found); name: the new name"),
     "email.unread": ("How many unread emails and from whom (Gmail)", "none"),
     "email.summary": ("Summarise recent emails in the inbox (Gmail)", "count: integer, default 10; from: optional sender name or address; query: optional Gmail search words"),
     "email.read": ("Read / tell what one email says: the newest one matching (\"what did Rahul mail me\")", "from: optional sender name, or him/her for the person just discussed; query: optional search words"),
@@ -71,9 +83,16 @@ TOOLS: dict[str, tuple[str, str]] = {
     "drive.recent": ("List the latest files in Google Drive", "none"),
     "drive.summarize": ("Read and summarise a Google Drive document", "query: the file's name (omit for the file just found)"),
     "drive.open": ("Open a Google Drive file in the browser", "query: the file's name (omit for the file just found)"),
+    "weather": ("Weather now and today's or tomorrow's forecast", "place: optional city (omit for the user's home city); day: optional today | tomorrow"),
+    "location.set": ("Set the user's home city (for weather and the briefing)", "city"),
+    "web.answer": ("Look up live or current information and answer: news, scores, prices, currency rates, recent events, facts you aren't sure of", "question: complete and self-contained"),
+    "briefing": ("Daily briefing: weather, today's calendar, reminders and unread mail", "none"),
+    "focus.start": ("Focus mode: Do Not Disturb, quit distracting apps, start a focus timer", "minutes: optional (default 25); close: optional extra app names; dnd_only: true when only Do Not Disturb was asked for"),
+    "focus.stop": ("End focus mode", "none"),
+    "screen.explain": ("Look at the user's screen and explain what's happening, any error, and how you can help (\"what's on my screen\")", "question: optional, the user's question about the screen"),
     "wait": ("Wait before doing the actions that follow it (\"close it after 10 seconds\": wait, then app.close)", "seconds: integer"),
-    "mac.do": ("Anything else a Mac app can do that no tool above covers (Reminders, Music playlists, Messages, Mail, Safari tabs, "
-               "Finder windows, Wi-Fi, Do Not Disturb…). JARVIS writes an AppleScript for it and asks the user before changing anything",
+    "mac.do": ("Anything else a Mac app can do that no tool above covers (Mail, Safari tabs, Finder windows, Wi-Fi, "
+               "Photos, Keynote…). JARVIS writes an AppleScript for it and asks the user before changing anything",
                "task: the request in plain English, complete and self-contained"),
 }
 
@@ -93,10 +112,11 @@ SCHEMA: dict[str, Any] = {
     "required": ["actions", "reply"],
 }
 
-# common Hindi words in Latin script -> the utterance is Hinglish, not English
+# common Hindi words in Latin script -> the utterance is Hinglish, not English ("the" is left out: as
+# English it made "move the file to the desktop" Hinglish)
 _HINGLISH = set("""
 mujhe mujhko mera meri mere mein main hum aap tum tu kya kaise kaisa kaisi kab kahan kyun kaun
-hai hain tha thi the ho hoon hun karo kar karna karke kardo krdo kr bana banao banado do dena dedo
+hai hain tha thi ho hoon hun karo kar karna karke kardo krdo kr bana banao banado do dena dedo
 lo lena lene le lagao laga lagado rakho rakh bolo bol batao bata sunao suna khol kholo band chalu
 kal aaj abhi parso subah shaam sham raat dopahar baje bajay ghante minute wala wali wale
 aur ya bhi nahi nahin na haan ji ka ki ke ko se par pe tak liye zara jaldi thoda bahut accha acha
@@ -132,10 +152,12 @@ Rules:
 - Only include actions requested in the LATEST message. Earlier messages are context only (for follow-ups like "another one at 7:30"); never repeat their actions.
 - Split requests joined by "and", "then", "aur", "phir" into separate actions, one per tool use.
 - Never say that you did, set, saved or opened anything.
-- Prefer the specific tools above. For any other request to DO something on the Mac, use mac.do with the task in plain English ("send an iMessage to Mom saying I'm on my way", "add milk to my Reminders"). Never use mac.do for questions you can answer yourself, for purchases, passwords, deleting files or folders, or running terminal code: for those return no actions and say briefly that you can't do that. files.trash moves exactly one file to the Trash after the user confirms.
+- Prefer the specific tools above. For any other request to DO something on the Mac, use mac.do with the task in plain English ("close all Safari tabs", "turn off Wi-Fi"). Never use mac.do for questions you can answer yourself, for purchases, passwords, deleting files or folders, or running terminal code: for those return no actions and say briefly that you can't do that. files.trash moves exactly one file to the Trash after the user confirms.
 - A delay ("after 10 seconds", "in 5 minutes", "10 second baad") is a wait action placed before the actions it delays. "it" means the thing named just before.
 - Only use system.volume when the user talks about volume or sound, and display.brightness only for brightness. A number that belongs to a delay or a timer is never a volume or brightness level.
-- For live information (weather, news, prices, scores) say you can't look that up live (but web.open can open a website or search for the user).
+- Live or current information: weather uses the weather tool; news, scores, prices, currency rates and recent events use web.answer. Unit conversions, sums and dates you answer yourself. web.open only opens a page or search the user asked to see.
+- Messages: "text Mom I'm on my way" is message.send with text "I'm on my way" (what the person should read, first person, no "tell her"). WhatsApp only when the user says WhatsApp. "Reply" or "him/her" after reading a message means that person.
+- "What's on my screen", "what is this error", "help me with this" mean screen.explain.
 - The header's Now is the real current local date and time. Answer time, date and day questions from it directly; never tell the user to check a clock.
 - A line "[Remembered: ...]" before the user's words lists facts the user earlier asked you to remember, in their own words ("my", "I" = the user). Use them to answer questions; never call memory.remember for them again.
 - Only use memory.remember when the user explicitly asks you to remember something ("remember", "yaad rakhna", "don't forget").
@@ -176,13 +198,23 @@ FEWSHOT: list[tuple[str, str, dict]] = [
                   {"tool": "system.volume", "args": {"change": -10}}], "reply": ""}),
     ("en", "Could you tell me what time it is?", {"actions": [], "reply": "It's 8:00 PM."}),
     ("en", "Who wrote Hamlet?", {"actions": [], "reply": "Hamlet was written by William Shakespeare."}),
-    ("hi", "आज मौसम कैसा है?", {"actions": [], "reply": "अभी के मौसम की जानकारी मेरे पास नहीं है, कहें तो वेब पर खोज दूँ।"}),
+    ("hi", "आज मौसम कैसा है?", {"actions": [{"tool": "weather", "args": {}}], "reply": ""}),
     ("en", "Open WhatsApp and close it after 10 seconds",
      {"actions": [{"tool": "app.open", "args": {"name": "WhatsApp"}}, {"tool": "wait", "args": {"seconds": 10}},
                   {"tool": "app.close", "args": {"name": "WhatsApp"}}], "reply": ""}),
     ("en", "Add buy milk to my reminders and play my workout playlist",
-     {"actions": [{"tool": "mac.do", "args": {"task": "Add a reminder 'Buy milk' in the Reminders app"}},
-                  {"tool": "mac.do", "args": {"task": "Play the playlist named 'Workout' in the Music app"}}], "reply": ""}),
+     {"actions": [{"tool": "reminder.add", "args": {"text": "Buy milk"}},
+                  {"tool": "music.play", "args": {"query": "Workout"}}], "reply": ""}),
+    ("en", "Text Mom that I'll be home by 8",
+     {"actions": [{"tool": "message.send", "args": {"to": "Mom", "text": "I'll be home by 8"}}], "reply": ""}),
+    ("hinglish", "kal subah 9 baje bank call karna yaad dilana",
+     {"actions": [{"tool": "reminder.add", "args": {"text": "Call the bank", "due": "2026-01-11T09:00"}}], "reply": ""}),
+    ("en", "What's the dollar to rupee rate today?",
+     {"actions": [{"tool": "web.answer", "args": {"question": "What is the US dollar to Indian rupee exchange rate today?"}}], "reply": ""}),
+    ("en", "Jarvis, what's happening on my screen?",
+     {"actions": [{"tool": "screen.explain", "args": {}}], "reply": ""}),
+    ("en", "Am I free tomorrow afternoon for an hour?",
+     {"actions": [{"tool": "calendar.free", "args": {"date": "2026-01-11", "minutes": 60, "after": "12:00", "before": "18:00"}}], "reply": ""}),
     ("en", "Buy me a new phone on Amazon", {"actions": [], "reply": "Sorry, I can't make purchases."}),
     ("en", "Did Rahul send me anything about the trip?",
      {"actions": [{"tool": "email.read", "args": {"from": "Rahul", "query": "trip"}}], "reply": ""}),
@@ -419,6 +451,47 @@ def describe(a: Action, language: str, now: datetime) -> str:
         verb = {"drive.search": ("Drive में ढूँढना", "searching your Drive"), "drive.recent": ("Drive की नई फ़ाइलें", "your latest Drive files"),
                 "drive.summarize": ("Drive फ़ाइल का सारांश", "summarising a Drive file"), "drive.open": ("Drive फ़ाइल खोलना", "opening a Drive file")}[a.tool]
         return (verb[0] + (f": “{q}”" if q else "")) if hi else (verb[1] + (f": “{q}”" if q else ""))
+    if a.tool == "message.send":
+        to = text("to") or ("उन्हें" if hi else "them")
+        app = "WhatsApp" if "whats" in text("app").lower() else ("मैसेज" if hi else "a message")
+        return f"{to} को {app}" if hi else (f"a WhatsApp message to {to}" if app == "WhatsApp" else f"a message to {to}")
+    if a.tool == "message.read":
+        return (f"{text('from')} के मैसेज" if hi else f"reading messages from {text('from')}") if text("from") else (
+            "नए मैसेज पढ़ना" if hi else "reading your messages")
+    if a.tool == "call.start" and text("to"):
+        return f"{text('to')} को कॉल" if hi else f"calling {text('to')}"
+    if a.tool == "reminder.add" and text("text"):
+        return f"रिमाइंडर: “{text('text')}”" if hi else f"a reminder: “{text('text')}”"
+    if a.tool == "reminder.list":
+        return "रिमाइंडर पढ़ना" if hi else "reading your reminders"
+    if a.tool == "weather":
+        place = text("place")
+        return (f"{place} का मौसम" if place else "मौसम") if hi else (f"the weather in {place}" if place else "the weather")
+    if a.tool == "location.set" and text("city"):
+        return f"शहर: {text('city')}" if hi else f"setting your city to {text('city')}"
+    if a.tool == "web.answer" and text("question"):
+        return f"वेब पर देखना: “{text('question')}”" if hi else f"looking up “{text('question')}”"
+    if a.tool in ("files.summarize", "files.move", "files.rename"):
+        verb = {"files.summarize": ("फ़ाइल का सारांश", "summarising the file"), "files.move": ("फ़ाइल हिलाना", "moving the file"),
+                "files.rename": ("फ़ाइल का नाम बदलना", "renaming the file")}[a.tool]
+        return verb[0] if hi else verb[1]
+    if a.tool == "calendar.free":
+        return "खाली समय ढूँढना" if hi else "finding free time"
+    if a.tool == "calendar.invite":
+        who = text("with") or ("लोगों" if hi else "people")
+        return f"{who} के साथ मीटिंग" if hi else f"a meeting with {who}"
+    if a.tool == "focus.start":
+        return "फ़ोकस मोड" if hi else "focus mode"
+    if a.tool == "focus.stop":
+        return "फ़ोकस मोड बंद" if hi else "ending focus mode"
+    if a.tool == "music.play" and text("query"):
+        return f"“{text('query')}” चलाना" if hi else f"playing “{text('query')}”"
+    if a.tool == "clipboard.ai":
+        return "क्लिपबोर्ड का टेक्स्ट" if hi else f"the copied text ({text('task') or 'summary'})"
+    if a.tool == "briefing":
+        return "आज की ब्रीफ़िंग" if hi else "your briefing"
+    if a.tool == "screen.explain":
+        return "स्क्रीन देखना" if hi else "looking at your screen"
     if a.tool == "files.search" and text("query"):
         return f"फ़ाइलों में “{text('query')}” ढूँढना" if hi else f"a file search for “{text('query')}”"
     generic = {"alarm.set": "अलार्म", "timer.set": "टाइमर", "calendar.create": "कैलेंडर इवेंट"}
