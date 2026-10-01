@@ -86,6 +86,53 @@ def test_level_two_needs_a_recent_voice_match(tmp_path):
         assert svc.trust().level == 1
 
 
+def test_a_voiceprint_that_rejects_its_owner_can_be_replaced_with_the_mac_password(tmp_path):
+    """The stored voiceprint scores the owner as someone else: the voice can't vouch for its own
+    replacement, so macOS's password prompt does, once, for a short window."""
+    from jarvis.security.presence import confirm_mac_user
+
+    client, svc = _client(_voice_only(tmp_path))
+    with client:
+        _voice_ready(svc)
+        client.post("/api/setup/profile", headers=H, json={"owner_name": "Aditya", "assistant_name": "JARVIS"})
+        _enroll_voice(svc)
+        client.post("/api/setup/complete", headers=H)
+        svc.voice.auth.judge(0.01, 0.9, time.monotonic(), 2.0)  # "Jarvis, hello" scored as a stranger
+        asked: list[str] = []
+        svc.prove_presence = lambda reason: asked.append(reason) or False  # cancelled / wrong password
+        assert client.post("/api/enroll/voice/start", headers=H).status_code == 403
+        r = client.post("/api/enroll/voice/unlock", headers=H)
+        assert r.status_code == 403 and "Mac password" in r.json()["detail"]
+        assert client.post("/api/enroll/voice/start", headers=H).status_code == 403
+        svc.prove_presence = lambda reason: asked.append(reason) or True
+        assert client.post("/api/enroll/voice/unlock", headers=H).status_code == 200
+        assert "re-record your voice" in asked[-1]
+        assert client.post("/api/enroll/voice/start", headers=H).status_code == 200
+        client.post("/api/enroll/voice/cancel", headers=H)
+        # used once: a second start needs the voice or the password again
+        assert client.post("/api/enroll/voice/start", headers=H).status_code == 403
+        # and the window runs out
+        assert client.post("/api/enroll/voice/unlock", headers=H).status_code == 200
+        later = time.monotonic() + 1000
+        svc.clock = lambda: later
+        assert not svc.take_voice_unlock()
+        events = [e["kind"] for e in svc.db.security_events(50)]
+        assert "voice_reenroll_unlocked" in events and "voice_reenroll_unlock_failed" in events
+
+    # the prompt itself: macOS only, the script runs /usr/bin/true, and only exit 0 counts
+    calls = []
+
+    def run(argv, **kw):
+        calls.append(argv)
+        return type("R", (), {"returncode": 0 if "allow" in argv[-1] else 1})()
+
+    assert confirm_mac_user('allow "it"', run=run, platform="darwin")
+    assert calls[0][0] == "/usr/bin/osascript" and 'do shell script "/usr/bin/true"' in calls[0][2]
+    assert "\"it\"" not in calls[0][2]  # quotes in the reason can't break out of the script
+    assert not confirm_mac_user("deny", run=run, platform="darwin")
+    assert not confirm_mac_user("allow", run=run, platform="linux") and len(calls) == 2
+
+
 def test_restart_resumes_voice_sign_in(tmp_path):
     s, keys = _voice_only(tmp_path), StaticKeyProvider()
     client, svc = _client(s, keys=keys)

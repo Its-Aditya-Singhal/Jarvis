@@ -45,6 +45,7 @@ from .memory.manager import Memory
 from .netguard import NetGuard
 from .perf import MODES, PerfMonitor, effective_mode
 from .prefs import FACE_PRESETS, LIVENESS_PRESETS, PREFS, VOICE_PRESETS, Prefs
+from .security.presence import confirm_mac_user
 from .security.template_store import TemplateStore
 from .speech.stt import SpeechToText
 from .speech.text import to_latin
@@ -77,6 +78,7 @@ LOW_MEMORY_PCT = profile().low_memory_pct  # system memory use at which idle mod
 IDLE_BEFORE_FREE_S = profile().idle_before_free_s
 REENROLL_GRANT_S = 600.0  # after a confirmed face delete/redo, time to scan the new face
 RECOVERY_VOICE_S = 60.0  # face missing: a verified voice this recent may start a new scan
+VOICE_UNLOCK_S = 120.0  # after the Mac password, time to start re-recording the voice
 MAX_DELAY_S = 6 * 3600  # "after N minutes": longer waits belong in an alarm
 
 # spoken when an action needs a higher level than the evidence allows
@@ -228,6 +230,9 @@ class AssistantService:
         self._mode = "balanced"
         self._mode_note = ""  # why a mode couldn't fully apply (e.g. a model isn't downloaded)
         self._reenroll: tuple[str, float] | None = None  # (redo | deleted, grant expiry)
+        # the Mac user's password stands in for a voiceprint that no longer recognises its owner
+        self.prove_presence: Callable[[str], bool] = confirm_mac_user
+        self._voice_unlock_until = 0.0
         self._told_issues = False
         self.downloader: Any = None  # the first-run model downloader (set by the API)
         self.google: Any = None  # jarvis.google.auth.GoogleAuth (set by the API): Gmail, Drive, Calendar
@@ -1310,6 +1315,27 @@ class AssistantService:
         self.bus.publish({"type": "face_reenroll", "kind": kind})
         return self._done("reenroll_face", "Okay — look at the camera and follow the prompts to re-scan your face.",
                           "Face re-scan authorised")
+
+    def unlock_voice_reenroll(self) -> bool:
+        """The voiceprint doesn't recognise its owner, so the voice can't vouch for replacing it:
+        macOS's password prompt does instead, and opens a short window to start a new recording."""
+        ok = self.prove_presence(f"{self.assistant_name} wants to re-record your voice. "
+                                 "Enter your Mac password to allow it.")
+        if ok:
+            self._voice_unlock_until = self.clock() + VOICE_UNLOCK_S
+            self.db.add_security_event("voice_reenroll_unlocked", "Voice re-recording allowed with the Mac password")
+            self.bus.log("Mac password confirmed — you can re-record your voice now", "ok")
+        else:
+            self.db.add_security_event("voice_reenroll_unlock_failed", "Mac password not confirmed", blocked=True)
+            self.bus.log("Mac password not confirmed — voice re-recording stays locked", "warn")
+        return ok
+
+    def take_voice_unlock(self) -> bool:
+        """Use the Mac-password window (once) to start a voice re-recording."""
+        if self.clock() < self._voice_unlock_until:
+            self._voice_unlock_until = 0.0
+            return True
+        return False
 
     def face_enroll_allowed(self) -> tuple[bool, str]:
         """May someone start a face scan right now?"""

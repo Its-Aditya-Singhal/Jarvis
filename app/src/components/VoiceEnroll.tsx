@@ -16,6 +16,8 @@ export default function VoiceEnroll({ onDone, onSkip, onClose, title = "Now let'
   const { voiceEnroll, voiceEnrollComplete, voiceEnrollCancelled, speaking, status } = useStore();
   const [started, setStarted] = useState(status?.voice_mode === "enrolling");
   const [error, setError] = useState<string | null>(null);
+  // re-recording was refused because the current voiceprint can't confirm you: the Mac password can
+  const [needsProof, setNeedsProof] = useState(false);
 
   const onDoneRef = useLatest(onDone);
   useEffect(() => resetVoiceEnroll, []);
@@ -39,9 +41,21 @@ export default function VoiceEnroll({ onDone, onSkip, onClose, title = "Now let'
     try {
       await post("/api/enroll/voice/start");
       setStarted(true);
+      setNeedsProof(false);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Backend unreachable");
+      setNeedsProof(err instanceof ApiError && err.status === 403 && /Mac password/.test(err.message));
     }
+  };
+  const unlock = async () => {
+    setError(null);
+    try {
+      await post("/api/enroll/voice/unlock"); // macOS shows its own password prompt
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Backend unreachable");
+      return;
+    }
+    await start();
   };
   const cancel = async () => {
     await post("/api/enroll/voice/cancel").catch(() => {});
@@ -82,6 +96,11 @@ export default function VoiceEnroll({ onDone, onSkip, onClose, title = "Now let'
               <button className="btn primary" onClick={start} disabled={mic?.status !== "active" || voiceModel !== "ready"}>
                 {mic?.status !== "active" ? "WAITING FOR MICROPHONE…" : voiceModel !== "ready" ? "LOADING VOICE MODEL…" : "START VOICE SCAN"}
               </button>
+              {needsProof && (
+                <button className="btn ghost" onClick={unlock}>
+                  USE MAC PASSWORD
+                </button>
+              )}
               {onClose && (
                 <button className="btn ghost" onClick={onClose}>
                   CLOSE

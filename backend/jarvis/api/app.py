@@ -557,12 +557,23 @@ def create_app(
         # (re-enrollment) only the face-verified owner may replace the voice profile
         if svc.setup_complete and not svc.owner_verified():
             raise HTTPException(403, "owner verification required")
-        if svc.setup_complete and not svc.face_on and svc.voice_enrolled and svc.trust(screen=True).level < 2:
-            # voice-only: replacing the voiceprint needs the current voice (or typed commands, if on)
-            raise HTTPException(403, "say my name and anything first, so I know it's you, then try again")
+        if svc.setup_complete and not svc.face_on and svc.voice_enrolled and svc.trust(screen=True).level < 2 \
+                and not svc.take_voice_unlock():
+            # voice-only: replacing the voiceprint needs the current voice (or typed commands, if on),
+            # or the Mac password when that voiceprint no longer recognises its owner
+            raise HTTPException(403, "say my name and anything first, so I know it's you, then try again "
+                                     "(or use your Mac password)")
         if not svc.owner_name:
             raise HTTPException(400, "create a profile first")
         voice_or_503().begin_enrollment(needs_owner=svc.setup_complete)
+        return {"ok": True}
+
+    @app.post("/api/enroll/voice/unlock", dependencies=auth + [Depends(require_owner)])
+    def voice_enroll_unlock():
+        if not svc.setup_complete or svc.face_on:
+            raise HTTPException(409, "not needed: the voice can be recorded as it is")
+        if not svc.unlock_voice_reenroll():
+            raise HTTPException(403, "the Mac password wasn't confirmed")
         return {"ok": True}
 
     @app.post("/api/enroll/voice/cancel", dependencies=auth)
