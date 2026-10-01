@@ -37,6 +37,9 @@ def _on_parent_exit(app_holder: list) -> None:
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    # httpx logs every request URL at INFO: Gmail searches ("from:Rahul") and Drive queries would land
+    # in backend.log
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     s = get_settings()
     if getattr(sys, "frozen", False):
         # the packaged app has no terminal: keep a small log for troubleshooting (no biometric values are logged)
