@@ -4,20 +4,22 @@
 ┌──────────────────────── JARVIS.app ────────────────────────┐
 │ Tauri 2 shell (Rust)            React + TypeScript UI       │
 │  starts the backend with a      command center, setup,      │
-│  random port + launch token     first-run downloads         │
+│  random port + launch token     settings, first-run         │
 │            │   REST + WebSocket on 127.0.0.1 (token)        │
 │            ▼                                                │
 │ Python backend (FastAPI)  — Contents/Resources/backend/     │
-│  camera ─► face engine ─► continuous face auth ─┐           │
-│            liveness gate (anti-spoof + challenges)├► levels  │
-│  mic ─► VAD ─► ECAPA voiceprint ─────────────────┘ + fusion │
-│      └► Whisper ─► wake word ─► fast path / Ollama intents  │
-│                                   ─► tool runner ─► Kokoro  │
+│  mic ─► VAD ─► Whisper ─► wake word / conversation window   │
+│              └► ECAPA voiceprint (every addressed utterance)│
+│      ─► fast path (patterns) ─┬─► tool runner ─► Kokoro     │
+│                               └─► Gemini (command model)    │
+│  tools: Mac control · files · notes · calendar · Gmail ·    │
+│         Drive · Google Calendar (writing model for mail)    │
 │  encrypted SQLite + Keychain key · offline guard            │
 └─────────────────────────────────────────────────────────────┘
-              │ loopback only
-              ▼
-      Ollama (separate process): qwen2.5, bge-m3
+        │ HTTPS, only the services switched on
+        ▼
+  generativelanguage.googleapis.com · gmail / www.googleapis.com
+  (optional instead: Ollama on 127.0.0.1 · optional: camera + face models)
 ```
 
 ## Processes
@@ -27,13 +29,16 @@
   packaged app, `backend/.venv` in development), hands both to the UI, and on
   quit asks the backend to stop (SIGTERM, then kill after 4 s). The backend also
   exits by itself if the shell disappears.
-- **Backend** (`backend/jarvis`): owns the camera and microphone, so the UI
-  can't inject frames or audio. Everything that decides or stores lives here.
+- **Backend** (`backend/jarvis`): owns the microphone (and the camera, when
+  face sign-in is on), so the UI can't inject audio or frames. Everything that
+  decides or stores lives here, including the Gemini key and the Google tokens.
 - **UI** (`app/src`): a view of backend state over one WebSocket plus REST
   calls. It holds no secrets and makes no security decisions.
-- **Ollama**: runs the language and embedding models. JARVIS starts it if it
-  isn't running (models in `~/Developer/ollama/models` by default) and stops
-  only a server it started.
+- **The brain**: Google's Gemini API (free tier) by default: a fast model for
+  commands (`gemma-4-26b-a4b-it`) and a writing model for mail and documents
+  (`gemini-3.5-flash-lite`), each the other's fallback when its free quota runs
+  out (`llm/gemini.py`, `brain.py`). Opt-in instead: **Ollama** with a local
+  model, started by JARVIS if needed and stopped only if it started it.
 
 ## Backend layout
 
@@ -41,12 +46,14 @@
 backend/jarvis/
   __main__.py          entry: loopback-only, offline guard, permission prompts, uvicorn
   api/app.py           REST + WebSocket routes, token and Host/Origin checks, level checks
-  service.py           the core loop: camera → face → liveness → levels, commands, confirmations
+  service.py           levels, commands, confirmations (and, with face sign-in, camera → face → liveness)
   voice_service.py     mic → VAD → speaker embedding → enrollment / verification → speech
-  speech_service.py    transcription, wake word, owner checks, spoken replies
+  speech_service.py    transcription, wake word, conversation window, per-utterance voice gate, replies
+  google/              OAuth sign-in (loopback + PKCE), Gmail, Drive and Google Calendar REST clients
   auth/face|voice|liveness|fusion, auth/levels.py   the models and the level rules
-  brain.py, llm/       fast path (patterns), Ollama client/server/setup, intent schema and prompt
-  tools/               runner (the tool registry with a level per tool), scheduler, apps, files, Mac control, Apple bridge, math
+  brain.py, llm/       fast path (patterns), Gemini client, Ollama client/server/setup, intent schema and prompt
+  tools/               runner (the tool registry with a level per tool), scheduler, apps, files, Mac control,
+                       Apple bridge, math, google.py (mail / Drive tools, draft read-back)
   memory/              encrypted facts and history, embeddings, suggestions
   security/, database/ AES-256-GCM sealing with the Keychain key, SQLite
   downloads.py         first-run model download (manifest in model_manifest.json)
@@ -55,17 +62,27 @@ backend/jarvis/
 
 ## A command, end to end
 
-1. The mic stream is split into utterances by Silero VAD; each one is embedded
-   (ECAPA) and compared with your voiceprint.
+1. The mic stream is split into utterances by Silero VAD.
 2. Whisper transcribes it. Speech that doesn't start with the assistant's name
-   is dropped here: never shown, logged or stored.
-3. The fast path matches common commands with patterns in under a millisecond;
-   anything else goes to the local model, which returns JSON intents.
-4. For each intent the runner looks up the tool's level, recomputes the live
-   level from face, liveness and voice evidence, and runs, plans a
-   confirmation (level 3), or refuses and logs it.
-5. The reply is composed by code from what actually happened and spoken by
-   Kokoro; the next sentence is synthesised while the current one plays.
+   is dropped here (never shown, logged or stored), unless the conversation
+   window is open: for a minute after each reply (Settings), follow-ups need no
+   name. The name alone plays the pre-synthesised "Yes boss, how may I help
+   you?" and opens the window.
+3. Only now, for addressed speech, the ECAPA model embeds the clip and compares
+   it with the voiceprint (a clip under 0.8 s is judged together with the short
+   one just before it). Rejected: nothing runs. Unclear: only the harmless
+   everyday commands. Recognised: the command goes on, with its verdict.
+4. The fast path matches common commands with patterns in under a millisecond
+   (no AI request); anything else goes to the command model, which returns JSON
+   intents from the tool catalogue. Recent exchanges, with what each one did,
+   travel with the request so "him" and "send it" resolve.
+5. For each intent the runner looks up the tool's level and recomputes the live
+   level: anything beyond level 1 needs this utterance's verdict to be
+   "recognised". It runs, plans a confirmation (level 3: deleting, sending a
+   mail), or refuses and logs it.
+6. The reply is composed by code from what actually happened (a mail summary or
+   a draft is written by the writing model) and spoken by Kokoro; the next
+   sentence is synthesised while the current one plays.
 
 ## Tools
 
@@ -91,6 +108,11 @@ AppleScript gets values as `argv`, and file tools only touch allowed folders.
 | ai.ask | opens Claude or ChatGPT (app, else the website) with the dictated prompt written in, never sent | 2 |
 | memory.remember / memory.forget / history.search | encrypted facts and history (see ML.md) | 2 / 3 / 1 |
 | notes.delete / calendar.delete | resolved to one exact item first (fuzzy match), shown in the confirmation, deleted only after it; copies in Apple's apps are left alone | 3 |
+| email.unread / email.summary / email.read | Gmail REST: ids, then headers + snippets (summary: one writing-model request) or one full message (text/plain, quoted chain dropped) | 2 |
+| email.draft | recipient by name from past mail headers (or "him" = the mail just read), subject + body from the writing model, saved as a Gmail draft (in the thread when replying) | 2 |
+| email.send | writes or reuses the latest draft, reads it back in the confirmation, `drafts/send` only after it | 3 |
+| drive.search / recent / summarize / open | Drive REST (read-only): name, then full-text search; Docs/Sheets/Slides exported as text for a summary; `webViewLink` opened in the browser | 2 |
+| calendar.* with Google | when Google Calendar is connected, new events are also created in the primary calendar and listed from it | as above |
 
 \*See [SECURITY.md](SECURITY.md#levels). Level-3 tools cannot be run
 directly: the runner only plans them, and deletion happens after confirmation.
@@ -101,7 +123,8 @@ receives values as `argv`, never as script text.
 ## First run and packaging
 
 - On first launch the backend reports `models_needed`; the UI shows the
-  download screen before setup. `downloads.py` fetches the packs in
+  download screen before setup. Voice-only installs skip the face and
+  anti-spoof packs. `downloads.py` fetches the packs in
   `model_manifest.json` (resumable `.part` files, SHA-256 checks, a disk-space
   check first), and `llm/setup.py` detects Ollama and pulls its models. Then
   the backend restarts itself in place (same port and token) to load them.

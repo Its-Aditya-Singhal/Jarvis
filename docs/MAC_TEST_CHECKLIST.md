@@ -67,7 +67,7 @@ scripts/build_dmg.sh
 
 ## 5. Setup and identity
 
-- [ ] Names, voice pick, face scan (each pose checked), six voice phrases
+- [ ] Names, voice pick, face scan (each pose checked), 24 voice phrases
 - [ ] Unlock: face → liveness challenge → L1; speak → L2
 - [ ] A photo or phone screen of you: SPOOF DETECTED, logged
 - [ ] Someone else in view: capped at L1; a stranger alone: AUTHENTICATION DENIED
@@ -130,3 +130,24 @@ scripts/build_dmg.sh
 - [ ] Decide the licence for the code (there's no LICENSE file yet)
 - [ ] Update the CHANGELOG date, tag `v1.0.0`, push the tag; the Release
       workflow drafts the release with the .dmg and SHA256SUMS.txt; publish it
+
+## Voice-only, Gemini and Google (October 2026)
+
+Only Aditya can do these: they need his voice, his Google account and his keys.
+Never paste a key or a client secret into a chat.
+
+- [ ] `git pull`; old local edits in `~/Developer/jarvis` stashed or discarded first; `scripts/build_dmg.sh`
+- [ ] Voice-only: the camera light never comes on, from launch to quit
+- [ ] Settings → AI: paste the Gemini key from https://aistudio.google.com/apikey, Save, **Test** says both models answered
+- [ ] "Jarvis" alone → "Yes boss, how may I help you?" plays at once (no pause before it)
+- [ ] A command the patterns don't know ("could you get Notes up for me") → one Gemini request; note the latency for Gemma 4 vs Flash-Lite.
+      If Gemma 4 is slow or returns broken JSON, set the commands model to `gemini-3.5-flash-lite` too
+- [ ] Settings → Google account: create the OAuth client (Desktop app, consent screen published), paste ID + secret, Connect → "Connected · your address"
+- [ ] "summarize my last 10 emails" · "any new mail" · "what did <a friend> mail me" → "okay send him a mail confirming my presence"
+      → it reads the draft back and waits; "yes, send it" sends it; check it in Gmail → Sent (send it to yourself first)
+- [ ] "find <a file> in my drive" → "summarise it" → "open it"; "what's on my calendar tomorrow" includes Google Calendar events
+- [ ] Follow-up window: after a reply, a follow-up without the name works for about a minute; "thanks" ends it; someone else talking closes it
+- [ ] Voice enrollment (24 phrases); afterwards another person saying "Jarvis, read my email" is refused, and so is "Jarvis, volume up"
+- [ ] Record ~20 short clips of yourself on another day plus clips of other people, run
+      `backend/.venv/bin/python scripts/eval_voice.py --enroll … --owner … --others …`, note FAR / FRR at Standard and Strict
+- [ ] Idle for 10 minutes with the window closed: Activity Monitor shows the backend's CPU % (should be ~0–1 %), memory and Energy Impact

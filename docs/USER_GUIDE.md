@@ -1,17 +1,17 @@
 # User guide
 
-JARVIS is a voice assistant for your Mac that only works for you. It watches
-for your face, checks that you're a live person, and listens for your voice
-before it does anything. Every model runs on your Mac.
+JARVIS is a voice assistant for your Mac that only works for you. It listens
+for its name, checks every request against your voiceprint, and does
+everyday Mac things, your Gmail, Google Drive and Google Calendar, and
+anything else you ask in your own words.
 
 ## What you need
 
 - A Mac with Apple Silicon (M1 or newer) and macOS 14 Sonoma or later
-- 16 GB of memory recommended
-- About 10 GB of free disk space (models: about 1.7 GB, plus about 6 GB for the
-  language models in Ollama)
-- A camera and a microphone (the built-in ones are fine)
-- An internet connection for the first-run download only
+- About 2 GB of free disk space (speech, voice and voiceprint models)
+- A microphone (the built-in one is fine). No camera is needed.
+- An internet connection: for the first-run download, and for the AI (Google's
+  Gemini API, free tier) and your Google account
 
 ## Install
 
@@ -24,92 +24,137 @@ before it does anything. Every model runs on your Mac.
    so macOS stops it the first time. Go to **System Settings → Privacy &
    Security**, scroll down, and press **Open Anyway** next to JARVIS. You only
    do this once.
-4. macOS asks for the **camera** and the **microphone**. Allow both: the
-   assistant can't recognise you without them.
+4. macOS asks for the **microphone**. Allow it: JARVIS can't hear or recognise
+   you without it.
 
 ## First run
 
-**Models.** The first screen lists the models JARVIS needs and their size.
-Press **Download**. Each file is checked against its SHA-256 before it is
-used. If the connection drops, press **Resume**: what already arrived is kept.
-If the disk is too full, it says how much space to free first.
+**Models.** The first screen lists the on-device models (speech recognition,
+the voice, the voiceprint model) and their size. Press **Download**. Each file
+is checked against its SHA-256 before it is used, and an interrupted download
+resumes where it stopped.
 
-**Language model.** Questions and free-form requests use a local model run by
-[Ollama](https://ollama.com), a free app. The same screen detects it:
-
-- Not installed: press **Get Ollama** (or run `brew install ollama` in
-  Terminal), install it, then press **Check again**.
-- Installed but not running: press **Start Ollama**.
-- Running: press **Download** next to `qwen2.5:7b` (about 4.7 GB). `bge-m3`
-  (memory recall) and `qwen2.5:3b` (Fast mode, used on battery) are optional.
-  On a Mac with less than 12 GB of memory (an 8 GB MacBook Air, say), JARVIS asks
-  for `qwen2.5:3b` (about 1.9 GB) instead, and keeps its models lighter: a smaller
-  context, models released sooner, fewer threads, and no Whisper medium in Quality
-  mode. Everything together then uses about 4.5 GB while answering and about 2 GB idle.
-
-You can skip the language model and add it later in **Settings → On-device
-models**. Until then, instant commands (timers, alarms, apps, notes, math, the
-time) still work. Press **Continue** when the core models are ready.
-
-**Setup.** Then comes setup:
+**Setup.**
 
 1. Your name, and the assistant's name. Its name is also the wake word, so
    pick something you'll say easily (JARVIS, FRIDAY, EDITH…).
 2. A female or male voice.
-3. **Face scan:** follow the prompts (look straight, left, right, up, down,
-   closer, farther, smile). Each pose is checked before it's recorded. Only
-   encrypted numbers are kept, never photos.
-4. **Voice:** read six short phrases in English, Hindi and Hinglish, in a quiet
-   room.
+3. **Voice enrollment** (about five minutes, in a quiet room): read 24 short
+   phrases in English, Hindi and Hinglish. Some ask you to speak softly, a
+   little louder, or from a step back from the Mac, so the voiceprint knows how
+   you really talk. Each recording is checked (the right words, loud and clear
+   enough, sounds like your earlier ones) before it counts. Only an encrypted
+   voiceprint is kept, never the recordings.
+
+## The AI: a free Gemini API key
+
+JARVIS's brain is Google's Gemini API, on the free tier. Nothing heavy runs on
+your Mac.
+
+1. Open [Google AI Studio → API keys](https://aistudio.google.com/apikey)
+   (**Settings → AI → Get a free key** opens it) and sign in with your Google account.
+2. Press **Create API key** and copy it.
+3. Paste it into **Settings → AI → Gemini API key** and press **Save key**, then
+   **Test**. Never paste the key into a chat or a file: JARVIS encrypts it with
+   your Mac's Keychain key and only ever shows its last four characters.
+
+Two models, both editable in Settings → AI:
+
+- **Commands model** (default `gemma-4-26b-a4b-it`, about 30 requests a minute
+  free): understands requests that aren't everyday commands.
+- **Writing model** (default `gemini-3.5-flash-lite`, about 15 a minute): mail
+  summaries, drafts, document summaries.
+
+When one model's free limit runs out, the other answers and JARVIS says so.
+When both are used up for the day it tells you; the daily limit resets at
+midnight Pacific time. Everyday commands (volume, brightness, timers, music,
+screenshots, apps, the time) never use the AI and always work.
+
+Google may use free-tier requests to improve its products; see
+[SECURITY.md](SECURITY.md#the-ai-and-your-google-account) for what is sent.
+
+## Gmail, Google Drive and Google Calendar
+
+Google doesn't give API keys for these, so you create your own free OAuth
+client once (about five minutes). **Settings → Google account → How to set up**
+shows the same steps:
+
+1. Open [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
+   and create a project (any name, e.g. "JARVIS").
+2. **APIs & Services → Library:** enable **Gmail API**, **Google Drive API** and
+   **Google Calendar API**.
+3. **OAuth consent screen:** User type **External**, fill in the app name and
+   your address, add your own address as a **test user**. Then **Publish app →
+   In production** (otherwise Google signs you out every 7 days). You'll see
+   "Google hasn't verified this app" when you connect: it's your own app, so
+   choose **Advanced → Continue**.
+4. **Credentials → Create credentials → OAuth client ID**, application type
+   **Desktop app**.
+5. In JARVIS, paste the **client ID** and **client secret** (or the downloaded
+   JSON file) into Settings → Google account and press **Save client**.
+6. Tick the services you want (Gmail, Google Drive, Google Calendar) and press
+   **Connect**. Your browser opens Google's consent page: pick your account,
+   tick every box, and allow. The page then says "Connected" and Settings shows
+   your address.
+
+Only the scopes of the services you ticked are requested: reading mail, saving
+drafts and sending (Gmail), reading files (Drive, read-only), and reading and
+adding events (Calendar). **Disconnect** revokes the sign-in at Google and
+deletes it from the Mac.
 
 ## Talking to it
 
-Say its name, then what you want, in English, हिंदी or Hinglish:
+Say its name, then what you want, in English, हिंदी or Hinglish. Say just the
+name and it answers "Yes boss, how may I help you?" straight away.
 
-- "FRIDAY, set a timer for five minutes." / "FRIDAY, kal subah saat baje jagana."
-- "FRIDAY, what's on my calendar tomorrow?"
-- "FRIDAY, note to buy milk." / "FRIDAY, remember that my sister's birthday is 12 March."
-- "FRIDAY, open Safari." / "WhatsApp band karo." / "open my documents"
-- "FRIDAY, volume 30." / "next song" / "turn on dark mode" / "take a screenshot"
-- "FRIDAY, the PDF I downloaded yesterday." / "show it in Finder" / "move it to the Trash"
-- "FRIDAY, what's 18% of 2400?" / "how many days till Diwali?"
-- "FRIDAY, open Claude and ask it to build a website for my bakery." It opens a
-  new chat with the prompt written in, and waits for you to send it.
-- "FRIDAY, open WhatsApp and close it after 10 seconds." / "in 5 minutes open
-  Safari" / "full volume" / "open Notes, Calendar and Safari"
-- **Anything else** a Mac app can do: "add milk to my Reminders", "play my
-  workout playlist", "how many unread emails do I have?", "turn on Do Not
-  Disturb". JARVIS writes an AppleScript for it. If it only reads, it answers
-  straight away; if it changes something, it shows you the script and waits for
-  "yes, go ahead" or Confirm. It never runs Terminal commands, deletes files or
-  touches passwords. The first time it controls an app, macOS asks you to allow
-  it (System Settings → Privacy & Security → Automation). On an 8 GB Mac it
-  always shows the script first, because the smaller model makes more mistakes.
+**Everyday:**
+- "JARVIS, set a timer for five minutes." / "kal subah saat baje jagana."
+- "volume 30" / "next song" / "dim the screen" / "turn on dark mode" / "take a screenshot"
+- "open Safari" / "WhatsApp band karo" / "open my downloads folder"
+- "start the stopwatch" / "search for python tutorials" / "play believer on YouTube"
+- "what's 18% of 2400?" / "how many days till Diwali?"
 
-Running timers and delayed actions count down under the status badges; the ✕
-cancels one.
+**Mail, files and calendar:**
+- "summarize my last 10 emails" / "any new mail?"
+- "what did Rahul mail me?" → "okay, send him a mail confirming I'll come"
+- "draft a mail to priya@example.com asking for the slides" → "send it"
+- "find the budget sheet in my drive" → "summarise it" / "open it"
+- "what's on my calendar tomorrow?" / "add dinner with Rahul on Friday at 8"
 
-Say just the name and it answers with a short ping; then say the command. You
-can also type commands in the command bar.
+**Anything else:** ask in your own words. The AI picks from all of JARVIS's
+tools; for Mac apps no tool covers ("add milk to my Reminders", "turn on Do Not
+Disturb") it writes an AppleScript, runs it straight away if it only reads, and
+shows it to you before it changes anything.
+
+### Sending mail
+
+A mail is never sent directly. JARVIS writes it, saves it as a Gmail draft,
+**reads it back aloud** and shows it in a confirmation card. It goes out only
+after you say "yes, send it" in your verified voice, or click **Send**. Say
+"no" (or let the card expire) and it stays a draft in Gmail.
+
+### The conversation window
+
+After each reply JARVIS keeps listening without its name for a minute
+(Settings → Voice: 30 s, 1 min or 2 min), and remembers what was just said, so
+"him", "that mail" and "send it" work. Each follow-up is checked against your
+voice too. Say "thanks" or "that's all" to end it; if someone else speaks, the
+window closes on its own.
 
 ## Why it sometimes says no
 
-The status bar shows the current **level**:
+Every request is checked against your voiceprint on its own words:
 
-| Level | What it means | What works |
-|---|---|---|
-| L0 | It doesn't see you, or sees someone else, a photo or a frozen feed | nothing |
-| L1 | It sees you and knows you're live | questions, reading your calendar, notes, files |
-| L2 | L1 + it heard your voice in the last minute and nobody else is in view | creating things, opening apps, controlling the Mac |
-| L3 | L2 + a recent liveness check + your "yes" | deleting anything |
+| Your voice on that request | What runs |
+|---|---|
+| Recognised | everything (deleting or sending still asks for your "yes") |
+| Unclear (a short or noisy clip) | only harmless everyday commands: volume, brightness, timers, music, screenshots, searches, the time |
+| Someone else's | nothing ("That voice doesn't match my owner") |
 
-If it says "talk to me first", say its name and anything: that verifies your
-voice for a minute. If someone else is in view, it caps you at L1. For
-deletions it shows exactly what will be deleted and waits 30 seconds for
-"yes, go ahead" in your voice or a click on **Confirm**.
-
-Now and then it asks for a quick liveness check (blink twice, turn your head,
-lean in). That's what stops a photo of you from working.
+If it says "I couldn't confirm your voice", say it again a little longer. A
+very short follow-up ("louder") right after the name is judged together with
+the name. Typed commands are off by default, because the keyboard would bypass
+the voice check; you can allow them in Settings → Security → Commands.
 
 ## Keyboard
 
@@ -125,24 +170,25 @@ lean in). That's what stops a photo of you from working.
 ## Privacy
 
 - **Privacy view:** every kind of stored data with its size and age. Export a
-  readable copy, delete any part, or factory-reset. Each needs level 3.
-- **Offline mode** (on by default): the assistant's engine can't reach the
-  internet. The status bar shows **OFFLINE ✓**.
+  readable copy, delete any part, or factory-reset. Each needs your confirmation.
+- **Offline mode** (on by default): the engine can't reach the internet except
+  the services you switched on (the Gemini API once a key is saved, Google's
+  APIs once your account is connected). Everything it tries is listed.
 - **Memory view:** facts it remembers and your conversation history (kept 30
   days by default; off, 7 days or forever).
-- Camera frames and audio are never stored. Speech that doesn't start with its
-  name is thrown away straight after transcription.
+- Audio is never stored. Speech that doesn't start with its name (outside a
+  conversation window) is thrown away straight after transcription.
 
 More in [SECURITY.md](SECURITY.md).
 
 ## Settings
 
-Identity (names, re-scan face, re-record voice), voice speed and style,
-microphone, security presets (including "Anything else": ask before changes,
-always ask, or off), performance mode (Fast / Balanced / Quality, or
-Auto: Balanced on power, Fast on battery), language models, on-device models
-(add Whisper medium for Quality mode), memory, the fusion model, file-search
-folders and optional Apple Calendar / Notes sync.
+Identity (names, re-record your voice), the AI (Gemini key, the two model
+names, or a local model through Ollama), Google account, voice (speed, the
+greeting, the conversation window), microphone, security presets (voice match
+Strict by default, typed commands, generated AppleScript), performance mode,
+on-device models, memory, file-search folders and optional Apple Calendar /
+Notes sync.
 
 ## Troubleshooting
 
@@ -150,20 +196,20 @@ folders and optional Apple Calendar / Notes sync.
 |---|---|
 | "JARVIS can't be opened" | System Settings → Privacy & Security → Open Anyway (see Install) |
 | "jarvis-backend wants to access key jarvis-assistant in your keychain" | Type your Mac login password and press **Always Allow**. JARVIS keeps its encryption key in the Keychain, and because the app is signed ad hoc, macOS asks once after each install or update |
-| Camera unavailable | System Settings → Privacy & Security → Camera → turn on JARVIS; quit other apps using the camera; reopen JARVIS |
+| "AI not reachable" / "no Gemini API key" | Settings → AI: save a key and press Test. Check the internet connection |
+| "My free Gemini limit is used up" | Wait a minute (per-minute limit) or until midnight Pacific (daily limit); everyday commands keep working. You can switch the model names in Settings → AI |
+| "Gmail isn't connected" / "reconnect in Settings" | Settings → Google account → Connect, and tick every box on Google's consent page |
+| Google signs you out after a week | The OAuth consent screen is still in Testing: publish it (In production), then reconnect |
+| "I couldn't confirm your voice" a lot | Speak a little longer and closer; if it keeps happening, re-record your voice in Settings → Identity in your usual room |
 | Voice commands are off | Settings → Microphone says why and how to fix it (permission, no device, the wrong device, busy) |
-| "Local AI offline" | Settings → On-device models → Start Ollama, or install it from ollama.com |
 | A model is missing | Settings → On-device models → Download, then Restart |
-| It doesn't recognise me in low light | Face the light; if it keeps happening, re-scan your face in Settings → Identity |
-| A real face shows a low anti-spoof score | Better, even lighting helps; the score is in the Authentication panel |
 | Screenshot / dark mode / typing don't work | macOS asks once for Screen Recording, Automation (System Events) and Accessibility; allow JARVIS in System Settings → Privacy & Security |
 | File search finds nothing | Allow JARVIS for Desktop, Documents and Downloads in System Settings → Privacy & Security → Files and Folders |
-| Locked out after deleting your face profile | Say its name in your verified voice to unlock a new face scan |
 | The app shows "could not start" | Reinstall from the .dmg; if it persists, open an issue with the log from `~/Library/Application Support/JarvisAssistant/logs` |
 
 ## Uninstall
 
-Quit JARVIS, then use **Privacy → Factory reset** (it also removes the Keychain
-key), drag JARVIS from Applications to the Trash, and delete
-`~/Library/Application Support/JarvisAssistant`. Ollama and its models are a
-separate app: remove them with Ollama itself if you don't use them elsewhere.
+Use **Privacy → Factory reset** (it revokes the Google sign-in at Google and
+removes the Keychain key), quit JARVIS, drag it from Applications to the Trash,
+and delete `~/Library/Application Support/JarvisAssistant`. You can also delete
+the OAuth client in Google Cloud Console and the API key in AI Studio.

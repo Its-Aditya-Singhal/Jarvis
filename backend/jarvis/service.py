@@ -914,6 +914,13 @@ class AssistantService:
         """
         text = " ".join(text.split())[:500]
         self.bus.publish({"type": "heard", "text": text, "lang": lang, "source": source})
+        if source == "typed" and self.prefs.get("security.typed") == "off" and not self.everyday(text):
+            # "Voice only": the keyboard would bypass the voice check, so typing gets the harmless
+            # everyday commands and nothing that reads your data, asks the AI or acts
+            reply = self._blocked_say("voice_needed", lang, "typed")
+            self.bus.publish({"type": "reply", "text": reply, "actions": []})
+            self.bus.publish({"type": "say", "text": reply})
+            return {"reply": reply, "language": lang, "actions": [], "ok": False}
         if self.brain is None:
             reply = "My language model is turned off."
             result = {"reply": reply, "language": lang, "actions": [], "ok": False}
@@ -1447,6 +1454,11 @@ class AssistantService:
             self.voice.auth.reset()
         if self.alarms is not None:
             self.alarms.dismiss()
+        if self.google is not None and self.google.connected:
+            try:
+                self.google.disconnect()  # revoked at Google too, not just forgotten here
+            except Exception:
+                log.exception("google disconnect during reset failed")
         for f in self.s.templates_dir.glob("*"):
             f.unlink(missing_ok=True)
         self.s.fusion_model_path.unlink(missing_ok=True)

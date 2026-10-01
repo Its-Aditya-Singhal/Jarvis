@@ -1,5 +1,49 @@
 # Changelog
 
+## Unreleased — voice-only, Gemini, Google account
+
+### Added
+- **Gmail, Google Drive and Google Calendar.** Settings → Google account walks
+  through creating your own free OAuth client, then Connect signs in through the
+  browser (loopback redirect, PKCE, checked state). "Summarize my last 10
+  emails", "any new mail", "what did Rahul mail me", "draft a mail to…", "send
+  him a mail confirming I'll come", "find the budget sheet in my drive",
+  "summarise it", "open it". With Google Calendar connected, new events go
+  there too and the day's list includes it.
+- **Read-back before sending.** A mail is saved as a Gmail draft, read back
+  aloud, shown in the confirmation card, and sent only after a "yes" in your
+  recognised voice or a click on Send.
+- **Gemini brain** (free tier): a fast commands model and a writing model, each
+  the other's fallback when its free limit runs out, with a clear message when
+  the daily limit is used up. Key and model names in Settings → AI; the key is
+  sealed with the Keychain key and never shown again. Ollama stays as an opt-in.
+- **Instant greeting:** the name alone answers "Yes boss, how may I help
+  you?", synthesised once at startup and kept.
+- **Conversation window:** after every reply JARVIS keeps listening without
+  its name for 30 s / 1 min (default) / 2 min, and remembers what each command
+  did for ten minutes; "thanks" or "that's all" ends it.
+- `scripts/eval_voice.py`: false accepts and false rejects of the voice match
+  at both presets, from your recordings and other voices.
+
+### Changed
+- **Voice-only sign-in by default:** no camera, face model, anti-spoof model or
+  face loop; the camera isn't even opened for a permission prompt.
+  `JARVIS_FACE_AUTH=1` brings face sign-in back.
+- **Stronger voice check:** every addressed utterance is judged, follow-ups
+  and short ones included; anything that reads or acts needs that very
+  utterance to be your voice; an unclear voice only gets harmless everyday
+  commands; another voice gets nothing (everyday commands used to run for any
+  voice). Strict is the default preset; enrollment is 24 phrases (normal, soft,
+  louder, from a step back).
+- Typed commands are off by default (the keyboard would bypass the voice);
+  "Voice only" now also keeps typing to the harmless everyday commands.
+- **Lighter:** OpenCV isn't loaded without face sign-in; resource sampling
+  drops to once a minute while no window is open and never asks Ollama with
+  the Gemini brain; memory recall matches words by default.
+- **A cleaner interface:** a calm dark theme with the system font, no grid,
+  glows or glitch effects, and a simple status ring instead of the particle
+  orb that redrew every frame. Settings hides what doesn't apply.
+
 ## 1.0.0 — unreleased
 
 The first release: a packaged Mac app with a first-run download, a website and
