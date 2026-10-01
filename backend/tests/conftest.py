@@ -4,6 +4,10 @@ from pathlib import Path
 
 import pytest
 
+# the face-and-liveness suites test the face sign-in, which ships switched off (voice-only);
+# tests of the voice-only setup pass face_auth=False themselves
+os.environ.setdefault("JARVIS_FACE_AUTH", "1")
+
 from jarvis.config import REPO_ROOT, Settings
 
 MODELS = REPO_ROOT / "models"

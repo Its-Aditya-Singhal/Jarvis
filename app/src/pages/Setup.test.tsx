@@ -118,4 +118,24 @@ describe("Setup wizard", () => {
     await userEvent.click(screen.getByRole("button", { name: /SKIP — VOICE UNAVAILABLE/ }));
     expect(screen.getByText("Voice skipped — no working microphone")).toBeInTheDocument();
   });
+
+  it("skips the face step when face sign-in is off (voice-only)", async () => {
+    const user = userEvent.setup();
+    fake.status = makeStatus({ face_auth: false });
+    await act(async () => {
+      await (await import("../lib/store")).refreshStatus();
+    });
+    fake.route("POST /api/setup/profile", (body) => {
+      const b = body as { owner_name: string; assistant_name: string };
+      fake.status = makeStatus({ face_auth: false, owner_name: b.owner_name, assistant_name: b.assistant_name });
+      return fake.status;
+    });
+    render(<Setup />);
+    expect(screen.getAllByText(/^0\d$/)).toHaveLength(4); // welcome, names, voice, done
+    await user.click(screen.getByRole("button", { name: "BEGIN SETUP" }));
+    await user.type(screen.getAllByRole("textbox")[0], "Aditya");
+    await user.click(screen.getByRole("button", { name: "CONTINUE" }));
+    expect(await screen.findByRole("button", { name: "START VOICE SCAN" }, { timeout: 3000 })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "START FACE SCAN" })).not.toBeInTheDocument();
+  });
 });

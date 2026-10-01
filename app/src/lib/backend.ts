@@ -222,6 +222,8 @@ export interface Status {
   owner_name: string;
   assistant_name: string;
   face_enrolled: boolean;
+  /** false: voice-only sign-in (the default) — no camera, face or liveness checks */
+  face_auth?: boolean;
   voice_enrolled: boolean;
   mode: "idle" | "enrolling" | "verifying";
   voice_mode: "idle" | "enrolling" | "verifying" | "unavailable";

@@ -301,18 +301,23 @@ function FactorBadges() {
   const face = auth?.state === "approved" ? "tone-ok" : auth?.state === "denied" ? "tone-alert" : "tone-warn";
   const v = auth?.voice?.state ?? "idle";
   const voice = !status.voice_enrolled ? "tone-off" : (VOICE_LABEL[v] ?? VOICE_LABEL.idle)[1];
+  const faceOn = status.face_auth !== false;
   return (
     <div className="factors">
-      <span className={face}>
-        <i className="dot" /> FACE
-      </span>
+      {faceOn && (
+        <span className={face}>
+          <i className="dot" /> FACE
+        </span>
+      )}
       <span className={voice}>
         <i className="dot" /> VOICE{speaking ? " · HEARING" : ""}
       </span>
-      <span className={(LIVE_LABEL[auth?.liveness?.state ?? "idle"] ?? LIVE_LABEL.idle)[1]}>
-        <i className="dot" /> LIVENESS
-        {auth?.liveness?.state === "disabled" ? " · OFF" : ""}
-      </span>
+      {faceOn && (
+        <span className={(LIVE_LABEL[auth?.liveness?.state ?? "idle"] ?? LIVE_LABEL.idle)[1]}>
+          <i className="dot" /> LIVENESS
+          {auth?.liveness?.state === "disabled" ? " · OFF" : ""}
+        </span>
+      )}
       <span className={`level-pill l${level}`} title={auth?.trust?.blockers["2"] ?? ""}>
         L{level} · {LEVEL_NAME[level] ?? ""}
       </span>
@@ -330,6 +335,7 @@ function AuthPanel() {
   }, [approved]);
   const voice = auth?.voice;
   const live = auth?.liveness;
+  const faceOn = status?.face_auth !== false;
   const vLabel = status?.voice_enrolled
     ? (VOICE_LABEL[voice?.state ?? "idle"] ?? VOICE_LABEL.idle)
     : ["NOT ENROLLED", "tone-warn"];
@@ -343,6 +349,7 @@ function AuthPanel() {
     <div className="view">
       <h2 className="view-title">AUTHENTICATION</h2>
       <div className="cards">
+        {faceOn && (
         <div className="card">
           <div className="panel-title">FACE</div>
           {row(
@@ -359,6 +366,7 @@ function AuthPanel() {
           {approved && auth?.bystander && row("Bystander", "UNKNOWN PERSON PRESENT", "tone-alert")}
           {row("Model", status?.models.face === "ready" ? "ArcFace R50 · local" : (status?.models.face ?? "—"))}
         </div>
+        )}
         <div className="card">
           <div className="panel-title">VOICE</div>
           {row("Status", vLabel[0], vLabel[1])}
@@ -380,9 +388,12 @@ function AuthPanel() {
               {status?.voice_enrolled ? "RE-ENROLL VOICE" : "ENROLL VOICE"}
             </button>
           ) : (
-            <p className="muted small">Verify your face to manage the voice profile.</p>
+            <p className="muted small">
+              {faceOn ? "Verify your face to manage the voice profile." : "Finish setup to manage the voice profile."}
+            </p>
           )}
         </div>
+        {faceOn && (
         <div className="card">
           <div className="panel-title">LIVENESS</div>
           {row("Status", ...(LIVE_LABEL[live?.state ?? "idle"] ?? LIVE_LABEL.idle))}
@@ -406,7 +417,19 @@ function AuthPanel() {
             every frame that rejects photos and screens.
           </p>
         </div>
-        <TrustCard />
+        )}
+        {faceOn ? (
+          <TrustCard />
+        ) : (
+          <div className="card">
+            <div className="panel-title">VOICE-ONLY SIGN-IN</div>
+            <p className="muted small">
+              Face sign-in is off, so the camera never turns on. Everyday commands (volume, brightness, timers, music,
+              screenshots, search) run for anyone who says my name; anything that opens apps, reads your mail or changes
+              things needs your voice to match within the last minute. Deleting needs your voice plus a confirmation.
+            </p>
+          </div>
+        )}
       </div>
       {enrolling && (
         <div className="overlay">
@@ -507,6 +530,7 @@ const typing = (t: EventTarget | null) =>
   t instanceof HTMLElement && (t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName));
 
 export default function Main() {
+  const { status } = useStore();
   const [view, setView] = useState<View>("system");
   const [palette, setPalette] = useState(false);
 
@@ -560,10 +584,12 @@ export default function Main() {
     <div className="main-grid">
       <div className="left-col">
         <SideNav view={view} onChange={setView} />
-        <div className="panel sensor">
-          <div className="panel-title">OPTICAL SENSOR</div>
-          <CameraPreview />
-        </div>
+        {status?.face_auth !== false && (
+          <div className="panel sensor">
+            <div className="panel-title">OPTICAL SENSOR</div>
+            <CameraPreview />
+          </div>
+        )}
       </div>
       <main className="center">
         {view === "system" && <Core />}

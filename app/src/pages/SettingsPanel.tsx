@@ -110,6 +110,7 @@ export default function SettingsPanel() {
     );
   }
   const pref = (k: string) => data?.prefs.find((p) => p.key === k);
+  const faceOn = status?.face_auth !== false;
   const ctl = (k: string, label: string) => <PrefControl p={pref(k)} label={label} onSet={setPref} busy={busy} />;
 
   return (
@@ -143,13 +144,13 @@ export default function SettingsPanel() {
 
         <div className="card">
           <div className="panel-title">SECURITY</div>
-          {ctl("security.face", "Face match")}
+          {faceOn && ctl("security.face", "Face match")}
           {ctl("security.voice", "Voice match")}
-          {ctl("security.camera", "Camera")}
+          {faceOn && ctl("security.camera", "Camera")}
           {ctl("security.typed", "Commands")}
           {ctl("security.scripts", "Anything else (generated AppleScript)")}
-          {ctl("security.away_lock_s", "Lock when I step away (camera on)")}
-          {ctl("security.liveness", "Random liveness checks")}
+          {faceOn && ctl("security.away_lock_s", "Lock when I step away (camera on)")}
+          {faceOn && ctl("security.liveness", "Random liveness checks")}
           <p className="muted small">
             Only safe presets are offered. Tightening needs level 2; loosening also needs a level-3 confirmation.
           </p>
@@ -172,7 +173,7 @@ export default function SettingsPanel() {
           </p>
         </div>
 
-        <FusionCard />
+        {faceOn && <FusionCard />}
         <FilesCard />
         <AppleCard />
       </div>
@@ -212,16 +213,19 @@ function IdentityCard({ status, run }: { status: Status | null; run: (fn: () => 
         {changed && <button className="btn primary card-btn">SAVE NAMES</button>}
       </form>
       <div className="row-btns">
-        <button className="btn ghost" onClick={() => run(() => post("/api/privacy/reenroll_face"))}>
-          RE-SCAN FACE
-        </button>
+        {status?.face_auth !== false && (
+          <button className="btn ghost" onClick={() => run(() => post("/api/privacy/reenroll_face"))}>
+            RE-SCAN FACE
+          </button>
+        )}
         <button className="btn ghost" onClick={() => setVoiceOpen(true)}>
           {status?.voice_enrolled ? "RE-ENROLL VOICE" : "ENROLL VOICE"}
         </button>
       </div>
       <p className="muted small">
-        Name changes need level 2. A face re-scan needs a level-3 confirmation; your current profile stays until the new
-        scan is saved.
+        {status?.face_auth !== false
+          ? "Name changes need level 2. A face re-scan needs a level-3 confirmation; your current profile stays until the new scan is saved."
+          : "Name changes need level 2: say my name first. Re-enrolling replaces your voiceprint once the new one is saved."}
       </p>
       {voiceOpen && (
         <div className="overlay">

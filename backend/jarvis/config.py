@@ -50,6 +50,11 @@ class Settings(BaseSettings):
     data_dir: Path = _default_data_dir()
     models_dir: Path = _default_models_dir()
 
+    # Face sign-in. Off: JARVIS is voice-only. The camera, the face and anti-spoof models and the
+    # face loop never start (the lightest setup, for running all day); voice verification guards
+    # commands. JARVIS_FACE_AUTH=1 brings the face check back.
+    face_auth: bool = False
+
     # Camera
     camera_index: int = 0
     process_fps: float = 6.0  # face-analysis rate; camera itself runs faster

@@ -11,7 +11,7 @@ type Step = "welcome" | "names" | "face" | "voice" | "done";
 
 function initialStep(s: Status | null): Step {
   if (!s || !s.owner_name) return "welcome";
-  if (!s.face_enrolled) return "face";
+  if (s.face_auth !== false && !s.face_enrolled) return "face";
   if (!s.voice_enrolled) return "voice";
   return "done";
 }
@@ -31,18 +31,21 @@ function Blocks({ value, cells = 24 }: { value: number; cells?: number }) {
 export default function Setup() {
   const { status } = useStore();
   const [step, setStep] = useState<Step>(() => initialStep(status));
+  // voice-only (the default): no face step
+  const faceOn = status?.face_auth !== false;
+  const steps: Step[] = faceOn ? ["welcome", "names", "face", "voice", "done"] : ["welcome", "names", "voice", "done"];
 
   return (
     <div className="setup">
       <div className="setup-steps">
-        {(["welcome", "names", "face", "voice", "done"] as Step[]).map((s, i) => (
+        {steps.map((s, i) => (
           <span key={s} className={s === step ? "active" : ""}>
             {String(i + 1).padStart(2, "0")}
           </span>
         ))}
       </div>
       {step === "welcome" && <Welcome onNext={() => setStep("names")} />}
-      {step === "names" && <Names status={status} onNext={() => setStep("face")} />}
+      {step === "names" && <Names status={status} onNext={() => setStep(faceOn ? "face" : "voice")} />}
       {step === "face" && <FaceEnroll onNext={() => setStep("voice")} />}
       {step === "voice" && (
         <section className="setup-card wide">
@@ -61,8 +64,8 @@ function Welcome({ onNext }: { onNext: () => void }) {
       <h1>Welcome.</h1>
       <p className="lead">Let's get to know you.</p>
       <p className="muted small">
-        Everything you teach me stays on this Mac. Face data is stored only as encrypted
-        mathematical embeddings — never as photos.
+        Everything you teach me stays on this Mac. Your voiceprint is stored only as encrypted
+        mathematical embeddings — never as recordings.
       </p>
       <button className="btn primary" onClick={onNext}>
         BEGIN SETUP
@@ -218,13 +221,14 @@ function Done() {
     }
   };
 
+  const faceOn = status?.face_auth !== false;
   const items: [string, boolean, string?][] = [
-    ["Face enrolled", !!status?.face_enrolled],
+    ...(faceOn ? [["Face enrolled", !!status?.face_enrolled] as [string, boolean]] : []),
     ["Security enabled — encrypted, local-only storage", true],
     status?.voice_enrolled
       ? ["Voice enrolled", true]
       : ["Voice skipped — no working microphone", false, "enroll later from Authentication"],
-    ["Liveness checks active", status?.models.liveness !== "disabled"],
+    ...(faceOn ? [["Liveness checks active", status?.models.liveness !== "disabled"] as [string, boolean]] : []),
     status?.models.llm === "ready"
       ? ["Local AI ready", true]
       : ["Local AI not running yet", false, "see System for the fix"],

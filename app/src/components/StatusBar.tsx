@@ -55,11 +55,13 @@ export default function StatusBar() {
           value={thinking ? "THINKING" : llm === "ready" ? "ONLINE" : llm ? "OFFLINE" : "—"}
           tone={llm === "ready" ? "ok" : "alert"}
         />
+        {status?.face_auth !== false && (
         <Indicator
           label="CAMERA"
           value={cam === "active" ? "ACTIVE" : cam === "error" ? "BLOCKED" : cam.toUpperCase()}
           tone={cam === "active" ? "ok" : cam === "error" ? "alert" : "warn"}
         />
+        )}
         <Indicator
           label="MIC"
           value={

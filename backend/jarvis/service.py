@@ -138,6 +138,9 @@ class AssistantService:
         perf: PerfMonitor | None = None,
     ):
         self.s = settings
+        # voice-only (the default): no camera, no face or anti-spoof model, no face loop; the
+        # owner is signed in once setup is done and the voice match guards what needs it
+        self.face_on = settings.face_auth
         self.clock: Callable[[], float] = time.monotonic  # same clock as the face loop's ``now``
         self.db = db
         self.prefs = Prefs(db)
@@ -266,7 +269,7 @@ class AssistantService:
         if key.startswith("security."):
             self._apply_security_settings()
             self.db.add_security_event("settings_changed", f"{key} set to {v}")
-            if key == "security.camera" and v == "always":
+            if key == "security.camera" and v == "always" and self.face_on:
                 self.end_face_session("Camera set to stay on")
         elif key.startswith("voice."):
             self._apply_voice_settings()
@@ -376,11 +379,11 @@ class AssistantService:
         a = self.auth
         ev = Evidence(
             face_state=self.effective_state(),
-            liveness=self.live.state if self.s.liveness_enabled else "disabled",
+            liveness=self.live.state if self.s.liveness_enabled and self.face_on else "disabled",
             face_sim=a.smoothed,
             face_age_s=None if a.last_verified_t is None else now - a.last_verified_t,
             face_quality=self._face_quality,
-            live_score=self.live.live_score if self.s.liveness_enabled else None,
+            live_score=self.live.live_score if self.s.liveness_enabled and self.face_on else None,
             live_age_s=None if self.live.passed_t is None else now - self.live.passed_t,
             voice_enrolled=self.voice_enrolled,
         )
@@ -410,9 +413,11 @@ class AssistantService:
             # typed or clicked on the screen of a verified owner: the keyboard stands in for
             # the voice, and the score is the presence score (the one without voice evidence)
             ev.voice_verified_age_s, ev.voice_rejected_since = 0.0, False
-            presence = None if self.fusion is None else float(self.fusion.prob(without_voice(x)))
+            presence = None if self.fusion is None or not self.face_on else float(self.fusion.prob(without_voice(x)))
             return assess(ev, presence, self.levels, presence), x
-        if self.fusion is None:
+        if self.fusion is None or not self.face_on:
+            # voice-only: the fusion classifier weighs face evidence there is none of; the hard
+            # rules decide (signed in after setup, a recent voice match for level 2)
             return assess(ev, None, self.levels), x
         return assess(ev, float(self.fusion.prob(x)), self.levels, float(self.fusion.prob(without_voice(x)))), x
 
@@ -469,7 +474,7 @@ class AssistantService:
         """
         if self.mode != "verifying":
             return "no_profile"
-        if self._face_session is not None:
+        if not self.face_on or self._face_session is not None:
             return "approved"
         face = self.auth.state
         if not self.s.liveness_enabled:
@@ -538,6 +543,9 @@ class AssistantService:
 
     def start(self) -> None:
         self.bus.log("Core systems online")
+        if not self.face_on:
+            self._start_voice_only()
+            return
         if self.engine.load():
             self.bus.log("Face recognition model loaded")
         else:
@@ -585,6 +593,39 @@ class AssistantService:
             self._announce.start()
 
         self._unless_stopping(launch)
+
+    def _start_voice_only(self) -> None:
+        """The light start: no camera, face model or face loop. Nothing else loads at launch that
+        an everyday command doesn't need (the language model loads on first use)."""
+        if self.setup_complete:
+            self.begin_verification()
+        if not self._unless_stopping(self.perf.start):
+            return
+        self.apply_mode(warm=False)
+        brain = self.brain
+        if brain is not None:  # starts Ollama if needed; the model itself loads on demand
+            self._unless_stopping(lambda: threading.Thread(target=self._start_brain, args=(brain,),
+                                                           name="llm-start", daemon=True).start())
+        to_latin("नमस्ते")
+        if self.speech is not None:
+            self.speech.start()
+        if self.voice is not None:
+            self.voice.start()
+        if self.alarms is not None and not self._unless_stopping(self.alarms.start):
+            return
+        if self.alarms is not None:
+            for a in self.alarms.missed:
+                self.bus.log(f"Missed {a.kind} at {a.due:%H:%M} (the app was closed)", "warn")
+
+        def launch() -> None:
+            if self.memory is not None:
+                threading.Thread(target=self._start_memory, name="memory-start", daemon=True).start()
+            self._announce = threading.Timer(12.0, self._announce_issues)
+            self._announce.daemon = True
+            self._announce.start()
+
+        self._unless_stopping(launch)
+        self._push_state()
 
     def _start_brain(self, brain: Brain) -> None:
         if brain.start():
@@ -675,6 +716,13 @@ class AssistantService:
             self._reenroll = None
 
     def begin_verification(self) -> bool:
+        if not self.face_on:
+            with self._lock:
+                self.mode = "verifying"
+            if self.voice is not None and self.voice.enrolled:
+                self.voice.begin_verification()
+            self.bus.log("Voice sign-in active (face sign-in is off)")
+            return True
         try:
             template = self.store.load(FACE)
         except Exception:
@@ -1229,6 +1277,8 @@ class AssistantService:
 
     def face_enroll_allowed(self) -> tuple[bool, str]:
         """May someone start a face scan right now?"""
+        if not self.face_on:
+            return False, "Face sign-in is turned off"
         if not self.setup_complete:
             return True, "first-time setup"
         g = self._reenroll
@@ -1248,7 +1298,7 @@ class AssistantService:
     def locked_out(self) -> bool:
         """Set up, but no face profile, no usable voice profile and no re-scan window:
         nobody can ever be verified again, so a reset must be possible without it."""
-        if not self.setup_complete or self.face_enrolled:
+        if not self.face_on or not self.setup_complete or self.face_enrolled:
             return False
         g = self._reenroll
         if g is not None and self.clock() < g[1]:
@@ -1258,7 +1308,7 @@ class AssistantService:
 
     def _unverified_reply(self, verdict: str | None) -> str | None:
         """What to say to an addressed command while nobody is verified (None = default)."""
-        if not (self.setup_complete and not self.face_enrolled):
+        if not (self.face_on and self.setup_complete and not self.face_enrolled):
             return None
         if verdict == "verified":
             self.bus.publish({"type": "face_reenroll", "kind": "voice"})
@@ -1479,6 +1529,8 @@ class AssistantService:
         fs = self._face_session
         if fs is not None and state == "approved":
             reason = "Face verified at launch · camera off · voice from here on"
+        if not self.face_on:
+            reason = "Voice sign-in · face check off" if state == "approved" else "Finish setup to sign in"
         out = {"state": state, "reason": reason, "faces": snap.faces, "level": trust.level,
                "face_once": fs is not None}
         if owner:
@@ -1500,7 +1552,7 @@ class AssistantService:
                 None if csim is None else round(confidence(csim, self.s.face_threshold), 3)
             )
             out["bystander"] = snap.bystander
-        if self.s.liveness_enabled:
+        if self.s.liveness_enabled and self.face_on:
             out["liveness"] = self.live.public(self.clock(), owner)
         else:
             out["liveness"] = {"state": "disabled", "reason": "Liveness checks are turned off"}
@@ -1538,9 +1590,9 @@ class AssistantService:
 
     def _models(self) -> dict:
         return {
-            "face": "ready" if self.engine.ready else (self.engine.error or "not loaded"),
+            "face": ("ready" if self.engine.ready else (self.engine.error or "not loaded")) if self.face_on else "disabled",
             "voice": self.voice.model_status() if self.voice else "disabled",
-            "liveness": self._liveness_status(),
+            "liveness": self._liveness_status() if self.face_on else "disabled",
             "llm": self.brain.status() if self.brain else "disabled",
             "tools": "ready" if self.tools else "disabled",
             "memory": (
@@ -1574,10 +1626,12 @@ class AssistantService:
             "owner_name": self.owner_name,
             "assistant_name": self.assistant_name,
             "face_enrolled": self.face_enrolled,
+            "face_auth": self.face_on,
             "voice_enrolled": self.voice_enrolled,
             "mode": self.mode,
             "voice_mode": self.voice.mode if self.voice else "unavailable",
-            "camera": {"status": self.camera.status, "error": self.camera.error},
+            "camera": ({"status": self.camera.status, "error": self.camera.error} if self.face_on
+                       else {"status": "off", "error": None}),
             "mic": self.mic_info(),
             "models": (models := self._models()),
             "issues": self.issues(models),
@@ -1591,7 +1645,7 @@ class AssistantService:
             "face_reenroll": (
                 {"allowed": allowed, "reason": why, "locked_out": self.locked_out(),
                  "kind": self._reenroll[0] if self._reenroll and self.clock() < self._reenroll[1] else None}
-                if self.setup_complete and (not self.face_enrolled or self.mode == "enrolling"
+                if self.face_on and self.setup_complete and (not self.face_enrolled or self.mode == "enrolling"
                                             or (self._reenroll and self.clock() < self._reenroll[1]))
                 else None
             ),
