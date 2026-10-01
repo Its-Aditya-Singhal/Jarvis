@@ -36,6 +36,8 @@ from ..downloads import DownloadError, ModelDownloader
 from ..events import EventBus
 from ..host import responsible_app
 from ..llm.client import OllamaClient
+from ..llm.gemini import GEMINI_KEY, KEY_PAGE, MODEL_NAME, GeminiClient
+from ..llm.gemini import HOST as GEMINI_HOST
 from ..llm.server import OllamaServer
 from ..llm.setup import OllamaSetup
 from ..memory.manager import RETENTION_CHOICES, Memory
@@ -46,6 +48,7 @@ from ..prefs import PREFS, coerce
 from ..privacy import ACTIONS as PRIVACY_ACTIONS
 from ..privacy import inventory
 from ..security.crypto import KeychainKeyProvider, KeyProvider
+from ..security.secrets import Secrets
 from ..security.template_store import TemplateStore
 from ..service import AssistantService
 from ..speech.stt import SpeechToText
@@ -180,6 +183,13 @@ class LlmSlotIn(BaseModel):
     slot: Literal["main", "fast"] = "main"
 
 
+class AiIn(BaseModel):
+    provider: Literal["gemini", "ollama"] | None = None
+    fast_model: str | None = Field(default=None, pattern=MODEL_NAME)
+    heavy_model: str | None = Field(default=None, pattern=MODEL_NAME)
+    api_key: str | None = Field(default=None, max_length=200)  # "" removes it
+
+
 class PrivacyIn(BaseModel):
     path: str | None = Field(default=None, max_length=1024)
 
@@ -229,6 +239,7 @@ def create_app(
     llm_server: OllamaServer | None = None,
     downloader: ModelDownloader | None = None,
     restart: Callable[[], None] = restart_process,
+    gemini: GeminiClient | None = None,
 ) -> FastAPI:
     s = settings or get_settings()
     db = Database(s.db_path)
@@ -272,12 +283,17 @@ def create_app(
         runner = ToolRunner(db, tstore, apps or AppIndex(), files, apple_bridge, on_change=svc.tools_changed, mac=mac)
         return runner, AlarmScheduler(tstore, on_ring=svc.ring, on_change=svc.tools_changed)
 
+    secrets = Secrets(db, keyp)
+    cloud = gemini or GeminiClient(lambda: secrets.get(GEMINI_KEY))
+
     def make_brain(svc: AssistantService) -> Brain:
         return brain or Brain(s, db, names=lambda: (svc.assistant_name, svc.owner_name),
-                              voice_gender=lambda: db.get("voice_gender") or "female", server=llm_server, client=llm_client)
+                              voice_gender=lambda: db.get("voice_gender") or "female", server=llm_server, client=llm_client,
+                              cloud=cloud)
 
     def make_memory(svc: AssistantService) -> Memory:
-        client = memory_client or (svc.brain.client if svc.brain else OllamaClient(f"http://{s.ollama_host}", 30.0))
+        client = memory_client or (getattr(svc.brain, "ollama", None) if svc.brain else None) \
+            or OllamaClient(f"http://{s.ollama_host}", 30.0)
         return Memory(
             db, MemoryStore(db, keyp), client, s.embed_model,
             extractor=svc.brain.extract_facts if svc.brain else None,
@@ -302,12 +318,24 @@ def create_app(
 
     models = downloader or ModelDownloader(s.models_dir, guard=svc.guard)
     svc.downloader = models
+
+    def online_services() -> tuple[str, ...]:
+        """What offline mode still lets through: only the services the owner switched on."""
+        b = svc.brain
+        out: tuple[str, ...] = ()
+        if b is not None and getattr(b, "gemini", False) and secrets.has(GEMINI_KEY):
+            out += (GEMINI_HOST,)
+        return out
+
+    svc.guard.services = online_services
     started_without_models = bool(models.needed())  # this process loaded none of them
 
     def llm_wanted() -> list[dict]:
+        if svc.brain is not None and getattr(svc.brain, "gemini", False):
+            return []  # the brain runs at Google: no local model to download
         main = db.get("llm_model") or s.llm_model
         out = [{"name": main, "purpose": "Understands requests and answers questions", "required": True}]
-        if s.memory_enabled:
+        if s.memory_enabled and s.embed_model:
             out.append({"name": s.embed_model, "purpose": "Memory recall by meaning", "required": False})
         fast = db.get("llm_fast_model") or "qwen2.5:3b"
         if fast != main:
@@ -812,6 +840,46 @@ def create_app(
         m.set_retention(body.retention)
         bus.log(f"Conversation history retention: {body.retention}")
         return m.status()
+
+    # -- the brain: Gemini API key and models --------------------------------------------
+    def ai_state() -> dict:
+        b = svc.brain
+        return {"provider": b.provider if b else "off", "fast_model": b.model if b and b.gemini else None,
+                "heavy_model": b.heavy_model if b and b.gemini else None,
+                "key": secrets.hint(GEMINI_KEY), "key_page": KEY_PAGE,
+                "status": b.status() if b else "disabled"}
+
+    @app.get("/api/settings/ai", dependencies=auth + [Depends(require_owner)])
+    def get_ai():
+        return ai_state()
+
+    @app.put("/api/settings/ai", dependencies=auth + [Depends(require_level2)])
+    def set_ai(body: AiIn):
+        if svc.brain is None:
+            raise HTTPException(503, "language model disabled")
+        if body.api_key is not None:
+            key = body.api_key.strip()
+            if key and not key.replace("-", "").replace("_", "").isalnum():
+                raise HTTPException(400, "that doesn't look like an API key")
+            secrets.set(GEMINI_KEY, key)
+            db.add_security_event("settings_changed", "Gemini API key " + ("saved" if key else "removed"))
+            bus.log("Gemini API key " + ("saved" if key else "removed"))  # never the key itself
+        for k, v in (("ai.provider", body.provider), ("ai.fast_model", body.fast_model), ("ai.heavy_model", body.heavy_model)):
+            if v is not None:
+                db.set(k, v)
+                bus.log(f"AI setting: {k.split('.', 1)[1].replace('_', ' ')} → {v}")
+        svc.brain._status = None
+        svc.brain.clear()
+        if body.provider == "ollama":
+            threading.Thread(target=svc.brain.start, name="llm-start", daemon=True).start()
+        return ai_state()
+
+    @app.post("/api/settings/ai/test", dependencies=auth + [Depends(require_owner)])
+    def test_ai():
+        b = svc.brain
+        if b is None or not b.gemini or b.cloud is None:
+            raise HTTPException(400, "the Gemini brain isn't selected")
+        return {"fast": b.cloud.check_key(b.model), "heavy": b.cloud.check_key(b.heavy_model)}
 
     # -- settings & privacy --------------------------------------------------------------
     @app.get("/api/settings", dependencies=auth + [Depends(require_owner)])

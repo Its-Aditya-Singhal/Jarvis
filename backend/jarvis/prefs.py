@@ -41,7 +41,7 @@ PREFS: dict[str, Pref] = {p.key: p for p in [
          ("Ask before changes", "Always ask", "Off")),
     # memory
     Pref("memory.enabled", (False, True), True, labels=("Paused", "On")),
-    Pref("memory.suggestions", (False, True), True, labels=("Off", "On")),
+    Pref("memory.suggestions", (False, True), False, labels=("Off", "On")),  # each one is an extra AI request
     # performance & privacy
     Pref("perf.mode", ("auto", "fast", "balanced", "quality"), "auto",
          labels=("Auto (Fast on battery)", "Fast", "Balanced", "Quality")),

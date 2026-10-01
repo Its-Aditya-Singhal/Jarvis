@@ -7,6 +7,9 @@ import pytest
 # the face-and-liveness suites test the face sign-in, which ships switched off (voice-only);
 # tests of the voice-only setup pass face_auth=False themselves
 os.environ.setdefault("JARVIS_FACE_AUTH", "1")
+# ... and the local-model suites test the Ollama brain; Gemini tests build their brain explicitly
+os.environ.setdefault("JARVIS_LLM_PROVIDER", "ollama")
+os.environ.setdefault("JARVIS_EMBED_MODEL", "bge-m3")
 
 from jarvis.config import REPO_ROOT, Settings
 

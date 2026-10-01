@@ -67,7 +67,7 @@ def issues(status: dict, data_dir: Path | None = None, perf: dict | None = None)
             out.append({"id": "llm", "level": "error", "title": "Local AI offline — I can only do instant commands",
                         "fix": "Start Ollama from Settings → Models (or install it from ollama.com/download)."})
     mem = models.get("memory", "")
-    if mem.startswith("word match only"):
+    if mem.startswith("word match only") and "off (" not in mem:
         out.append({"id": "memory", "level": "warn", "title": "Memory recall by word match only",
                     "fix": "Run: ollama pull bge-m3 — then restart for meaning-based recall."})
     denied = status.get("files_denied") or []

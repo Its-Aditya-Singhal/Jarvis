@@ -2,8 +2,9 @@
 
 ``install()`` wraps socket connect, datagram sends and DNS lookups for the
 whole backend process. Loopback (the UI, Ollama on 127.0.0.1) and Unix sockets always pass.
-Anything else is recorded, and refused while offline mode is on (the default:
-all models are on disk, so nothing needs the network). A separate observer
+Anything else is recorded, and refused while offline mode is on (the default), except the
+online services the owner switched on in Settings (``services``: the Gemini API with a key
+saved, Google APIs once Gmail/Drive/Calendar are connected); those are recorded too. A separate observer
 lists live connections of this process and of the Ollama server (a different
 process the guard can't wrap) so the dashboard shows what is actually open.
 """
@@ -48,6 +49,9 @@ class NetGuard:
         self._installed = False
         self._orig: dict[str, Callable] = {}
         self._local = threading.local()  # a model download on this thread: allowed domains + their addresses
+        # domains of the online services the owner switched on (any thread), and their addresses
+        self.services: Callable[[], tuple[str, ...]] = lambda: ()
+        self._service_addrs: set[str] = set()
 
     # -- decisions -----------------------------------------------------------------
     @contextmanager
@@ -69,9 +73,22 @@ class NetGuard:
         return host.strip("[]").split("%")[0] in self._local.addrs
 
     def _resolved(self, host: str, infos) -> None:
-        """Remember the addresses a download domain resolved to (see ``allow_download``)."""
+        """Remember the addresses a download or service domain resolved to (see ``allow_download``)."""
+        addrs = {str(i[4][0]).split("%")[0] for i in infos if i and len(i) > 4}
         if getattr(self._local, "domains", ()) and host_matches(host, self._local.domains):
-            self._local.addrs.update(str(i[4][0]).split("%")[0] for i in infos if i and len(i) > 4)
+            self._local.addrs.update(addrs)
+        if self._service_ok(host, "dns"):
+            with self._lock:
+                self._service_addrs.update(addrs)
+
+    def _service_ok(self, host: str, what: str) -> bool:
+        domains = tuple(d.lower() for d in self.services())
+        if not domains:
+            return False
+        if what == "dns":
+            return host_matches(host, domains)
+        with self._lock:
+            return host.strip("[]").split("%")[0] in self._service_addrs
 
     def check(self, host: str, port: int | None, what: str) -> None:
         if is_local(host):
@@ -80,6 +97,12 @@ class NetGuard:
             if what == "dns":
                 with self._lock:
                     self.attempts.appendleft({"ts": time.time(), "host": host, "port": port, "what": "model download",
+                                              "blocked": False})
+            return
+        if self._service_ok(host, what):
+            if what == "dns":
+                with self._lock:
+                    self.attempts.appendleft({"ts": time.time(), "host": host, "port": port, "what": "online service",
                                               "blocked": False})
             return
         blocked = bool(self.offline())

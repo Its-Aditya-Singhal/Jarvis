@@ -177,6 +177,7 @@ def test_auto_mode_follows_the_power_source():
 
 def test_power_change_switches_mode(settings):
     svc, *_ = make(settings, [])
+    svc.prefs.set("memory.suggestions", True)  # off by default (each is an extra AI request)
     svc.brain.override, svc.brain.installed = None, ["qwen2.5:7b", "qwen2.5:3b"]
     svc.brain.installed_models = lambda: svc.brain.installed
     svc.perf.on_battery = True
@@ -311,3 +312,24 @@ def test_exporting_to_a_folder_puts_the_file_inside_it(settings, tmp_path):
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     with pytest.raises(ValueError):
         validate_export_path(str(settings.data_dir), settings.data_dir)  # the app's own folder, still refused
+
+
+def test_offline_guard_lets_switched_on_services_through():
+    """Offline mode still reaches the online services the owner turned on (Gemini, Google), and only those."""
+    on = {"services": ()}
+    g = NetGuard(offline=lambda: True)
+    g.services = lambda: on["services"]
+    with pytest.raises(OSError, match="offline mode"):
+        g.check("generativelanguage.googleapis.com", 443, "dns")
+    on["services"] = ("generativelanguage.googleapis.com",)
+    g.check("generativelanguage.googleapis.com", 443, "dns")
+    g._resolved("generativelanguage.googleapis.com", [(2, 1, 6, "", ("142.250.1.1", 443))])
+    g.check("142.250.1.1", 443, "connect")  # its address passes
+    with pytest.raises(OSError, match="offline mode"):
+        g.check("evil.example.com", 443, "dns")
+    with pytest.raises(OSError, match="offline mode"):
+        g.check("93.184.215.14", 443, "connect")
+    on["services"] = ()  # switched off again: its addresses are refused too
+    with pytest.raises(OSError, match="offline mode"):
+        g.check("142.250.1.1", 443, "connect")
+    assert g.recent()[-1] == {**g.recent()[-1], "host": "generativelanguage.googleapis.com", "blocked": True}

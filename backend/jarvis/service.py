@@ -201,8 +201,8 @@ class AssistantService:
         if self.brain is not None and self.tools is not None and (apps := self.tools.apps) is not None:
             self.brain.is_app = lambda name: apps.resolve(name) is not None
         if (brain := self.brain) is not None and self.tools is not None:
-            self.tools.agent = ScriptAgent(lambda msgs, schema: brain.client.chat_json(
-                brain.model, msgs, schema, temperature=0.1, num_predict=700))
+            self.tools.agent = ScriptAgent(lambda msgs, schema: brain.chat(
+                msgs, schema, temperature=0.1, num_predict=700))
         self._delayed: dict[str, Delayed] = {}
         self._delayed_lock = threading.Lock()
         self.memory: Memory | None = memory_factory(self) if memory_factory else None
@@ -324,7 +324,7 @@ class AssistantService:
         self.s.process_fps = min(mode.face_fps, profile().max_face_fps)
         notes = []
         b = self.brain
-        if b is not None and hasattr(b, "override"):
+        if b is not None and hasattr(b, "override") and not getattr(b, "gemini", False):
             want = self.fast_model() if mode.llm == "fast" else None
             if want and want not in (b.installed or b.installed_models()):
                 notes.append(f"fast model {want} not installed (ollama pull {want})")

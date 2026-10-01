@@ -95,7 +95,11 @@ class Settings(BaseSettings):
     tts_speed: float = 1.0
     followup_s: float = 8.0  # after "<name>" alone, listen this long without the name
 
-    # Local LLM (Ollama)
+    # The brain: "gemini" (Google's Gemini API, free tier: nothing runs on the Mac; the key and the
+    # model names are set in Settings → AI) or "ollama" (a local model; opt-in, uses gigabytes)
+    llm_provider: str = "gemini"
+
+    # Local LLM (Ollama) — only used when the provider is "ollama"
     llm_model: str = Field(default_factory=lambda: profile().llm_model)  # by the Mac's memory; the owner can switch
     ollama_host: str = "127.0.0.1:11434"
     ollama_models_dir: Path | None = _default_ollama_models_dir()  # None = Ollama's own default
@@ -107,7 +111,9 @@ class Settings(BaseSettings):
 
     # Memory
     memory_enabled: bool = True
-    embed_model: str = "bge-m3"  # multilingual sentence embeddings via Ollama
+    # meaning-based memory recall needs a local embedding model (bge-m3 via Ollama, ~1.2 GB loaded):
+    # off by default to keep JARVIS light; recall then matches words. JARVIS_EMBED_MODEL=bge-m3 turns it on
+    embed_model: str = ""
 
     # Auth levels + fusion (see jarvis/auth/levels.py)
     fusion_enabled: bool = True

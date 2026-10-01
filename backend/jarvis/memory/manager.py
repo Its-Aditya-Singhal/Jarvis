@@ -133,6 +133,9 @@ class Memory:
 
     # -- embeddings ---------------------------------------------------------------
     def embed(self, texts: list[str]) -> list[np.ndarray] | None:
+        if not self.embed_model:
+            self.embed_error = "off (word matching keeps JARVIS light)"
+            return None
         if self.client is None or not texts:
             return None
         try:
