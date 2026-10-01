@@ -62,6 +62,15 @@ TOOLS: dict[str, tuple[str, str]] = {
                      "kind: pdf|image|screenshot|document|spreadsheet|presentation|video|audio|archive|any; when: optional today|yesterday|this week|last week|this month|last N days|ISO date; folder: optional downloads|desktop|documents; query: optional words from the file name"),
     "files.reveal": ("Show a file in Finder", "same args as files.recent (the newest match); no args = the file just found"),
     "files.trash": ("Move one file to the Trash", "same args as files.recent (the newest match); no args = the file just found"),
+    "email.unread": ("How many unread emails and from whom (Gmail)", "none"),
+    "email.summary": ("Summarise recent emails in the inbox (Gmail)", "count: integer, default 10; from: optional sender name or address; query: optional Gmail search words"),
+    "email.read": ("Read / tell what one email says: the newest one matching (\"what did Rahul mail me\")", "from: optional sender name, or him/her for the person just discussed; query: optional search words"),
+    "email.draft": ("Write an email and save it as a Gmail draft (not sent)", "to: name, email address, or him/her for the person just discussed; about: what it should say, in the user's words"),
+    "email.send": ("Send an email (it is read back and the user must confirm first). With no about: sends the latest draft", "to: name, address or him/her; about: what it should say (omit to send the draft just written)"),
+    "drive.search": ("Find files in Google Drive", "query: words from the file name or contents"),
+    "drive.recent": ("List the latest files in Google Drive", "none"),
+    "drive.summarize": ("Read and summarise a Google Drive document", "query: the file's name (omit for the file just found)"),
+    "drive.open": ("Open a Google Drive file in the browser", "query: the file's name (omit for the file just found)"),
     "wait": ("Wait before doing the actions that follow it (\"close it after 10 seconds\": wait, then app.close)", "seconds: integer"),
     "mac.do": ("Anything else a Mac app can do that no tool above covers (Reminders, Music playlists, Messages, Mail, Safari tabs, "
                "Finder windows, Wi-Fi, Do Not Disturb…). JARVIS writes an AppleScript for it and asks the user before changing anything",
@@ -131,6 +140,8 @@ Rules:
 - A line "[Remembered: ...]" before the user's words lists facts the user earlier asked you to remember, in their own words ("my", "I" = the user). Use them to answer questions; never call memory.remember for them again.
 - Only use memory.remember when the user explicitly asks you to remember something ("remember", "yaad rakhna", "don't forget").
 - Questions about the user's own life (family, preferences, plans, where things are): answer ONLY from the [Remembered: ...] line. If the answer isn't there, say you don't know yet and that they can ask you to remember it. Never guess personal details. Never say you remember something unless it is in [Remembered: ...].
+- Email and Google Drive: "mail", "email", "inbox" mean Gmail; "drive", "google docs" mean Google Drive (files.search is only for files on this Mac). "him", "her", "them" in an email request mean the person from the conversation: use their name from earlier results, or pass the pronoun. "Send it" right after a draft is email.send with no about.
+- A line "result" in your earlier answers says what actually happened; use it to resolve follow-ups.
 - The user is {owner}."""
 
 
@@ -165,7 +176,7 @@ FEWSHOT: list[tuple[str, str, dict]] = [
                   {"tool": "system.volume", "args": {"change": -10}}], "reply": ""}),
     ("en", "Could you tell me what time it is?", {"actions": [], "reply": "It's 8:00 PM."}),
     ("en", "Who wrote Hamlet?", {"actions": [], "reply": "Hamlet was written by William Shakespeare."}),
-    ("hi", "आज मौसम कैसा है?", {"actions": [], "reply": "मेरे पास इंटरनेट नहीं है, इसलिए अभी के मौसम की जानकारी नहीं है।"}),
+    ("hi", "आज मौसम कैसा है?", {"actions": [], "reply": "अभी के मौसम की जानकारी मेरे पास नहीं है, कहें तो वेब पर खोज दूँ।"}),
     ("en", "Open WhatsApp and close it after 10 seconds",
      {"actions": [{"tool": "app.open", "args": {"name": "WhatsApp"}}, {"tool": "wait", "args": {"seconds": 10}},
                   {"tool": "app.close", "args": {"name": "WhatsApp"}}], "reply": ""}),
@@ -173,6 +184,16 @@ FEWSHOT: list[tuple[str, str, dict]] = [
      {"actions": [{"tool": "mac.do", "args": {"task": "Add a reminder 'Buy milk' in the Reminders app"}},
                   {"tool": "mac.do", "args": {"task": "Play the playlist named 'Workout' in the Music app"}}], "reply": ""}),
     ("en", "Buy me a new phone on Amazon", {"actions": [], "reply": "Sorry, I can't make purchases."}),
+    ("en", "Did Rahul send me anything about the trip?",
+     {"actions": [{"tool": "email.read", "args": {"from": "Rahul", "query": "trip"}}], "reply": ""}),
+    ("en", "Okay, mail him back saying I'll be there by 7",
+     {"actions": [{"tool": "email.send", "args": {"to": "him", "about": "Confirm I'll be there by 7"}}], "reply": ""}),
+    ("hinglish", "mere last 5 mails ka summary do",
+     {"actions": [{"tool": "email.summary", "args": {"count": 5}}], "reply": ""}),
+    ("en", "Write a draft to priya@example.com asking for the slides from Monday",
+     {"actions": [{"tool": "email.draft", "args": {"to": "priya@example.com", "about": "Ask for the slides from Monday's meeting"}}], "reply": ""}),
+    ("en", "What does the project plan doc in my drive say?",
+     {"actions": [{"tool": "drive.summarize", "args": {"query": "project plan"}}], "reply": ""}),
 ]
 
 
@@ -381,6 +402,23 @@ def describe(a: Action, language: str, now: datetime) -> str:
         return f"{wait_phrase(secs, hi)} रुकना" if hi else f"waiting {wait_phrase(secs, False)}"
     if a.tool == "mac.do" and text("task"):
         return f"“{text('task')}”" if hi else f"doing “{text('task')}”"
+    if a.tool == "email.unread":
+        return "नए ईमेल देखना" if hi else "checking your unread email"
+    if a.tool == "email.summary":
+        return "ईमेल का सारांश" if hi else "summarising your email"
+    if a.tool == "email.read":
+        return (f"{text('from')} का ईमेल पढ़ना" if hi else f"reading the email from {text('from')}") if text("from") else (
+            "ईमेल पढ़ना" if hi else "reading your latest email")
+    if a.tool in ("email.draft", "email.send"):
+        to = text("to") or ("उन्हें" if hi else "them")
+        if a.tool == "email.draft":
+            return f"{to} के लिए ड्राफ़्ट" if hi else f"a draft to {to}"
+        return f"{to} को ईमेल भेजना" if hi else f"sending an email to {to}"
+    if a.tool.startswith("drive."):
+        q = text("query")
+        verb = {"drive.search": ("Drive में ढूँढना", "searching your Drive"), "drive.recent": ("Drive की नई फ़ाइलें", "your latest Drive files"),
+                "drive.summarize": ("Drive फ़ाइल का सारांश", "summarising a Drive file"), "drive.open": ("Drive फ़ाइल खोलना", "opening a Drive file")}[a.tool]
+        return (verb[0] + (f": “{q}”" if q else "")) if hi else (verb[1] + (f": “{q}”" if q else ""))
     if a.tool == "files.search" and text("query"):
         return f"फ़ाइलों में “{text('query')}” ढूँढना" if hi else f"a file search for “{text('query')}”"
     generic = {"alarm.set": "अलार्म", "timer.set": "टाइमर", "calendar.create": "कैलेंडर इवेंट"}

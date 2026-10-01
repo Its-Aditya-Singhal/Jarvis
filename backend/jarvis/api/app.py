@@ -59,6 +59,7 @@ from ..speech_service import SpeechService
 from ..tools.apple import AppleBridge, AppleError
 from ..tools.apps import AppIndex
 from ..tools.files import FileSearch, FolderError
+from ..tools.google import GoogleTools
 from ..tools.mac import MacControl
 from ..tools.runner import ToolRunner
 from ..tools.scheduler import AlarmScheduler
@@ -351,6 +352,11 @@ def create_app(
             bus.log("Google account connected", "ok")
 
     gauth.on_change = google_changed
+    if svc.tools is not None:
+        mac_ctl = svc.tools.mac
+        gtools = GoogleTools(gauth, names=lambda: (svc.assistant_name, svc.owner_name), open_url=mac_ctl.open_url)
+        gtools.writer = svc.brain
+        svc.tools.google = gtools
     started_without_models = bool(models.needed())  # this process loaded none of them
 
     def llm_wanted() -> list[dict]:

@@ -540,7 +540,7 @@ llm  | none | explain recursion in one line
 llm  | none | तुम कौन हो
 llm  | none | aaj mausam kaisa hai
 llm  | none | mujhe ek joke sunao
-llm  | mac.do | Send an email to my boss saying I'm late
+llm  | email.send | Send an email to my boss saying I'm late
 llm  | none | order a pizza
 llm  | none | delete all my files
 llm  | none | run rm -rf on my home folder
@@ -603,10 +603,35 @@ llm  | mac.do | play my workout playlist
 llm  | mac.do | turn on do not disturb
 llm  | mac.do | create a folder called Projects on my desktop
 llm  | mac.do | what's the title of the tab open in safari
-llm  | mac.do | how many unread emails do I have
+fast | email.unread() | how many unread emails do I have
 llm  | mac.do | turn off wifi
 llm  | mac.do | minimise all windows
 llm  | mac.do | reminder list mein doodh add kar do
 llm  | none | empty the trash
 llm  | none | show me my saved passwords
 llm  | none | install homebrew for me
+
+# -- Gmail and Google Drive -------------------------------------------------------------------
+fast | email.summary(count=10) | summarize my last 10 emails
+fast | email.summary(count=10) | Summarise my emails
+fast | email.summary(count=5) | summarize my last five mails for me
+fast | email.summary(count=5) | mere last 5 mails ka summary do
+fast | email.unread() | any new mail
+fast | email.unread() | do I have any new emails
+fast | email.unread() | check my email
+fast | email.unread() | koi naya mail aaya kya
+fast | email.read(from=Rahul) | what did Rahul mail me
+fast | email.read(from=My friend) | what did my friend mail me
+fast | email.read() | read my latest email
+fast | email.read(from=Priya, query=Trip) | read the last email from Priya about the trip
+fast | email.read(from=Rahul) | Rahul ne kya mail kiya
+fast | email.send() | send it
+fast | drive.search(query=Budget sheet) | find budget sheet in my drive
+fast | drive.search(query=Tax return) | search my drive for tax return
+fast | drive.recent() | what's new in my drive
+fast | calendar.list(date=2026-09-28) | what's on my calendar tomorrow
+llm  | email.send | okay send him a mail confirming my presence
+llm  | email.draft | draft a mail to Rahul saying the meeting moved to Friday
+llm  | email.summary | what's been going on in my inbox this week
+llm  | email.read | did the bank write to me about my card
+llm  | drive.summarize | summarise the project plan document in my drive

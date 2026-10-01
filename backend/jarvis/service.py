@@ -924,6 +924,9 @@ class AssistantService:
                 for info, res in zip(actions, results):
                     info.update(ok=res.ok, result=res.say, data=res.data)
                 reply = " ".join(res.say for res in results)
+                note = getattr(self.brain, "note_result", None)
+                if note is not None:
+                    note(reply)
             result = {"reply": reply, "language": r.language, "actions": actions, "ok": r.ok, "latency_s": round(r.latency_s, 2)}
             kinds = ", ".join(a.tool for a in r.actions) or "conversation"
             how = "instantly" if r.fast else f"in {r.latency_s:.1f} s"
@@ -1154,6 +1157,8 @@ class AssistantService:
         plan = self.tools.plan(action, lang)
         if isinstance(plan, ToolResult):
             return plan
+        if plan.ask:  # its own question (an email is read back in full before it is sent)
+            return self._open_pending(plan, lang, plan.ask, trust)
         if plan.tool == "files.trash":
             ask = f"{plan.what} ट्रैश में डाल दूँ?" if hi else f"Move {plan.what} to the Trash?"
         else:
@@ -1173,7 +1178,8 @@ class AssistantService:
 
     def _open_pending(self, plan: Plan, lang: str, say: str, trust: Trust,
                       run: Callable[[], ToolResult] | None = None) -> ToolResult:
-        ttl = self.s.confirm_ttl_s
+        # a long question (an email read back aloud) takes a while to hear before it can be answered
+        ttl = self.s.confirm_ttl_s + max(0, len(say.split()) - 20) / 2.5
         if trust.needs_fresh_liveness:
             self._demand_liveness = "Fresh liveness check before a deletion"
             ttl += 20.0  # time for the challenge
@@ -1181,7 +1187,7 @@ class AssistantService:
         pid = secrets.token_hex(4)
         with self._pending_lock:
             self._pending = Pending(pid, plan, lang, say, self.clock() + ttl, run)
-        detail = plan.script.script if plan.script is not None else ""
+        detail = plan.script.script if plan.script is not None else plan.detail
         self.bus.publish({"type": "confirm", "id": pid, "tool": plan.tool, "text": say, "expires_s": ttl, "detail": detail})
         self.bus.log(f"Waiting for confirmation: {plan.tool}")
         return ToolResult(plan.tool, True, say, {"pending": pid})
@@ -1204,6 +1210,9 @@ class AssistantService:
                 return self._answer("ठीक है, कुछ नहीं बदला।" if hi else "Okay, nothing changed.", ok=True)
             if p.plan.tool == "mac.do":  # a generated script, not a deletion
                 return self._answer("ठीक है, स्क्रिप्ट नहीं चलाई।" if hi else "Okay, I won't run it.", ok=True)
+            if p.plan.tool == "email.send":
+                return self._answer("ठीक है, नहीं भेजा। ड्राफ़्ट Gmail में है।" if hi
+                                    else "Okay, not sent. The draft stays in Gmail.", ok=True)
             return self._answer("ठीक है, नहीं हटाया।" if hi else "Okay, I won't delete it.", ok=True)
         if source == "voice" and verdict != "verified":
             # a short "yes" carries too little voice to identify the speaker

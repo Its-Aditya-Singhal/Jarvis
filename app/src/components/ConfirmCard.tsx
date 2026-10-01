@@ -42,6 +42,7 @@ export default function ConfirmCard() {
     }
   };
 
+  const email = confirm.tool === "email.send";
   return (
     <div className="confirm" ref={card}>
       <div className="confirm-head">
@@ -51,13 +52,19 @@ export default function ConfirmCard() {
             ? "CONFIRM DELETION"
             : confirm.tool === "mac.do"
               ? "CONFIRM SCRIPT"
-              : "CONFIRM"}
+              : email
+                ? "CONFIRM EMAIL"
+                : "CONFIRM"}
         </span>
         <span>{Math.ceil(left)} s</span>
       </div>
-      <div className="confirm-text">{confirm.text}</div>
+      {/* an email's spoken read-back is the draft itself: on screen it is shown once, below */}
+      <div className="confirm-text">{email ? "Send this email? Say “yes, send it” or click Send." : confirm.text}</div>
       {confirm.detail && (
-        <pre className="confirm-script" aria-label="The script that will run">
+        <pre
+          className={email ? "confirm-script confirm-mail" : "confirm-script"}
+          aria-label={email ? "The email that will be sent" : "The script that will run"}
+        >
           {confirm.detail}
         </pre>
       )}
@@ -66,7 +73,7 @@ export default function ConfirmCard() {
       </div>
       <div className="confirm-actions">
         <button className="btn danger" disabled={busy} onClick={() => answer(true)}>
-          CONFIRM
+          {email ? "SEND" : "CONFIRM"}
         </button>
         <button className="btn ghost" disabled={busy} onClick={() => answer(false)}>
           CANCEL

@@ -42,7 +42,7 @@ WAKE_HEAD_S = 2.5
 UNAUTHORIZED_EVENT_GAP_S = 20.0
 STOP_WORDS = {"stop", "dismiss", "enough", "okay", "ok", "bas", "band", "ruko", "chup", "बस", "बंद", "रुको", "चुप"}
 YES_WORDS = {"yes", "yeah", "yep", "confirm", "confirmed", "sure", "haan", "han", "haa", "ha", "ji", "हाँ", "हां", "हा", "जी"}
-YES_PHRASES = ("go ahead", "do it", "delete it", "kar do", "kardo", "कर दो", "कर दीजिए", "हटा दो")
+YES_PHRASES = ("go ahead", "do it", "delete it", "send it", "kar do", "kardo", "bhej do", "कर दो", "कर दीजिए", "हटा दो", "भेज दो")
 NO_WORDS = {"no", "nope", "cancel", "don't", "dont", "nahi", "nahin", "mat", "नहीं", "नही", "मत", "रहने"}
 
 

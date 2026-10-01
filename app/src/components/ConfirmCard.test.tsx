@@ -93,6 +93,18 @@ describe("ConfirmCard", () => {
       vi.useRealTimers();
     }
   });
+
+  it("shows an email once, as the draft, with a Send button", () => {
+    render(<ConfirmCard />);
+    fake.emit({ type: "auth", ...approvedAuth() });
+    const detail = "To: Rahul <rahul@example.com>\nSubject: Friday\n\nYes, I'll be there at 8.";
+    const text = "Here's the email to Rahul. Subject: Friday. Yes, I'll be there at 8. Shall I send it?";
+    fake.emit({ type: "confirm", id: "e1", tool: "email.send", text, expires_s: 60, detail });
+    expect(screen.getByText(/CONFIRM EMAIL/)).toBeInTheDocument();
+    expect(screen.getByLabelText("The email that will be sent")).toHaveTextContent("Subject: Friday");
+    expect(screen.queryByText(/Here's the email to Rahul/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "SEND" })).toBeInTheDocument();
+  });
 });
 
 it("a new confirmation is scrolled into view", async () => {

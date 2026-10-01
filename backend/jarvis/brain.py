@@ -29,8 +29,8 @@ personal_question = Memory.sounds_personal
 
 log = logging.getLogger(__name__)
 
-HISTORY_TURNS = 4
-HISTORY_TTL_S = 300.0
+HISTORY_TURNS = 6
+HISTORY_TTL_S = 600.0  # longer than the follow-up window: "him", "that mail", "send it" still resolve
 STATUS_TTL_S = 10.0
 
 
@@ -318,6 +318,24 @@ class Brain:
                     if name:
                         return name
         return None
+
+    def note_result(self, text: str) -> None:
+        """What the latest command's tools actually did ("Rahul wrote about dinner on Friday"), kept
+        with it in the context so a follow-up ("mail him back") can refer to it."""
+        text = " ".join(text.split())[:400]
+        if not text:
+            return
+        with self._lock:
+            if not self._history:
+                return
+            t, lang, user, record = self._history[-1]
+            try:
+                data = json.loads(record)
+            except ValueError:
+                return
+            if isinstance(data, dict):
+                data["result"] = text
+                self._history[-1] = (t, lang, user, json.dumps(data, ensure_ascii=False))
 
     def fast_actions(self, text: str) -> list[Action] | None:
         """The actions of a command the pattern matcher understands (None: it needs the model)."""

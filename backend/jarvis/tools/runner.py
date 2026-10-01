@@ -22,11 +22,13 @@ from typing import Any
 from rapidfuzz import fuzz
 
 from ..database.db import Database
+from ..google.auth import GoogleError
 from ..llm.intents import Action, clock_phrase, day_phrase, parse_local, wait_phrase
 from .agent import Script, ScriptAgent, ScriptError
 from .apple import AppleBridge, AppleError
 from .apps import AppIndex
 from .files import FileSearch, FolderError, Found
+from .google import Draft, GoogleTools
 from .mac import SETTINGS_TITLES, SITES, MacControl, settings_page
 from .store import Event, ToolStore
 
@@ -47,7 +49,11 @@ LEVELS = {
     "files.recent": 1, "files.reveal": 2, "files.trash": 3,  # the Trash is recoverable, but still a deletion
     "wait": 1,  # only delays the actions after it, which are checked when they run
     "mac.do": 2,  # a generated script: runs directly only if it just reads, else it waits for confirmation
+    # Google account: reading mail or files needs the owner's voice; sending waits for a confirmation
+    "email.unread": 2, "email.summary": 2, "email.read": 2, "email.draft": 2, "email.send": 3,
+    "drive.search": 2, "drive.recent": 2, "drive.summarize": 2, "drive.open": 2,
 }
+GOOGLE_TOOLS = {t for t in LEVELS if t.startswith(("email.", "drive."))}
 # the chat apps "ai.ask" can fill in: app name, website that pre-fills a prompt (None: it would send it), home page
 AI_SERVICES = {
     "claude": ("Claude", "https://claude.ai/new?q={}", "https://claude.ai/new"),
@@ -77,6 +83,9 @@ class Plan:
     hi: bool
     path: str = ""  # files.trash: the exact file shown in the confirmation
     script: Script | None = None  # mac.do: the generated script, shown in full in the confirmation
+    ask: str = ""  # the spoken question, when it isn't "Delete …?" (an email's read-back)
+    detail: str = ""  # shown in full in the confirmation card (the email)
+    ref: Any = None  # email.send: the Gmail draft
 
 
 def _quote(s: str, n: int = 60) -> str:
@@ -135,6 +144,7 @@ class ToolRunner:
         self.agent: ScriptAgent | None = None  # writes AppleScript for mac.do, set when the language model is on
         self.stopwatch_start: datetime | None = None  # running stopwatch (kept in memory only)
         self.stopwatch_held = 0.0  # seconds counted before the latest start (stop, then start resumes)
+        self.google: GoogleTools | None = None  # Gmail, Drive, Google Calendar (set when an account is wired up)
 
     # -- Apple sync settings --------------------------------------------------------
     @property
@@ -146,12 +156,19 @@ class ToolRunner:
         return self.db.get("apple_calendar_name") or ""
 
     @property
+    def google_calendar(self) -> bool:
+        """Google Calendar connected: events are added there too, and listed from it."""
+        return self.google is not None and self.google.auth.has("calendar")
+
+    @property
     def notes_sync(self) -> bool:
         return self.db.get("apple_notes_sync") == "1"
 
     # -- dispatch ----------------------------------------------------------------------
     def run(self, action: Action, lang: str) -> ToolResult:
         hi = lang != "en"
+        if action.tool in GOOGLE_TOOLS and action.tool != "email.send":
+            return self._google(action, hi)
         handler = getattr(self, "_" + action.tool.replace(".", "_"), None)
         if handler is None:
             return ToolResult(action.tool, False, "यह टूल उपलब्ध नहीं है।" if hi else "That tool isn't available.")
@@ -171,6 +188,11 @@ class ToolRunner:
 
     def execute(self, plan: Plan) -> ToolResult:
         hi = plan.hi
+        if plan.tool == "email.send":
+            if self.google is None:
+                return ToolResult("email.send", False, "Gmail isn't connected.")
+            r = self.google.send(plan.ref, hi)
+            return ToolResult("email.send", r.ok, r.say, r.data)
         if plan.tool == "files.trash":
             return self._files_trash(plan)
         if plan.tool == "mac.do":
@@ -189,6 +211,38 @@ class ToolRunner:
         # copies synced to Apple's apps are left alone: this app never deletes there
         say = f"{plan.what} हटा दिया है।" if hi else f"Deleted {plan.what}."
         return ToolResult(plan.tool, True, say, {"id": plan.item_id})
+
+    # -- Google account ---------------------------------------------------------------------------
+    def _google(self, action: Action, hi: bool) -> ToolResult:
+        if self.google is None:
+            return ToolResult(action.tool, False, "Google अकाउंट जुड़ा नहीं है।" if hi
+                              else "Your Google account isn't connected — connect it in Settings → Google account.")
+        try:
+            r = self.google.run(action.tool, action.args, hi)
+        except Exception:
+            log.exception("tool %s failed", action.tool)
+            return ToolResult(action.tool, False, "यह काम करते समय गड़बड़ हो गई।" if hi else "Something went wrong doing that.")
+        return ToolResult(action.tool, r.ok, r.say, r.data)
+
+    def _plan_email_send(self, args: dict, hi: bool) -> Plan | ToolResult:
+        """Write (or reuse) the draft and read it back: nothing is sent before the confirmation."""
+        if self.google is None:
+            return ToolResult("email.send", False, "Google अकाउंट जुड़ा नहीं है।" if hi
+                              else "Your Google account isn't connected — connect it in Settings → Google account.")
+        try:
+            d = self.google.plan_send(args, hi)
+        except GoogleError as exc:
+            return ToolResult("email.send", False, f"{exc}.")
+        if not isinstance(d, Draft):
+            return ToolResult("email.send", d.ok, d.say, d.data)
+        body = " ".join(d.body.split())
+        if hi:
+            ask = f"{d.to_name} को यह ईमेल भेजूँ? विषय: {d.subject}। {body} — भेजने के लिए “हाँ, भेज दो” कहिए या Confirm दबाइए।"
+        else:
+            ask = (f"Here's the email to {d.to_name}. Subject: {d.subject}. {body} "
+                   "Shall I send it? Say “yes, send it” or click Confirm.")
+        what = f"{d.to_name} <{d.to_addr}> को ईमेल" if hi else f"an email to {d.to_name} <{d.to_addr}>"
+        return Plan("email.send", 0, what, hi, ask=ask, detail=d.text(), ref=d)
 
     # -- any command: a generated AppleScript ------------------------------------------------
     def _plan_mac_do(self, args: dict, hi: bool) -> Plan | ToolResult:
@@ -343,17 +397,29 @@ class ToolRunner:
                 synced = True
             except AppleError as exc:
                 err = str(exc)
+        gsynced, gerr = False, None
+        if self.google_calendar:
+            assert self.google is not None
+            try:
+                self.google.calendar.create(title, start, end)
+                gsynced = True
+            except GoogleError as exc:
+                gerr = str(exc)
         self.on_change()
         day = day_phrase(start.date(), now.date(), hi)
+        also = [n for n, ok in (("Google Calendar", gsynced), ("Apple Calendar", synced)) if ok]
         if hi:
             say = f"{day} {clock_phrase(start, True)} {_quote(title)} कैलेंडर में जोड़ दिया है" + (
-                ", Apple Calendar में भी।" if synced else "।")
+                f", {' और '.join(also)} में भी।" if also else "।")
         else:
             say = f"Added {_quote(title)} {day} at {clock_phrase(start, False)}" + (
-                ", also in Apple Calendar." if synced else ".")
+                f", also in {' and '.join(also)}." if also else ".")
         if err:
             say += (" Apple Calendar से सिंक नहीं हो पाया।" if hi else f" Apple Calendar sync failed: {err}.")
-        return ToolResult("calendar.create", True, say, {"id": eid, "start": start.isoformat(timespec="minutes"), "apple": synced})
+        if gerr:
+            say += (" Google Calendar में नहीं जुड़ पाया।" if hi else f" Google Calendar failed: {gerr}.")
+        return ToolResult("calendar.create", True, say, {"id": eid, "start": start.isoformat(timespec="minutes"),
+                                                         "apple": synced, "google": gsynced})
 
     def events_on(self, day: date) -> tuple[list[Event], str | None]:
         d0 = datetime.combine(day, datetime.min.time())
@@ -367,6 +433,15 @@ class ToolRunner:
                         events.append(Event(None, ae.title, ae.start, ae.start, "apple", ae.uid))
             except AppleError as exc:
                 err = str(exc)
+        if self.google_calendar:
+            assert self.google is not None
+            try:
+                seen = {(e.title.lower(), e.start) for e in events}  # an event added here is in both
+                for ge in self.google.calendar.events_on(day):
+                    if (ge.title.lower(), ge.start) not in seen:
+                        events.append(Event(None, ge.title, ge.start, ge.end, "google", None))
+            except GoogleError as exc:
+                err = f"{err}; Google Calendar: {exc}" if err else f"Google Calendar: {exc}"
         return sorted(events, key=lambda e: e.start), err
 
     def _calendar_list(self, args: dict, hi: bool) -> ToolResult:
@@ -387,7 +462,7 @@ class ToolRunner:
                 say = (f"You have {len(events)} event{'s' if len(events) != 1 else ''} {dp}: {_join(items, False)}"
                        + (f", and {more} more." if more else "."))
         if err:
-            say += " Apple Calendar नहीं पढ़ पाया।" if hi else f" (Apple Calendar couldn't be read: {err}.)"
+            say += " कैलेंडर पूरा नहीं पढ़ पाया।" if hi else f" (Couldn't read everything: {err}.)"
         data = {"date": day.isoformat(), "events": [
             {"title": e.title, "start": e.start.isoformat(timespec="minutes"), "source": e.source} for e in events]}
         return ToolResult("calendar.list", True, say, data)

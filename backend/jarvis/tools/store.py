@@ -60,7 +60,7 @@ class Event:
     title: str
     start: datetime
     end: datetime
-    source: str = "local"  # local | apple
+    source: str = "local"  # local | apple | google
     apple_uid: str | None = None
 
 

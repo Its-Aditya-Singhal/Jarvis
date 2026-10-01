@@ -327,6 +327,9 @@ def _one(t: str, now: datetime, is_app: Callable[[str], bool], hi: bool, orig: s
     if m and len(m.group(1).split()) <= 3 and is_app(m.group(1)) and not re.search(rf"\b(?:{ALARM}|{TIMER}|music|song|gaana|gana|volume|awaaz|sound)s?\b", m.group(1)):
         return [Action("app.close", {"name": m.group(1)})], ""
 
+    if (r := _google(t, orig)) is not None:
+        return r
+
     # web search (explicit "google" / "web" / "online" only; "search for X" may mean files)
     m = (re.fullmatch(r"(?:search google for|search the web for|search online for|search on google for|google search(?: for)?|google for|google|look up) (.+?)(?: online| on google)?", t)
          or re.fullmatch(r"(?:search|look up) (.+?) (?:on google|online|on the web|on the internet)", t)
@@ -474,6 +477,53 @@ def _one(t: str, now: datetime, is_app: Callable[[str], bool], hi: bool, orig: s
         if hi:
             return [], f"आज {now.strftime('%A, %d %B %Y')} है।"
         return [], f"Today is {now.strftime('%A, %B')} {now.day}, {now.year}."
+    return None
+
+
+# -- Gmail and Google Drive: the common phrasings cost no AI request to understand -------------
+MAIL = r"(?:e-?mails?|mails?|gmails?|inbox)"
+_WHO = r"([a-z][a-z.'-]*(?: [a-z][a-z.'-]*){0,2})"
+
+
+def _google(t: str, orig: str) -> Parsed | None:
+    if re.fullmatch(rf"(?:do i have |are there |is there |got |have i got )?(?:any )?(?:new|unread) {MAIL}(?: for me)?(?: today)?"
+                    rf"|(?:check|open) (?:my )?{MAIL}|how many (?:unread|new) {MAIL}(?: do i have)?(?: are there)?"
+                    rf"|(?:any|anything) (?:new )?in my inbox|(?:koi )?(?:naya|naye|new) (?:mail|email|e-mail)s? (?:aaya|aaye|hai|hain)(?: kya)?(?: hai)?", t):
+        return [Action("email.unread", {})], ""
+    m = (re.fullmatch(rf"{POLITE}(?:summari[sz]e|give me a summary of|summary of|sum up|go through|brief me on)(?: me)? (?:my |the )?"
+                      rf"(?:(?:last|latest|recent|top|newest) )?(?:{N} )?(?:(?:last|latest|recent|newest) )?{MAIL}(?: for me)?{TAIL}", t)
+         or re.fullmatch(rf"(?:mere |meri )?(?:last |pichhle |pichle )?(?:{N} )?{MAIL} (?:ka |ki )?(?:summary|saransh) (?:do|batao|bolo|sunao)", t))
+    if m:
+        n = _num(m.group(1)) if m.group(1) else 10
+        if n and 1 <= n <= 25:
+            return [Action("email.summary", {"count": n})], ""
+    m = (re.fullmatch(rf"what did {_WHO} (?:e-?mail|mail|write|send) (?:to )?me(?: about (.+))?", t)
+         or re.fullmatch(rf"{POLITE}read (?:me )?(?:my |the )?(?:last|latest|newest|new|most recent) {MAIL}(?: from {_WHO})?(?:(?: about| on) (.+))?", t)
+         or re.fullmatch(rf"{POLITE}read (?:me )?{_WHO}'?s (?:last |latest |new )?{MAIL}", t)
+         or re.fullmatch(rf"{_WHO} ne (?:kya )?(?:mail|email) (?:kiya|bheja)(?: hai)?(?: kya)?", t))
+    if m:
+        who = ((m.group(1) or "") if m.re.groups >= 1 else "").rstrip("'")
+        about = m.group(2) if m.re.groups >= 2 else None
+        if about:
+            about = re.sub(r"^(?:the|my|a) ", "", about)
+        if who in ("my", "the", "me", "it", "that"):
+            return None
+        args: dict = {}
+        if who:
+            args["from"] = _restore(orig, who) or who
+        if about:
+            args["query"] = _restore(orig, about) or about
+        return [Action("email.read", args)], ""
+    if re.fullmatch(r"(?:yes |yeah |okay |ok )?(?:send it|send it now|send (?:the|that|my) (?:draft|e-?mail|mail)|bhej do|send kar do)", t):
+        return [Action("email.send", {})], ""
+    m = (re.fullmatch(rf"{POLITE}(?:find|search for|look for|search) (.+?) (?:in|on) (?:my )?(?:google )?drive", t)
+         or re.fullmatch(rf"{POLITE}search (?:my )?(?:google )?drive for (.+)", t)
+         or re.fullmatch(r"(?:google )?drive (?:mein|me|pe) (.+?) (?:dhundo|dhoondo|search karo|khojo)", t))
+    if m and (q := _restore(orig, m.group(1)) or m.group(1)):
+        return [Action("drive.search", {"query": q})], ""
+    if re.fullmatch(r"(?:show|list|what are|open)(?: me)? (?:my )?(?:recent|latest|newest) (?:files|docs|documents)(?: in| on| from) (?:my )?(?:google )?drive"
+                    r"|what'?s new in my (?:google )?drive|(?:my )?recent (?:google )?drive files", t):
+        return [Action("drive.recent", {})], ""
     return None
 
 
