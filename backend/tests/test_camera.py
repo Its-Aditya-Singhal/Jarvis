@@ -3,6 +3,7 @@
 import threading
 import time
 
+import cv2
 import numpy as np
 
 from jarvis.camera import capture
@@ -41,7 +42,7 @@ def _wait(cond, timeout=3.0):
 
 
 def test_start_right_after_a_background_stop_leaves_the_camera_running(monkeypatch):
-    monkeypatch.setattr(capture.cv2, "VideoCapture", SlowCapture)
+    monkeypatch.setattr(cv2, "VideoCapture", SlowCapture)
     cam = capture.Camera()
     cam.start()
     assert _wait(lambda: cam.status == "active")
@@ -59,7 +60,7 @@ def test_start_right_after_a_background_stop_leaves_the_camera_running(monkeypat
 
 
 def test_no_frame_or_active_status_after_stop(monkeypatch):
-    monkeypatch.setattr(capture.cv2, "VideoCapture", SlowCapture)
+    monkeypatch.setattr(cv2, "VideoCapture", SlowCapture)
     cam = capture.Camera()
     cam.start()
     assert _wait(lambda: cam.latest() is not None)

@@ -74,9 +74,14 @@ class PerfMonitor:
     """Samples the power source and resource use in the background."""
 
     def __init__(self, on_power_change: Callable[[bool], None], power: Callable[[], tuple[bool, int | None]] = read_power,
-                 period_s: float = 5.0, ollama_host: str = "127.0.0.1:11434"):
+                 period_s: float = 5.0, ollama_host: str = "127.0.0.1:11434", idle_period_s: float = 60.0):
         self.on_power_change = on_power_change
         self.on_sample: Callable[[dict], None] = lambda stats: None
+        # someone is looking (a window is subscribed): sample every period_s; otherwise once a minute,
+        # without listing every process's connections (that walk is the costly part)
+        self.watched: Callable[[], bool] = lambda: True
+        self.ollama: Callable[[], bool] = lambda: True  # a local model is in use (else Ollama isn't asked)
+        self.idle_period_s = idle_period_s
         self.ollama_host = ollama_host
         self.power = power
         self.period_s = period_s
@@ -97,12 +102,12 @@ class PerfMonitor:
 
     def _loop(self) -> None:
         n = 0
-        while not self._stop.wait(self.period_s):
+        while not self._stop.wait(self.period_s if self.watched() else self.idle_period_s):
             n += 1
             try:
                 self.stats = self.sample()
                 self.on_sample(self.stats)
-                if n % 4 == 0:  # the power source changes rarely: check every 20 s
+                if n % 4 == 0 or not self.watched():  # the power source changes rarely: every 4th sample
                     on_batt, pct = self.power()
                     self.battery_pct = pct
                     if on_batt != self.on_battery:
@@ -121,12 +126,13 @@ class PerfMonitor:
             self._proc.cpu_percent(None)  # first call primes the counter
         rss = self._proc.memory_info().rss
         vm = psutil.virtual_memory()
+        watched = self.watched()
         return {
-            "external": observe_connections(),
+            "external": observe_connections() if watched else self.stats.get("external", []),
             "system_mem_gb": round(vm.total / 2**30),
             "cpu": round(self._proc.cpu_percent(None) / (psutil.cpu_count() or 1), 1),
             "backend_mb": round(rss / 2**20),
-            "ollama_mb": loaded_models_mb(self.ollama_host),
+            "ollama_mb": loaded_models_mb(self.ollama_host) if self.ollama() else None,
             "system_mem_pct": round(vm.percent, 1),
             "t": time.time(),
         }

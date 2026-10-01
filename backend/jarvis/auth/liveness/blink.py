@@ -15,7 +15,6 @@ from __future__ import annotations
 
 from collections import deque
 
-import cv2
 import numpy as np
 
 # eye contour indices in InsightFace's 2d106det layout
@@ -32,6 +31,7 @@ def eye_openness(
     With ``gray`` (the frame in grayscale) and ``face_bbox`` the appearance cue
     is included; without them only the contour geometry is used.
     """
+    import cv2  # OpenCV is only needed by the face sign-in: loaded when it runs
     if landmarks_106 is None or len(landmarks_106) < 106:
         return None
     ref = None

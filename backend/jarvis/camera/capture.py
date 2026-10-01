@@ -11,8 +11,8 @@ import logging
 import sys
 import threading
 import time
+from typing import Any
 
-import cv2
 import numpy as np
 
 log = logging.getLogger(__name__)
@@ -25,6 +25,7 @@ def request_permission(index: int = 0) -> bool:
     thread would otherwise fail silently on first launch. Blocks until the
     user answers. Returns whether a frame could be read.
     """
+    import cv2  # OpenCV is only needed by the face sign-in: loaded when it runs
     if sys.platform != "darwin":
         return True
     cap = cv2.VideoCapture(index, cv2.CAP_AVFOUNDATION)
@@ -79,7 +80,8 @@ class Camera:
                 return None
             return self._frame
 
-    def _open(self) -> cv2.VideoCapture | None:
+    def _open(self) -> Any:
+        import cv2  # OpenCV is only needed by the face sign-in: loaded when it runs
         backend = cv2.CAP_AVFOUNDATION if sys.platform == "darwin" else cv2.CAP_ANY
         cap = cv2.VideoCapture(self.index, backend)
         if not cap.isOpened():

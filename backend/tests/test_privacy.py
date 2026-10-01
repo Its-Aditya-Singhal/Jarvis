@@ -333,3 +333,20 @@ def test_offline_guard_lets_switched_on_services_through():
     with pytest.raises(OSError, match="offline mode"):
         g.check("142.250.1.1", 443, "connect")
     assert g.recent()[-1] == {**g.recent()[-1], "host": "generativelanguage.googleapis.com", "blocked": True}
+
+
+def test_perf_monitor_is_lighter_when_nobody_is_looking(monkeypatch):
+    """No window open: no walk over every process's connections, and no Ollama call with the Gemini brain."""
+    from jarvis import perf
+
+    calls = []
+    monkeypatch.setattr(perf, "observe_connections", lambda: calls.append("conns") or [])
+    monkeypatch.setattr(perf, "loaded_models_mb", lambda host: calls.append("ollama") or 0)
+    m = PerfMonitor(lambda on_battery: None, power=lambda: (False, None))
+    m.watched, m.ollama = (lambda: False), (lambda: False)
+    stats = m.sample()
+    assert calls == [] and "cpu" in stats and stats["ollama_mb"] is None
+    m.watched, m.ollama = (lambda: True), (lambda: True)
+    m.sample()
+    assert calls == ["conns", "ollama"]
+    assert PerfMonitor(lambda b: None).idle_period_s == 60.0

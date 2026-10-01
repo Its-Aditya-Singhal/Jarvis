@@ -430,6 +430,9 @@ class FakeOllamaServer:
     def ensure(self) -> bool:
         return True
 
+    def reachable(self) -> bool:
+        return True
+
     def stop(self) -> None: ...
 
 

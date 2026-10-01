@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import cv2
 import numpy as np
 
 
@@ -12,6 +11,7 @@ def _ramp(x: float, lo: float, hi: float) -> float:
 
 def sharpness(gray_crop: np.ndarray) -> float:
     """Variance of the Laplacian: low for blurred / out-of-focus crops."""
+    import cv2  # OpenCV is only needed by the face sign-in: loaded when it runs
     if gray_crop.size == 0:
         return 0.0
     return float(cv2.Laplacian(gray_crop, cv2.CV_64F).var())
@@ -38,6 +38,7 @@ def quality_score(det_score: float, face_width_px: float, sharp: float, brightne
 
 
 def frame_quality(frame: np.ndarray, bbox: np.ndarray, det_score: float) -> float:
+    import cv2  # OpenCV is only needed by the face sign-in: loaded when it runs
     crop = face_crop(frame, bbox)
     if crop.size == 0:
         return 0.0

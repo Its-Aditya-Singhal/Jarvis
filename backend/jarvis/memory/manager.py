@@ -125,7 +125,7 @@ class Memory:
         self.extractor = extractor  # the brain's fact extraction (shares its cached prompt)
         self.on_change = on_change
         self.clock = clock
-        self.embed_error: str | None = "not checked yet"
+        self.embed_error: str | None = "not checked yet" if embed_model else "off (word matching keeps JARVIS light)"
         self._lock = threading.Lock()
         self._last_purge = time.monotonic()
         self._facts: list[Fact] | None = None  # decrypted cache

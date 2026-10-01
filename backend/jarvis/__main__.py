@@ -58,8 +58,10 @@ def main() -> None:
     prefs_db = Database(s.db_path)
     guard = NetGuard(offline=lambda: prefs_db.get("pref.privacy.offline", "True") == "True")
     guard.install()
-    # macOS permission prompts must come from the main thread
-    request_permission(s.camera_index)
+    # macOS permission prompts must come from the main thread; voice-only (the default) never
+    # touches the camera, not even to ask for permission
+    if s.face_auth:
+        request_permission(s.camera_index)
     mic.request_permission()
     # Desktop/Documents/Downloads are guarded per app: touching them now makes macOS
     # ask once, instead of file search silently finding nothing later

@@ -13,7 +13,6 @@ import logging
 import threading
 from pathlib import Path
 
-import cv2
 import numpy as np
 
 from ...hardware import profile
@@ -77,6 +76,7 @@ class FaceEngine:
         return self._app is not None
 
     def analyze(self, frame_bgr: np.ndarray) -> list[FaceObservation]:
+        import cv2  # OpenCV is only needed by the face sign-in: loaded when it runs
         if self._app is None:
             return []
         with self._lock:
