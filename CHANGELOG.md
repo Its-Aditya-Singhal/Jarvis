@@ -19,9 +19,9 @@
   sealed with the Keychain key and never shown again. Ollama stays as an opt-in.
 - **Claude on Amazon Bedrock** (optional, paid by your AWS account): a third
   choice in Settings → AI. Any Claude model your account can use, one for
-  simple commands (Haiku 4.5 by default) and one for harder requests (Sonnet 5
-  by default: mail, writing, planning, long or multi-step requests; JARVIS picks
-  per request), plus the AWS region. Uses a Bedrock API key, sealed like the Gemini key. When
+  most requests, mail summaries included (Haiku 4.5 by default), and one for
+  harder ones (Sonnet 5 by default: drafting mails, writing, planning, long
+  threads, multi-step requests; JARVIS picks per request), plus the AWS region. Uses a Bedrock API key, sealed like the Gemini key. When
   Bedrock can't answer (throttled, model access not turned on, key expired) and
   a Gemini key is saved, Gemini answers and JARVIS says why. Gemini stays the
   default.

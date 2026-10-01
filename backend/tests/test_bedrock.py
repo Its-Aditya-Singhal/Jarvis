@@ -87,14 +87,19 @@ def test_a_command_goes_to_the_haiku_tier_on_the_bedrock_messages_endpoint(tmp_p
 
 
 def test_any_claude_model_and_region_are_settings(tmp_path):
-    aws = Aws({"anthropic.claude-opus-5-5": [msg("Rahul invited you to his birthday.")],
-               "anthropic.claude-sonnet-5-5": [msg('{"actions": [], "reply": "hi"}')]})
+    draft = '{"subject": "Dinner", "body": "See you Friday."}'
+    aws = Aws({"anthropic.claude-opus-5-5": [msg(draft), msg("Long thread summary.")],
+               "anthropic.claude-sonnet-5-5": [msg("Rahul invited you to his birthday."),
+                                               msg('{"actions": [], "reply": "hi"}')]})
     b = brain(aws, tmp_path)
     b.db.set("ai.bedrock_heavy_model", "anthropic.claude-opus-5-5")
     b.db.set("ai.bedrock_fast_model", "anthropic.claude-sonnet-5-5")
-    assert b.write("Summarise.", "email text") == "Rahul invited you to his birthday."
+    assert b.write_json("Draft a mail.", "dinner on Friday")["subject"] == "Dinner"  # drafting: the strong model
+    assert b.write("Summarise.", "email text") == "Rahul invited you to his birthday."  # summary: the fast one
+    assert b.write("Summarise.", "x" * 20000) == "Long thread summary."  # a long thread: the strong one
     b.respond("how are you doing today my friend")
-    assert [c[1]["model"] for c in aws.calls] == ["anthropic.claude-opus-5-5", "anthropic.claude-sonnet-5-5"]
+    assert [c[1]["model"] for c in aws.calls] == ["anthropic.claude-opus-5-5", "anthropic.claude-sonnet-5-5",
+                                                   "anthropic.claude-opus-5-5", "anthropic.claude-sonnet-5-5"]
     b.bedrock.region = lambda: "eu-west-1"
     aws.replies["anthropic.claude-sonnet-5-5"] = [msg('{"actions": [], "reply": "hi"}')]
     b.respond("how are you doing today my friend")
@@ -219,11 +224,11 @@ def test_the_model_is_picked_by_the_command(tmp_path):
     ok = '{"actions": [], "reply": "ok"}'
     aws = Aws({br.FAST_MODEL: [msg(ok), msg(ok)], br.HEAVY_MODEL: [msg(ok), msg(ok), msg(ok)]})
     b = brain(aws, tmp_path)
-    for text in ["could you get Notes up for me", "tell me a joke about cats"]:  # simple: Haiku
+    for text in ["could you get Notes up for me", "summarize the mail from Rahul"]:  # simple, reading mail: Haiku
         b.respond(text)
-    for text in ["summarize the mail from Rahul", "plan my trip to Goa next weekend",
+    for text in ["draft a reply to Priya about dinner", "plan my trip to Goa next weekend",
                  "find the cheapest way to get to the airport and book a cab for nine in the morning tomorrow"]:
-        b.respond(text)  # reading, writing, planning, long: the stronger model
+        b.respond(text)  # writing, planning, long: the stronger model
     assert [c[1]["model"] for c in aws.calls] == [br.FAST_MODEL] * 2 + [br.HEAVY_MODEL] * 3
 
 
@@ -231,6 +236,7 @@ def test_gemini_keeps_the_fast_model_first_for_every_command(tmp_path):
     from jarvis.brain import sounds_hard
 
     assert sounds_hard("draft a reply to Priya") and not sounds_hard("open Safari")
+    assert not sounds_hard("summarize my last 10 emails")
     cloud, calls = gemini({G_FAST: ['{"actions": [], "reply": "ok"}']})
     s = Settings(data_dir=tmp_path, llm_provider="gemini")
     Brain(s, KV(), lambda: ("JARVIS", "Aditya"), lambda: "male", cloud=cloud).respond("summarize the mail from Rahul")

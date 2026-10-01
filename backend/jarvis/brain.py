@@ -30,13 +30,15 @@ from .memory.manager import EXTRACT_SCHEMA, EXTRACT_TASK, Memory
 
 personal_question = Memory.sounds_personal
 
-# A command that reads or writes, plans several steps or asks something open-ended: on Bedrock it
-# goes to the stronger model first (Sonnet or higher); short simple ones go to the fast one (Haiku).
+# A command that writes something, plans several steps or asks something open-ended: on Bedrock it
+# goes to the stronger model first (Sonnet or higher). Everything else, reading and summarising mail
+# included, goes to the fast one (Haiku).
 HARD_WORDS = re.compile(
-    r"\b(?:mail|email|e-mail|inbox|draft|reply|write|compose|summari[sz]e|summary|explain|why|plan|compare|"
+    r"\b(?:draft|write|compose|explain|why|plan|compare|"
     r"analy[sz]e|research|translate|essay|letter|story|poem|document|doc|report|steps?|then|after that|"
     r"and also|meeting|schedule|calendar|advice|recommend|should i|difference|pros and cons)\b", re.I)
 HARD_LENGTH = 16  # words
+LONG_TEXT = 12000  # characters: a long mail thread or document goes to the stronger model on Bedrock
 
 
 def sounds_hard(text: str) -> bool:
@@ -183,18 +185,21 @@ class Brain:
         return self._ask(self._candidates(heavy), lambda c, m: c.chat_json(m, msgs, schema, **kw))
 
     def write(self, system: str, text: str, max_tokens: int = 700) -> str:
-        """Free text from the writing model (a summary, a draft). Raises LLMUnavailable."""
+        """Free text (a summary of mails or a document). On Bedrock the fast model (Haiku summarises
+        well) unless the text is long; on Gemini the writing model. Raises LLMUnavailable."""
         msgs = [{"role": "system", "content": system}, {"role": "user", "content": text}]
         self.last_used = time.monotonic()
         if not self.remote:
             data = self.ollama.chat_json(self.model, msgs, {"type": "object", "properties": {"text": {"type": "string"}},
                                                             "required": ["text"]}, num_predict=max_tokens)
             return str(data.get("text") or "")
-        out = self._ask(self._candidates(heavy=True),
+        heavy = self.provider != "bedrock" or len(text) > LONG_TEXT
+        out = self._ask(self._candidates(heavy=heavy),
                         lambda c, m: {"text": c.generate(m, msgs, temperature=0.3, max_tokens=max_tokens)})
         return out["text"].strip()
 
     def write_json(self, system: str, text: str, max_tokens: int = 700) -> dict:
+        """A drafted mail ({"subject", "body"}): always the stronger model first."""
         msgs = [{"role": "system", "content": system}, {"role": "user", "content": text}]
         self.last_used = time.monotonic()
         return self.chat(msgs, {"type": "object"}, heavy=True, temperature=0.3, num_predict=max_tokens)
