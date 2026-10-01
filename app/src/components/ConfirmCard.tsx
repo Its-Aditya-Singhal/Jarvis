@@ -43,27 +43,39 @@ export default function ConfirmCard() {
   };
 
   const email = confirm.tool === "email.send";
+  const message = confirm.tool === "message.send";
+  const send = email || message;
+  const heading = /\.(delete|forget)$/.test(confirm.tool)
+    ? "CONFIRM DELETION"
+    : ({
+        "mac.do": "CONFIRM SCRIPT",
+        "email.send": "CONFIRM EMAIL",
+        "message.send": "CONFIRM MESSAGE",
+        "call.start": "CONFIRM CALL",
+        "calendar.invite": "CONFIRM INVITATION",
+        "files.move": "CONFIRM MOVE",
+        "files.rename": "CONFIRM RENAME",
+      }[confirm.tool] ?? "CONFIRM");
   return (
     <div className="confirm" ref={card}>
       <div className="confirm-head">
-        <span>
-          LEVEL 3 ·{" "}
-          {/^(notes|calendar|memory)\./.test(confirm.tool)
-            ? "CONFIRM DELETION"
-            : confirm.tool === "mac.do"
-              ? "CONFIRM SCRIPT"
-              : email
-                ? "CONFIRM EMAIL"
-                : "CONFIRM"}
-        </span>
+        <span>LEVEL 3 · {heading}</span>
         <span>{Math.ceil(left)} s</span>
       </div>
       {/* an email's spoken read-back is the draft itself: on screen it is shown once, below */}
       <div className="confirm-text">{email ? "Send this email? Say “yes, send it” or click Send." : confirm.text}</div>
       {confirm.detail && (
         <pre
-          className={email ? "confirm-script confirm-mail" : "confirm-script"}
-          aria-label={email ? "The email that will be sent" : "The script that will run"}
+          className={send ? "confirm-script confirm-mail" : "confirm-script"}
+          aria-label={
+            email
+              ? "The email that will be sent"
+              : message
+                ? "The message that will be sent"
+                : confirm.tool === "mac.do"
+                  ? "The script that will run"
+                  : "What will happen"
+          }
         >
           {confirm.detail}
         </pre>
@@ -73,7 +85,7 @@ export default function ConfirmCard() {
       </div>
       <div className="confirm-actions">
         <button className="btn danger" disabled={busy} onClick={() => answer(true)}>
-          {email ? "SEND" : "CONFIRM"}
+          {send ? "SEND" : confirm.tool === "call.start" ? "CALL" : "CONFIRM"}
         </button>
         <button className="btn ghost" disabled={busy} onClick={() => answer(false)}>
           CANCEL

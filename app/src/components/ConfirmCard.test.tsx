@@ -105,6 +105,30 @@ describe("ConfirmCard", () => {
     expect(screen.queryByText(/Here's the email to Rahul/)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "SEND" })).toBeInTheDocument();
   });
+
+  it("reads a message back and sends it only from the Send button", () => {
+    render(<ConfirmCard />);
+    fake.emit({ type: "auth", ...approvedAuth() });
+    const text = "Here's the iMessage to Mom (+91 98765 43210): “I'll be home by 8”. Shall I send it?";
+    fake.emit({ type: "confirm", id: "m1", tool: "message.send", text, expires_s: 40, detail: "To: Mom <+91 98765 43210>\n\nI'll be home by 8" });
+    expect(screen.getByText(/CONFIRM MESSAGE/)).toBeInTheDocument();
+    expect(screen.getByText(text)).toBeInTheDocument();
+    expect(screen.getByLabelText("The message that will be sent")).toHaveTextContent("I'll be home by 8");
+    expect(screen.getByRole("button", { name: "SEND" })).toBeInTheDocument();
+  });
+
+  it("names calls, invitations and file changes, and never calls an invitation a deletion", () => {
+    render(<ConfirmCard />);
+    fake.emit({ type: "auth", ...approvedAuth() });
+    fake.emit({ type: "confirm", ...pending, id: "c1", tool: "call.start", text: "Call Dad?" });
+    expect(screen.getByText(/CONFIRM CALL/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "CALL" })).toBeInTheDocument();
+    fake.emit({ type: "confirm", ...pending, id: "c2", tool: "calendar.invite", text: "Invite Rahul?" });
+    expect(screen.getByText(/CONFIRM INVITATION/)).toBeInTheDocument();
+    expect(screen.queryByText(/CONFIRM DELETION/)).not.toBeInTheDocument();
+    fake.emit({ type: "confirm", ...pending, id: "c3", tool: "files.move", text: "Move it?" });
+    expect(screen.getByText(/CONFIRM MOVE/)).toBeInTheDocument();
+  });
 });
 
 it("a new confirmation is scrolled into view", async () => {
