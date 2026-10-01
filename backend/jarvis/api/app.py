@@ -37,8 +37,12 @@ from ..events import EventBus
 from ..google.auth import SERVICES as GOOGLE_SERVICES
 from ..google.auth import GoogleAuth, GoogleError, parse_client_json
 from ..host import responsible_app
+from ..llm import bedrock as bedrock_mod
+from ..llm.bedrock import BEDROCK_KEY, BedrockClient
 from ..llm.client import OllamaClient
+from ..llm.gemini import FAST_MODEL as GEMINI_FAST
 from ..llm.gemini import GEMINI_KEY, KEY_PAGE, MODEL_NAME, GeminiClient
+from ..llm.gemini import HEAVY_MODEL as GEMINI_HEAVY
 from ..llm.gemini import HOST as GEMINI_HOST
 from ..llm.server import OllamaServer
 from ..llm.setup import OllamaSetup
@@ -187,10 +191,15 @@ class LlmSlotIn(BaseModel):
 
 
 class AiIn(BaseModel):
-    provider: Literal["gemini", "ollama"] | None = None
+    provider: Literal["gemini", "bedrock", "ollama"] | None = None
     fast_model: str | None = Field(default=None, pattern=MODEL_NAME)
     heavy_model: str | None = Field(default=None, pattern=MODEL_NAME)
     api_key: str | None = Field(default=None, max_length=200)  # "" removes it
+    # Claude on Amazon Bedrock (paid by the owner's AWS account)
+    bedrock_key: str | None = Field(default=None, max_length=4000)  # "" removes it; short-term keys are long
+    bedrock_region: str | None = Field(default=None, pattern=bedrock_mod.REGION_NAME)
+    bedrock_fast_model: str | None = Field(default=None, pattern=bedrock_mod.MODEL_NAME)
+    bedrock_heavy_model: str | None = Field(default=None, pattern=bedrock_mod.MODEL_NAME)
 
 
 class GoogleIn(BaseModel):
@@ -252,6 +261,7 @@ def create_app(
     restart: Callable[[], None] = restart_process,
     gemini: GeminiClient | None = None,
     google: GoogleAuth | None = None,
+    bedrock: BedrockClient | None = None,
 ) -> FastAPI:
     s = settings or get_settings()
     db = Database(s.db_path)
@@ -297,12 +307,14 @@ def create_app(
 
     secrets = Secrets(db, keyp)
     cloud = gemini or GeminiClient(lambda: secrets.get(GEMINI_KEY))
+    claude = bedrock or BedrockClient(lambda: secrets.get(BEDROCK_KEY),
+                                      lambda: db.get("ai.bedrock_region") or bedrock_mod.REGION)
     gauth = google or GoogleAuth(db, secrets)
 
     def make_brain(svc: AssistantService) -> Brain:
         return brain or Brain(s, db, names=lambda: (svc.assistant_name, svc.owner_name),
                               voice_gender=lambda: db.get("voice_gender") or "female", server=llm_server, client=llm_client,
-                              cloud=cloud)
+                              cloud=cloud, bedrock=claude)
 
     def make_memory(svc: AssistantService) -> Memory:
         client = memory_client or (getattr(svc.brain, "ollama", None) if svc.brain else None) \
@@ -337,7 +349,12 @@ def create_app(
         """What offline mode still lets through: only the services the owner switched on."""
         b = svc.brain
         out: tuple[str, ...] = ()
-        if b is not None and getattr(b, "gemini", False) and secrets.has(GEMINI_KEY):
+        provider = getattr(b, "provider", "") if b is not None else ""
+        bedrock_on = provider == "bedrock" and secrets.has(BEDROCK_KEY)
+        if bedrock_on:
+            out += (bedrock_mod.host(db.get("ai.bedrock_region") or bedrock_mod.REGION),)
+        # Gemini: the brain, or on Bedrock the fallback when Bedrock can't answer
+        if provider in ("gemini", "bedrock") and secrets.has(GEMINI_KEY):
             out += (GEMINI_HOST,)
         return out + gauth.hosts()  # Gmail / Drive / Calendar once connected (and while connecting)
 
@@ -360,8 +377,8 @@ def create_app(
     started_without_models = bool(models.needed())  # this process loaded none of them
 
     def llm_wanted() -> list[dict]:
-        if svc.brain is not None and getattr(svc.brain, "gemini", False):
-            return []  # the brain runs at Google: no local model to download
+        if svc.brain is not None and getattr(svc.brain, "remote", False):
+            return []  # the brain runs at Google or AWS: no local model to download
         main = db.get("llm_model") or s.llm_model
         out = [{"name": main, "purpose": "Understands requests and answers questions", "required": True}]
         if s.memory_enabled and s.embed_model:
@@ -870,12 +887,18 @@ def create_app(
         bus.log(f"Conversation history retention: {body.retention}")
         return m.status()
 
-    # -- the brain: Gemini API key and models --------------------------------------------
+    # -- the brain: Gemini API key and models, or Claude on Bedrock ---------------------------
     def ai_state() -> dict:
         b = svc.brain
-        return {"provider": b.provider if b else "off", "fast_model": b.model if b and b.gemini else None,
-                "heavy_model": b.heavy_model if b and b.gemini else None,
+        return {"provider": b.provider if b else "off",
+                "fast_model": db.get("ai.fast_model") or GEMINI_FAST, "heavy_model": db.get("ai.heavy_model") or GEMINI_HEAVY,
                 "key": secrets.hint(GEMINI_KEY), "key_page": KEY_PAGE,
+                "bedrock": {"key": secrets.hint(BEDROCK_KEY),
+                            "region": db.get("ai.bedrock_region") or bedrock_mod.REGION,
+                            "fast_model": db.get("ai.bedrock_fast_model") or bedrock_mod.FAST_MODEL,
+                            "heavy_model": db.get("ai.bedrock_heavy_model") or bedrock_mod.HEAVY_MODEL,
+                            "models": bedrock_mod.MODELS, "key_page": bedrock_mod.KEY_PAGE,
+                            "access_page": bedrock_mod.ACCESS_PAGE},
                 "status": b.status() if b else "disabled"}
 
     @app.get("/api/settings/ai", dependencies=auth + [Depends(require_owner)])
@@ -893,7 +916,16 @@ def create_app(
             secrets.set(GEMINI_KEY, key)
             db.add_security_event("settings_changed", "Gemini API key " + ("saved" if key else "removed"))
             bus.log("Gemini API key " + ("saved" if key else "removed"))  # never the key itself
-        for k, v in (("ai.provider", body.provider), ("ai.fast_model", body.fast_model), ("ai.heavy_model", body.heavy_model)):
+        if body.bedrock_key is not None:
+            key = body.bedrock_key.strip()
+            if key and not bedrock_mod.KEY_CHARS.match(key):
+                raise HTTPException(400, "that doesn't look like a Bedrock API key")
+            secrets.set(BEDROCK_KEY, key)
+            db.add_security_event("settings_changed", "Bedrock API key " + ("saved" if key else "removed"))
+            bus.log("Bedrock API key " + ("saved" if key else "removed"))  # never the key itself
+        for k, v in (("ai.provider", body.provider), ("ai.fast_model", body.fast_model), ("ai.heavy_model", body.heavy_model),
+                     ("ai.bedrock_region", body.bedrock_region), ("ai.bedrock_fast_model", body.bedrock_fast_model),
+                     ("ai.bedrock_heavy_model", body.bedrock_heavy_model)):
             if v is not None:
                 db.set(k, v)
                 bus.log(f"AI setting: {k.split('.', 1)[1].replace('_', ' ')} → {v}")
@@ -906,9 +938,9 @@ def create_app(
     @app.post("/api/settings/ai/test", dependencies=auth + [Depends(require_owner)])
     def test_ai():
         b = svc.brain
-        if b is None or not b.gemini or b.cloud is None:
-            raise HTTPException(400, "the Gemini brain isn't selected")
-        return {"fast": b.cloud.check_key(b.model), "heavy": b.cloud.check_key(b.heavy_model)}
+        if b is None or not b.remote:
+            raise HTTPException(400, "neither Gemini nor Bedrock is selected")
+        return {"fast": b.client.check_key(b.model), "heavy": b.client.check_key(b.heavy_model)}
 
     # -- Google accounts: Gmail, Drive, Calendar ------------------------------------------------
     @app.get("/api/settings/google", dependencies=auth + [Depends(require_owner)])

@@ -97,6 +97,13 @@ don't use JARVIS's AI for anything you wouldn't put in a Google search. The
 local Ollama brain (Settings → AI → Local) keeps all of it on the Mac, at the
 cost of several GB of memory.
 
+**Claude on Amazon Bedrock (optional, paid).** With Settings → AI → Claude on
+Bedrock, the same requests go to Anthropic's Claude models running in your own
+AWS account (`bedrock-mantle.<region>.api.aws`) instead, billed to that account.
+Bedrock's data handling follows AWS's terms for your account, not Google's free
+tier. If Bedrock can't answer and a Gemini key is saved, that one request goes
+to Gemini. The Bedrock API key is sealed and handled like the Gemini key below.
+
 **The API key** is sealed with the Keychain key in the database, never logged,
 never sent back to the UI (only its last four characters), and sent only in
 the `x-goog-api-key` header to `generativelanguage.googleapis.com`.

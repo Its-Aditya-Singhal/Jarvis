@@ -15,9 +15,12 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 from .config import Settings
 from .database.db import Database
+from .llm import bedrock as bedrock_models
+from .llm.bedrock import BedrockClient
 from .llm.client import LLMUnavailable, OllamaClient
 from .llm.fastpath import parse_fast
 from .llm.gemini import FAST_MODEL, HEAVY_MODEL, BadKey, GeminiClient, QuotaExceeded
@@ -56,6 +59,7 @@ class Brain:
         client: OllamaClient | None = None,
         clock: Callable[[], datetime] = datetime.now,
         cloud: GeminiClient | None = None,
+        bedrock: BedrockClient | None = None,
     ):
         self.s = settings
         self.db = db
@@ -64,6 +68,7 @@ class Brain:
         self.server = server or OllamaServer(settings.ollama_host, settings.ollama_models_dir, settings.data_dir / "logs")
         self.ollama = client or OllamaClient(f"http://{settings.ollama_host}", settings.llm_timeout_s)
         self.cloud = cloud  # the Gemini API (the default brain); None: local Ollama only
+        self.bedrock = bedrock  # Claude on Amazon Bedrock (opt-in, paid by the owner's AWS account)
         self.note = ""  # set when a reply came from the fallback model (quota), read once by the service
         self.clock = clock
         self._history: list[tuple[float, str, str, str]] = []  # (t, lang, user, model JSON)
@@ -78,17 +83,25 @@ class Brain:
     # -- provider and model selection ---------------------------------------------
     @property
     def provider(self) -> str:
-        """gemini (the default: nothing runs on the Mac) | ollama (a local model, opt-in)."""
+        """gemini (the default: nothing runs on the Mac) | bedrock (Claude, opt-in, paid) |
+        ollama (a local model, opt-in)."""
         p = self.db.get("ai.provider") or self.s.llm_provider
-        return "gemini" if p == "gemini" and self.cloud is not None else "ollama"
+        if p == "bedrock" and self.bedrock is not None:
+            return "bedrock"
+        return "gemini" if p in ("gemini", "bedrock") and self.cloud is not None else "ollama"
 
     @property
     def gemini(self) -> bool:
         return self.provider == "gemini"
 
     @property
-    def client(self):  # GeminiClient | OllamaClient (the same chat_json surface)
-        return self.cloud if self.gemini else self.ollama
+    def remote(self) -> bool:
+        """The models run at Google or AWS: nothing to download, load or unload on the Mac."""
+        return self.provider != "ollama"
+
+    @property
+    def client(self):  # GeminiClient | BedrockClient | OllamaClient (the same chat_json surface)
+        return {"gemini": self.cloud, "bedrock": self.bedrock}.get(self.provider) or self.ollama
 
     @client.setter
     def client(self, value) -> None:
@@ -96,7 +109,9 @@ class Brain:
 
     @property
     def model(self) -> str:
-        """The model that understands commands (on Gemini: the fast one)."""
+        """The model that understands commands (on Gemini and Bedrock: the fast one)."""
+        if self.provider == "bedrock":
+            return self.db.get("ai.bedrock_fast_model") or bedrock_models.FAST_MODEL
         if self.gemini:
             return self.db.get("ai.fast_model") or FAST_MODEL
         return self.override or self.db.get("llm_model") or self.s.llm_model
@@ -104,46 +119,67 @@ class Brain:
     @property
     def heavy_model(self) -> str:
         """The model that reads and writes (email summaries, drafts); locally the same model."""
+        if self.provider == "bedrock":
+            return self.db.get("ai.bedrock_heavy_model") or bedrock_models.HEAVY_MODEL
         if self.gemini:
             return self.db.get("ai.heavy_model") or HEAVY_MODEL
         return self.model
 
-    def _ask(self, models: list[str], call: Callable[[str], dict]) -> dict:
-        """Try each model in turn when one's free quota is used up; remember which answered."""
-        last: QuotaExceeded | None = None
-        for i, m in enumerate(dict.fromkeys(models)):
+    def _candidates(self, heavy: bool) -> list[tuple[Any, str]]:
+        """(client, model) in the order to try: the chosen provider's two models (``heavy``: the
+        writing model first), then, on Bedrock, Gemini's two when a Gemini key is saved."""
+        order = [self.heavy_model, self.model] if heavy else [self.model, self.heavy_model]
+        out = [(self.client, m) for m in dict.fromkeys(order)]
+        if self.provider == "bedrock" and self.cloud is not None and self.cloud.api_key():
+            g = [self.db.get("ai.fast_model") or FAST_MODEL, self.db.get("ai.heavy_model") or HEAVY_MODEL]
+            out += [(self.cloud, m) for m in dict.fromkeys(g[::-1] if heavy else g)]
+        return out
+
+    def _ask(self, cands: list[tuple[Any, str]], call: Callable[[Any, str], dict]) -> dict:
+        """Try each model in turn: on Gemini when one's free quota is used up, on Bedrock when it
+        can't answer for any reason (throttled, no access, key expired), so Gemini still can.
+        Remember why for the note the service reads once."""
+        last: LLMUnavailable | None = None
+        for i, (client, m) in enumerate(cands):
             try:
-                out = call(m)
-                if i:
-                    self.note = (f"{last.model}'s free {'daily' if last.daily else 'per-minute'} limit is used up, "
-                                 f"so {m} answered") if last else ""
+                out = call(client, m)
+                if i and last is not None:
+                    self.note = self._why(last, m)
                 return out
             except QuotaExceeded as exc:
                 last = exc
                 log.warning("quota: %s", exc)
+            except LLMUnavailable as exc:
+                if client is not self.bedrock:
+                    raise
+                last = exc
+                log.warning("bedrock: %s", exc)
         assert last is not None
         raise last
 
+    @staticmethod
+    def _why(exc: LLMUnavailable, answered: str) -> str:
+        if isinstance(exc, QuotaExceeded) and exc.provider == "gemini":
+            return f"{exc.model}'s free {'daily' if exc.daily else 'per-minute'} limit is used up, so {answered} answered"
+        return f"Bedrock couldn't answer ({exc}), so {answered} answered"
+
     def chat(self, msgs: list[dict[str, str]], schema: dict, heavy: bool = False, **kw) -> dict:
         """One JSON request: the command model first (``heavy``: the writing model first), the
-        other one if its free quota ran out."""
-        if not self.gemini:
+        other one if its free quota ran out (on Bedrock: then Gemini's)."""
+        if not self.remote:
             return self.ollama.chat_json(self.model, msgs, schema, **kw)
-        order = [self.heavy_model, self.model] if heavy else [self.model, self.heavy_model]
-        return self._ask(order, lambda m: self.client.chat_json(m, msgs, schema, **kw))
+        return self._ask(self._candidates(heavy), lambda c, m: c.chat_json(m, msgs, schema, **kw))
 
     def write(self, system: str, text: str, max_tokens: int = 700) -> str:
         """Free text from the writing model (a summary, a draft). Raises LLMUnavailable."""
         msgs = [{"role": "system", "content": system}, {"role": "user", "content": text}]
         self.last_used = time.monotonic()
-        if not self.gemini:
+        if not self.remote:
             data = self.ollama.chat_json(self.model, msgs, {"type": "object", "properties": {"text": {"type": "string"}},
                                                             "required": ["text"]}, num_predict=max_tokens)
             return str(data.get("text") or "")
-        cloud = self.cloud
-        assert cloud is not None
-        out = self._ask([self.heavy_model, self.model],
-                        lambda m: {"text": cloud.generate(m, msgs, temperature=0.3, max_tokens=max_tokens)})
+        out = self._ask(self._candidates(heavy=True),
+                        lambda c, m: {"text": c.generate(m, msgs, temperature=0.3, max_tokens=max_tokens)})
         return out["text"].strip()
 
     def write_json(self, system: str, text: str, max_tokens: int = 700) -> dict:
@@ -159,7 +195,7 @@ class Brain:
         self.clear()
 
     def installed_models(self) -> list[str]:
-        if self.gemini:
+        if self.remote:
             return [self.model, self.heavy_model]
         try:
             self.installed = self.client.models()
@@ -169,7 +205,7 @@ class Brain:
 
     # -- lifecycle -------------------------------------------------------------
     def start(self) -> bool:
-        if self.gemini:  # nothing to start or load: the models run at Google
+        if self.remote:  # nothing to start or load: the models run at Google or AWS
             return self.status() == "ready"
         if self.s.llm_autostart and not self.server.ensure():
             log.warning("ollama unavailable: %s", self.server.error)
@@ -188,7 +224,7 @@ class Brain:
     def tidy(self) -> int:
         """Unload every chat model except the active one (a mode or model switch, or a
         previous run, may have left one resident: each costs gigabytes). Returns bytes freed."""
-        if self.gemini:
+        if self.remote:
             return 0
         keep = {self.model, self.s.embed_model, f"{self.s.embed_model}:latest"}
         freed = 0
@@ -206,7 +242,7 @@ class Brain:
 
     def free_memory(self) -> int:
         """Unload JARVIS's models (low memory, or quitting); they reload on the next question."""
-        if self.gemini:
+        if self.remote:
             return 0
         ours = self.our_models()
         loaded = {n: size for n, size in self.client.loaded().items() if n in ours}
@@ -217,7 +253,7 @@ class Brain:
     def prime(self) -> None:
         """Evaluate the constant prompt prefix once, so Ollama's cache makes the
         first real command as fast as later ones (~0.2 s instead of ~6 s)."""
-        if self.gemini:
+        if self.remote:
             return
         try:
             self.client.chat_json(self.model, self._messages("hello", "en", self.clock(), recall=False), SCHEMA,
@@ -249,10 +285,13 @@ class Brain:
         now = time.monotonic()
         if self._status and now - self._status[0] < STATUS_TTL_S:
             return self._status[1]
-        if self.gemini:
-            cloud = self.cloud
-            assert cloud is not None
-            st = "ready" if cloud.api_key() else "no Gemini API key — add one in Settings → AI"
+        if self.remote:
+            if self.provider == "bedrock":
+                assert self.bedrock is not None
+                st = "ready" if self.bedrock.api_key() else "no Bedrock API key — add one in Settings → AI"
+            else:
+                assert self.cloud is not None
+                st = "ready" if self.cloud.api_key() else "no Gemini API key — add one in Settings → AI"
             self._status = (now, st)
             return st
         try:
@@ -369,6 +408,11 @@ class Brain:
             intent: Intent = parse_intent(data, lang, now, text)
         except QuotaExceeded as exc:
             log.warning("all models over quota: %s", exc)
+            if exc.provider == "bedrock":
+                return BrainResult("Bedrock अभी अनुरोध रोक रहा है, एक मिनट बाद कोशिश कीजिए।" if hindi else
+                                   "Bedrock is throttling my requests right now; try again in a minute. "
+                                   "Everyday commands like volume, brightness and timers still work.",
+                                   lang, [], time.monotonic() - t0, False)
             reply = ("आज की मुफ़्त Gemini सीमा पूरी हो गई है। रोज़मर्रा के कमांड अब भी काम करते हैं।" if hindi else
                      "My free Gemini limit is used up for now"
                      + (" (it resets at midnight Pacific time)" if exc.daily else "; try again in a minute")
@@ -376,13 +420,17 @@ class Brain:
             return BrainResult(reply, lang, [], time.monotonic() - t0, False)
         except BadKey as exc:
             self._status = None
-            log.warning("gemini key: %s", exc)
-            reply = ("Gemini API key नहीं मिली। Settings → AI में जोड़िए।" if hindi else
+            log.warning("ai key: %s", exc)
+            reply = ("AI की key काम नहीं कर रही। Settings → AI देखिए।" if hindi else
                      f"I can't reach my AI: {exc}. Everyday commands still work.")
             return BrainResult(reply, lang, [], time.monotonic() - t0, False)
         except LLMUnavailable as exc:
             self._status = None
             log.warning("llm unavailable: %s", exc)
+            if self.provider == "bedrock":
+                return BrainResult("मेरा AI अभी उपलब्ध नहीं है।" if hindi else
+                                   f"I can't use Bedrock right now: {exc}. Everyday commands still work.",
+                                   lang, [], time.monotonic() - t0, False)
             if self.gemini:
                 return BrainResult("मेरा AI अभी उपलब्ध नहीं है।" if hindi else
                                    "I can't reach Gemini right now (check the internet). Everyday commands still work.",

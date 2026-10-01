@@ -67,6 +67,10 @@ def issues(status: dict, data_dir: Path | None = None, perf: dict | None = None)
             out.append({"id": "llm", "level": "error", "title": "AI not reachable — I can only do instant commands",
                         "fix": llm[:1].upper() + llm[1:] + "." if "Settings" in llm else
                         "Add your free Gemini API key in Settings → AI, and check the internet connection."})
+        elif "bedrock" in llm.lower():
+            out.append({"id": "llm", "level": "error", "title": "AI not reachable — I can only do instant commands",
+                        "fix": llm[:1].upper() + llm[1:] + "." if "Settings" in llm else
+                        "Add your Bedrock API key in Settings → AI, or switch back to Gemini."})
         else:
             out.append({"id": "llm", "level": "error", "title": "Local AI offline — I can only do instant commands",
                         "fix": "Start Ollama from Settings → Models (or install it from ollama.com/download)."})

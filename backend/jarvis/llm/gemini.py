@@ -37,11 +37,14 @@ MODEL_NAME = r"^[a-z0-9][a-z0-9.\-]{1,63}$"
 
 
 class QuotaExceeded(LLMUnavailable):
-    """The free tier's per-minute or per-day limit for this model is used up."""
+    """The free tier's per-minute or per-day limit for this model is used up (``provider`` "bedrock":
+    AWS is throttling this model)."""
 
-    def __init__(self, model: str, daily: bool, detail: str = ""):
-        self.model, self.daily = model, daily
-        super().__init__(f"{model}: {'daily' if daily else 'per-minute'} free limit reached {detail}".strip())
+    def __init__(self, model: str, daily: bool, detail: str = "", provider: str = "gemini"):
+        self.model, self.daily, self.provider = model, daily, provider
+        what = "throttled by Bedrock" if provider == "bedrock" else \
+            f"{'daily' if daily else 'per-minute'} free limit reached"
+        super().__init__(f"{model}: {what} {detail}".strip())
 
 
 class BadKey(LLMUnavailable):

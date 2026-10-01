@@ -37,8 +37,11 @@
 - **The brain**: Google's Gemini API (free tier) by default: a fast model for
   commands (`gemma-4-26b-a4b-it`) and a writing model for mail and documents
   (`gemini-3.5-flash-lite`), each the other's fallback when its free quota runs
-  out (`llm/gemini.py`, `brain.py`). Opt-in instead: **Ollama** with a local
-  model, started by JARVIS if needed and stopped only if it started it.
+  out (`llm/gemini.py`, `brain.py`). Opt-in instead: **Claude on Amazon
+  Bedrock** (paid by the owner's AWS account; any Claude model per tier, Haiku
+  for commands and Sonnet for writing by default, Gemini answering when Bedrock
+  can't; `llm/bedrock.py`), or **Ollama** with a local model, started by JARVIS
+  if needed and stopped only if it started it.
 
 ## Backend layout
 

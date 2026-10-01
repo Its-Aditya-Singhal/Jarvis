@@ -224,7 +224,7 @@ class AssistantService:
         self.perf = perf or PerfMonitor(self._power_changed, ollama_host=settings.ollama_host)
         self.perf.on_sample = self._check_memory
         self.perf.watched = lambda: self.bus.has_subscribers  # a window is open
-        self.perf.ollama = lambda: self.brain is not None and not getattr(self.brain, "gemini", False)
+        self.perf.ollama = lambda: self.brain is not None and not getattr(self.brain, "remote", False)
         self._mode = "balanced"
         self._mode_note = ""  # why a mode couldn't fully apply (e.g. a model isn't downloaded)
         self._reenroll: tuple[str, float] | None = None  # (redo | deleted, grant expiry)
@@ -328,7 +328,7 @@ class AssistantService:
         self.s.process_fps = min(mode.face_fps, profile().max_face_fps)
         notes = []
         b = self.brain
-        if b is not None and hasattr(b, "override") and not getattr(b, "gemini", False):
+        if b is not None and hasattr(b, "override") and not getattr(b, "remote", False):
             want = self.fast_model() if mode.llm == "fast" else None
             if want and want not in (b.installed or b.installed_models()):
                 notes.append(f"fast model {want} not installed (ollama pull {want})")

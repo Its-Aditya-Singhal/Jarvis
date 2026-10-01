@@ -17,6 +17,13 @@
   the other's fallback when its free limit runs out, with a clear message when
   the daily limit is used up. Key and model names in Settings → AI; the key is
   sealed with the Keychain key and never shown again. Ollama stays as an opt-in.
+- **Claude on Amazon Bedrock** (optional, paid by your AWS account): a third
+  choice in Settings → AI. Any Claude model your account can use, one for
+  commands (Haiku 4.5 by default) and one for writing (Sonnet 5 by default),
+  plus the AWS region. Uses a Bedrock API key, sealed like the Gemini key. When
+  Bedrock can't answer (throttled, model access not turned on, key expired) and
+  a Gemini key is saved, Gemini answers and JARVIS says why. Gemini stays the
+  default.
 - **Instant greeting:** the name alone answers "Yes boss, how may I help
   you?", synthesised once at startup and kept.
 - **Conversation window:** after every reply JARVIS keeps listening without

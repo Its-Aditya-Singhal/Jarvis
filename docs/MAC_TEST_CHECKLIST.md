@@ -142,6 +142,10 @@ Never paste a key or a client secret into a chat.
 - [ ] "Jarvis" alone → "Yes boss, how may I help you?" plays at once (no pause before it)
 - [ ] A command the patterns don't know ("could you get Notes up for me") → one Gemini request; note the latency for Gemma 4 vs Flash-Lite.
       If Gemma 4 is slow or returns broken JSON, set the commands model to `gemini-3.5-flash-lite` too
+- [ ] Optional, paid (AWS credits): Settings → AI → Claude on Bedrock. In the AWS console first: Bedrock → Model access, turn on
+      Claude Haiku 4.5 and Claude Sonnet 5 (or the models you pick); Bedrock → API keys, create a **long-term** key
+      (short-term keys stop after 12 hours). Paste it, keep region `us-east-1` (or yours), **Test** says both models answered.
+      Ask a non-everyday question; note the latency. Check AWS Billing → Credits that the credit covers Anthropic models.
 - [ ] Settings → Google account: create the OAuth client (Desktop app, consent screen published), paste ID + secret, Connect → "Connected · your address"
 - [ ] "summarize my last 10 emails" · "any new mail" · "what did <a friend> mail me" → "okay send him a mail confirming my presence"
       → it reads the draft back and waits; "yes, send it" sends it; check it in Gmail → Sent (send it to yourself first)
