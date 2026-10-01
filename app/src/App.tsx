@@ -39,7 +39,6 @@ export default function App() {
 
   return (
     <div className="app">
-      <div className="bg-grid" />
       <StatusBar />
       {!status || bootError ? (
         <div className="boot">

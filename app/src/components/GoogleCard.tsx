@@ -113,9 +113,14 @@ export default function GoogleCard() {
 
       {!g.connected && (
         <>
-          <button className="btn ghost card-btn" onClick={() => setGuide(!guide)} aria-expanded={guide}>
-            {guide ? "HIDE SETUP STEPS" : "HOW TO SET UP (ONCE, ABOUT 5 MINUTES)"}
-          </button>
+          <div className="row-btns">
+            <button className="btn ghost" onClick={() => setGuide(!guide)} aria-expanded={guide}>
+              {guide ? "HIDE SETUP STEPS" : "HOW TO SET UP (ONCE, ABOUT 5 MINUTES)"}
+            </button>
+            <button className="btn ghost" onClick={() => openUrl(g.console_url)}>
+              OPEN GOOGLE CLOUD CONSOLE
+            </button>
+          </div>
           {guide && (
             <ol className="guide small">
               <li>Open Google Cloud Console and create a project (any name, e.g. “JARVIS”).</li>
@@ -129,9 +134,6 @@ export default function GoogleCard() {
               <li>Paste the client ID and secret below (or the downloaded JSON), then press Connect.</li>
             </ol>
           )}
-          <button className="btn ghost card-btn" onClick={() => openUrl(g.console_url)}>
-            OPEN GOOGLE CLOUD CONSOLE
-          </button>
           <form onSubmit={saveClient}>
             <label className="field-label" htmlFor="g-id">
               OAuth client ID {hasClient ? "· saved" : ""}

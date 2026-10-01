@@ -283,6 +283,8 @@ export interface SettingsState {
     stats: { cpu?: number; backend_mb?: number; ollama_mb?: number; system_mem_pct?: number };
   };
   llm: { main: string; fast: string };
+  provider?: "gemini" | "ollama" | "off";
+  face_auth?: boolean;
   owner_name: string;
   assistant_name: string;
   voice_gender: VoiceGender;

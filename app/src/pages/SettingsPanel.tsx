@@ -14,6 +14,7 @@ import { refreshStatus, setStatus, useStore } from "../lib/store";
 const errText = (e: unknown) => (e instanceof ApiError ? e.message : "Backend unreachable");
 
 const MODE_ROWS: [string, string, string, string][] = [
+  // rows that don't apply are hidden (see PerformanceCard)
   ["Thinking model", "3B (fast model)", "your model", "your model"],
   ["Speech recognition", "Whisper small", "Whisper small", "Whisper medium"],
   ["Face checks / s", "4", "6", "8"],
@@ -131,7 +132,9 @@ export default function SettingsPanel() {
             value={status?.voice_gender ?? "female"}
             onChange={(g: VoiceGender) =>
               run(async () =>
-                setStatus(await api<Status>("/api/settings/voice", { method: "PUT", body: JSON.stringify({ gender: g }) })),
+                setStatus(
+                  await api<Status>("/api/settings/voice", { method: "PUT", body: JSON.stringify({ gender: g }) }),
+                ),
               )
             }
           />
@@ -160,8 +163,8 @@ export default function SettingsPanel() {
           </p>
         </div>
 
-        <PerformanceCard data={data} ctl={ctl} />
-        <ModelsCard data={data} run={run} />
+        <PerformanceCard data={data} ctl={ctl} faceOn={faceOn} />
+        {data?.provider === "ollama" && <ModelsCard data={data} run={run} />}
         <div className="card">
           <div className="panel-title">ON-DEVICE MODELS</div>
           <ModelDownloads />
@@ -249,11 +252,17 @@ function IdentityCard({ status, run }: { status: Status | null; run: (fn: () => 
 function PerformanceCard({
   data,
   ctl,
+  faceOn,
 }: {
   data: SettingsState | null;
   ctl: (k: string, label: string) => ReactNode;
+  faceOn: boolean;
 }) {
   const m = data?.mode;
+  const local = data?.provider === "ollama"; // the Gemini brain runs at Google: no model rows
+  const rows = MODE_ROWS.filter(
+    ([name]) => (local || name !== "Thinking model") && (faceOn || name !== "Face checks / s"),
+  );
   const col = { fast: 1, balanced: 2, quality: 3 }[m?.effective ?? "balanced"];
   return (
     <div className="card wide-card">
@@ -277,9 +286,10 @@ function PerformanceCard({
       <div className="kv">
         <span>Resource use</span>
         <b>
-          CPU {m?.stats.cpu ?? "—"}% · backend {m?.stats.backend_mb ?? "—"} MB · loaded models{" "}
-          {m?.stats.ollama_mb != null ? `${(m.stats.ollama_mb / 1024).toFixed(1)} GB` : "—"} · Mac memory{" "}
-          {m?.stats.system_mem_pct ?? "—"}% used
+          CPU {m?.stats.cpu ?? "—"}% · backend {m?.stats.backend_mb ?? "—"} MB
+          {local &&
+            ` · loaded models ${m?.stats.ollama_mb != null ? `${(m.stats.ollama_mb / 1024).toFixed(1)} GB` : "—"}`}{" "}
+          · Mac memory {m?.stats.system_mem_pct ?? "—"}% used
         </b>
       </div>
       <table className="rates modes">
@@ -292,7 +302,7 @@ function PerformanceCard({
           </tr>
         </thead>
         <tbody>
-          {MODE_ROWS.map((r) => (
+          {rows.map((r) => (
             <tr key={r[0]}>
               {r.map((c, i) => (
                 <td key={i} className={i === col ? "on" : ""}>
@@ -305,8 +315,9 @@ function PerformanceCard({
       </table>
       {m?.note && <p className="note small">{m.note}</p>}
       <p className="muted small">
-        Now using: {m?.llm ?? "—"} · Whisper {m?.stt ?? "—"} · {m?.face_fps ?? "—"} face checks/s. Easy commands (timers,
-        alarms, apps, time) skip the model and are instant in every mode.
+        Now using: {local ? `${m?.llm ?? "—"} · ` : ""}Whisper {m?.stt ?? "—"}
+        {faceOn ? ` · ${m?.face_fps ?? "—"} face checks/s` : ""}. Easy commands (timers, alarms, apps, time) skip the AI
+        and are instant in every mode.
       </p>
     </div>
   );
@@ -365,7 +376,8 @@ function ModelsCard({ data, run }: { data: SettingsState | null; run: (fn: () =>
         <b>{status?.models.memory === "ready" ? "bge-m3" : status?.models.memory}</b>
       </div>
       <p className="muted small">
-        Language models run through Ollama on this Mac. Download the assistant's models under On-device models, or any other with <code>ollama pull &lt;name&gt;</code>.
+        Language models run through Ollama on this Mac. Download the assistant's models under On-device models, or any
+        other with <code>ollama pull &lt;name&gt;</code>.
       </p>
     </div>
   );

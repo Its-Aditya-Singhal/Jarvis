@@ -18,7 +18,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-import cv2
 import numpy as np
 
 from . import __version__, health, privacy
@@ -224,6 +223,8 @@ class AssistantService:
         self.guard.offline = lambda: self.prefs.get("privacy.offline")
         self.perf = perf or PerfMonitor(self._power_changed, ollama_host=settings.ollama_host)
         self.perf.on_sample = self._check_memory
+        self.perf.watched = lambda: self.bus.has_subscribers  # a window is open
+        self.perf.ollama = lambda: self.brain is not None and not getattr(self.brain, "gemini", False)
         self._mode = "balanced"
         self._mode_note = ""  # why a mode couldn't fully apply (e.g. a model isn't downloaded)
         self._reenroll: tuple[str, float] | None = None  # (redo | deleted, grant expiry)
@@ -283,7 +284,9 @@ class AssistantService:
 
     def settings_info(self) -> dict:
         return {"prefs": self.prefs.describe(), "mode": self.mode_info(),
-                "llm": {"main": self.db.get("llm_model") or self.s.llm_model, "fast": self.fast_model()}}
+                "llm": {"main": self.db.get("llm_model") or self.s.llm_model, "fast": self.fast_model()},
+                "provider": getattr(self.brain, "provider", "ollama") if self.brain is not None else "off",
+                "face_auth": self.face_on}
 
     def request_pref(self, key: str, value, lang: str = "en") -> dict:
         """Loosening a security setting: level-3 confirmation first."""
@@ -670,6 +673,8 @@ class AssistantService:
             m.start()
             if m.semantic:
                 self.bus.log(f"Memory recall ready ({self.s.embed_model})")
+            elif not self.s.embed_model:
+                self.bus.log("Memory recall by word match (keeps JARVIS light)")
             else:
                 self.bus.log(f"Memory recall by word match only: {m.embed_error}", "warn")
         except Exception:
@@ -1585,6 +1590,7 @@ class AssistantService:
         self.bus.publish({"type": "auth", **self.auth_public()})
 
     def _push_preview(self, frame: np.ndarray, boxes: list[list[float]]) -> None:
+        import cv2  # OpenCV is only needed by the face sign-in: loaded when it runs
         h, w = frame.shape[:2]
         scale = self.s.preview_width / w
         small = cv2.resize(frame, (self.s.preview_width, int(h * scale)))

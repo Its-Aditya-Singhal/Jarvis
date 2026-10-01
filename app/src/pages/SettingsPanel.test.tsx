@@ -25,6 +25,7 @@ const SETTINGS: SettingsState = {
     llm: "qwen2.5:7b", stt: "small", face_fps: 6, suggestions: true, stats: { cpu: 3, backend_mb: 900 },
   },
   llm: { main: "qwen2.5:7b", fast: "qwen2.5:3b" },
+  provider: "ollama",
   owner_name: "Aditya",
   assistant_name: "Friday",
   voice_gender: "female",
@@ -62,6 +63,17 @@ describe("Settings", () => {
     const security = await screen.findByText("SECURITY").then(() => card("SECURITY"));
     expect(within(security).getByRole("button", { name: "Standard" })).toHaveClass("on");
     expect(within(card("LOCAL MODELS")).getAllByRole("option").map((o) => o.textContent)).not.toContain("bge-m3:latest");
+  });
+
+  it("with the Gemini brain and voice-only sign-in, hides what doesn't apply", async () => {
+    fake.route("GET /api/settings", () => ({ ...SETTINGS, provider: "gemini" }));
+    render(<SettingsPanel />);
+    fake.setStatus(makeStatus({ setup_complete: true, face_auth: false, auth: approvedAuth() }));
+    await screen.findByText("PERFORMANCE");
+    expect(screen.queryByText("LOCAL MODELS")).not.toBeInTheDocument();
+    expect(screen.queryByText("Thinking model")).not.toBeInTheDocument();
+    expect(screen.queryByText("Face checks / s")).not.toBeInTheDocument();
+    expect(screen.getByText("Speech recognition")).toBeInTheDocument();
   });
 
   it("asks for a level-3 confirmation when a change loosens security", async () => {

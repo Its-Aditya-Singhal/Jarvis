@@ -230,8 +230,8 @@ function Done() {
       : ["Voice skipped — no working microphone", false, "enroll later from Authentication"],
     ...(faceOn ? [["Liveness checks active", status?.models.liveness !== "disabled"] as [string, boolean]] : []),
     status?.models.llm === "ready"
-      ? ["Local AI ready", true]
-      : ["Local AI not running yet", false, "see System for the fix"],
+      ? ["AI ready", true]
+      : ["AI not set up yet", false, "add your free Gemini key in Settings → AI"],
   ];
 
   return (

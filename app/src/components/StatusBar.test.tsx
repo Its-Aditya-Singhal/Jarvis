@@ -62,7 +62,7 @@ describe("StatusBar", () => {
     render(<StatusBar />);
     fake.setStatus({});
     fake.emit({ type: "thinking", active: true });
-    expect(value("LOCAL AI")).toHaveTextContent("THINKING");
+    expect(value("AI")).toHaveTextContent("THINKING");
     fake.emit({ type: "tts", active: true, text: "Hello" });
     expect(value("SPEECH")).toHaveTextContent("SPEAKING");
     fake.emit({ type: "listening", active: true, seconds: 8 });

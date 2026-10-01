@@ -63,6 +63,10 @@ def issues(status: dict, data_dir: Path | None = None, perf: dict | None = None)
         if "not installed" in llm:
             fix = llm.split("run: ", 1)[-1] if "run: " in llm else "ollama pull <model>"
             out.append({"id": "llm", "level": "error", "title": "Language model not installed", "fix": f"Run: {fix}"})
+        elif "gemini" in llm.lower():
+            out.append({"id": "llm", "level": "error", "title": "AI not reachable — I can only do instant commands",
+                        "fix": llm[:1].upper() + llm[1:] + "." if "Settings" in llm else
+                        "Add your free Gemini API key in Settings → AI, and check the internet connection."})
         else:
             out.append({"id": "llm", "level": "error", "title": "Local AI offline — I can only do instant commands",
                         "fix": "Start Ollama from Settings → Models (or install it from ollama.com/download)."})

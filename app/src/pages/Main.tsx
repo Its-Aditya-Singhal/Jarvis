@@ -83,7 +83,7 @@ function Core() {
       mode = "approved";
       if (thinking) {
         title = "THINKING…";
-        sub = `Local model · ${status?.llm_model ?? ""}`;
+        sub = status?.llm_model ? `Thinking with ${status.llm_model}` : "";
       } else if (listening) {
         title = "LISTENING…";
         sub = `Go ahead, ${status?.owner_name}.`;

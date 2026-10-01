@@ -51,7 +51,7 @@ export default function StatusBar() {
       <div className="indicators" data-tauri-drag-region>
         <Indicator label="CORE" value={connected ? "ONLINE" : "OFFLINE"} tone={connected ? "ok" : "alert"} />
         <Indicator
-          label="LOCAL AI"
+          label="AI"
           value={thinking ? "THINKING" : llm === "ready" ? "ONLINE" : llm ? "OFFLINE" : "—"}
           tone={llm === "ready" ? "ok" : "alert"}
         />
